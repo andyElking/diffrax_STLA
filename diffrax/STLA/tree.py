@@ -11,7 +11,7 @@ import jax.tree_util as jtu
 
 from ..custom_types import Array, PyTree, Scalar
 from ..misc import is_tuple_of_ints, split_by_tree
-from .base import AbstractBrownianPath
+from .base import AbstractSTLAPath
 
 
 #
@@ -33,10 +33,12 @@ class _State(eqx.Module):
     w_s: Scalar
     w_t: Scalar
     w_u: Scalar
+    stla_st: Scalar
+    stla_tu: Scalar
     key: "jax.random.PRNGKey"
 
 
-class VirtualBrownianTree(AbstractBrownianPath):
+class VirtualSTLATree(AbstractSTLAPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
 
@@ -113,15 +115,15 @@ class VirtualBrownianTree(AbstractBrownianPath):
         map_func = lambda key, shape: self._evaluate_leaf(key, τ, shape)
         return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _brownian_bridge(self, s, t, u, w_s, w_u, key, shape, dtype):
-        """Evaluates the BM at a time t between times s<u, for which the BM has
-        already been evaluated.
+    def _brownian_bridge(self, s, t, u, w_s, w_u, stla_su, key, shape, dtype):
+        """For s<t<u evaluates w_t, stla_st, and stla_tu conditional on w_s, w_u, stla_su
         Args:
             s: start time
             t: evaluation time
             u: end time
             w_s: value of BM at s
             w_u: value of BM at u
+            stla_su: space_time Levy area between s and u
             key:
             shape:
             dtype:
@@ -129,7 +131,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
         mean = w_s + (w_u - w_s) * ((t - s) / (u - s))
         var = (u - t) * (t - s) / (u - s)
         std = jnp.sqrt(var)
-        return mean + std * jrandom.normal(key, shape, dtype)
+
+        # TODO
+        stla_st_mean, stla_st_std = 0, 1
+        stla_tu_mean, stla_tu_std = 0, 1
+
+        w_key, stla_st_key, stla_tu_key = jrandom.split(key, 3)
+        w_t = mean + std * jrandom.normal(w_key, shape, dtype)
+        stla_st = stla_st_mean + stla_st_std * jrandom.normal(stla_st_key, shape, dtype)
+        stla_tu = stla_tu_mean + stla_tu_std * jrandom.normal(stla_tu_key, shape, dtype)
+        return w_t, stla_st, stla_tu
 
     def _evaluate_leaf(
         self,
@@ -158,10 +169,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # errors are only raised after everything has finished executing.
         τ = jnp.clip(τ, t0, t1).astype(dtype)
 
-        key, init_key = jrandom.split(key, 2)
+        key, init_key_w, init_key_stla = jrandom.split(key, 3)
         thalf = t0 + 0.5 * (t1 - t0)
-        w_t1 = jrandom.normal(init_key, shape, dtype) * jnp.sqrt(t1 - t0)
-        w_thalf = self._brownian_bridge(t0, thalf, t1, 0, w_t1, key, shape, dtype)
+        w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
+
+        # TODO: replace 1 with stla std
+        stla_t1 = jrandom.normal(init_key_stla, shape, dtype) * 1
+        w_thalf, stla_half, stla_half_one = self._brownian_bridge(t0, thalf, t1, 0, w_t1, stla_t1, key, shape, dtype)
         init_state = _State(
             s=t0,
             t=thalf,
@@ -169,6 +183,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_s=jnp.zeros_like(w_t1),
             w_t=w_thalf,
             w_u=w_t1,
+            stla_st = stla_half,
+            stla_tu = stla_half_one,
             key=key,
         )
 
@@ -195,10 +211,14 @@ class VirtualBrownianTree(AbstractBrownianPath):
             _u = jnp.where(_cond, _state.u, _state.t)
             _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
             _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
+            _stla_su = jnp.where(_cond, _state.stla_tu, _state.stla_st)
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
-            _w_t = self._brownian_bridge(_s, _t, _u, _w_s, _w_u, _key, shape, dtype)
-            return _State(s=_s, t=_t, u=_u, w_s=_w_s, w_t=_w_t, w_u=_w_u, key=_key)
+            _w_t, _stla_st, _stla_tu = self._brownian_bridge(_s, _t, _u, _w_s, _w_u, _stla_su, _key, shape, dtype)
+            return _State(s=_s, t=_t, u=_u,
+                          w_s=_w_s, w_t=_w_t, w_u=_w_u,
+                          stla_st = _stla_st, stla_tu = _stla_tu,
+                          key=_key)
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
         # Quadratic interpolation.
@@ -211,6 +231,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # bridge. (Provided s, t, u are greater than the discretisation level `tol`.)
         # (If you just do linear then you find that the variance is *ever so slightly*
         # too small.)
+
+        # TODO: add stla quadratic interpolation.
+
         s = final_state.s
         u = final_state.u
         w_s = final_state.w_s
@@ -229,7 +252,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         return jnp.polyval(coeffs, rescaled_τ)
 
 
-VirtualBrownianTree.__init__.__doc__ = """
+VirtualSTLATree.__init__.__doc__ = """
 **Arguments:**
 
 - `t0`: The start of the interval the Brownian motion is defined over.
