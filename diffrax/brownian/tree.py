@@ -204,25 +204,56 @@ class VirtualBrownianTree(AbstractBrownianPath):
             )
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
-            levy_1 = self._evaluate(t1)
-            levy_diff = (
-                wj_to_wh_diff
-                if self.compute_stla
-                else lambda x, y: LevyVal(h=y.h - x.h, W=y.W - x.W)
+            # return _evaluate(t1) - _evaluate(t0)
+            return jtu.tree_map(
+                lambda x, y: x - y,
+                self._evaluate(t1),
+                self._evaluate(t0),
             )
             levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=is_levy_val)
 
-        levy_out = levy_tree_transpose(self.shape, self.compute_stla, levy_out)
-        levy_out = self.denormalise_bm_inc(levy_out)
-        return levy_out if use_levy else levy_out.W
+    def _evaluate(self, τ: Scalar) -> PyTree[Array]:
+        """Maps the _evaluate_leaf function at time τ using self.key onto self.shape
+        Args:
+            τ:
+        """
+        map_func = lambda key, shape: self._evaluate_leaf(key, τ, shape)
+        return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _evaluate(self, r: Scalar) -> PyTree[LevyVal]:
-        """Maps the _evaluate_leaf function at time τ using self.key onto self.shape"""
-        r = self.normalise_t(r)
+    def _brownian_bridge(self, s, t, u, w_s, w_u, key, shape, dtype):
+        """Evaluates the BM at a time t between times s<u, for which the BM has
+        already been evaluated.
+        Args:
+            s: start time
+            t: evaluation time
+            u: end time
+            w_s: value of BM at s
+            w_u: value of BM at u
+            key:
+            shape:
+            dtype:
+        """
+        mean = w_s + (w_u - w_s) * ((t - s) / (u - s))
+        var = (u - t) * (t - s) / (u - s)
+        std = jnp.sqrt(var)
+        return mean + std * jrandom.normal(key, shape, dtype)
 
-        eqxi.error_if(
-            r,
-            r < 0,
+    def _evaluate_leaf(
+        self,
+        key,
+        τ: Scalar,
+        shape: jax.ShapeDtypeStruct,
+    ) -> Array:
+        shape, dtype = shape.shape, shape.dtype
+
+        # reshuffle t0 and t1 so that t0 < t1
+        cond = self.t0 < self.t1
+        t0 = jnp.where(cond, self.t0, self.t1).astype(dtype)
+        t1 = jnp.where(cond, self.t1, self.t0).astype(dtype)
+
+        t0 = eqxi.error_if(
+            t0,
+            τ < t0,
             "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
         )
         eqxi.error_if(
@@ -315,7 +346,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
             return (_state.u - _state.s) > self.tol
 
         def _body_fun(_state):
-            """Single-step of binary search for τ."""
+            """ Single-step of binary search for τ.
+            Args:
+                _state:
+
+            Returns:
+
+            """
             _key1, _key2 = jrandom.split(_state.key, 2)
             _cond = r > _state.t
             _s = jnp.where(_cond, _state.t, _state.s)
