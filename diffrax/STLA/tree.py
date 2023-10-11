@@ -33,8 +33,9 @@ class _State(eqx.Module):
     w_s: Scalar
     w_t: Scalar
     w_u: Scalar
-    stla_st: Scalar
-    stla_tu: Scalar
+    la_s: Scalar
+    la_t: Scalar
+    la_u: Scalar
     key: "jax.random.PRNGKey"
 
 
@@ -168,8 +169,10 @@ class VirtualSTLATree(AbstractSTLAPath):
         key, init_key_w, init_key_la = jrandom.split(key, 3)
         thalf = t0 + 0.5 * (t1 - t0)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
-
-        la_t1 = jrandom.normal(init_key_la, shape, dtype) * jnp.sqrt(1/12 * (t1 - t0))
+        
+        la_std = jnp.sqrt(1/12 * jnp.power(t1 - t0, 3))
+        la_mean = 0.5 * (t1 - t0) * w_t1
+        la_t1 = la_std * jrandom.normal(init_key_la, shape, dtype) + la_mean
         w_thalf, la_thalf = self._midpoint_bridge(t0, t1, 0, w_t1, 0, la_t1, key, shape, dtype)
         init_state = _State(
             s=t0,
@@ -178,8 +181,9 @@ class VirtualSTLATree(AbstractSTLAPath):
             w_s=jnp.zeros_like(w_t1),
             w_t=w_thalf,
             w_u=w_t1,
-            stla_st=stla_half,
-            stla_tu=stla_half_one,
+            la_s = 0,
+            la_t = la_thalf,
+            la_u = la_t1,
             key=key,
         )
 
@@ -206,9 +210,11 @@ class VirtualSTLATree(AbstractSTLAPath):
             _u = jnp.where(_cond, _state.u, _state.t)
             _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
             _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
-            _stla_su = jnp.where(_cond, _state.stla_tu, _state.stla_st)
+            _la_s = jnp.where(_cond, _state.la_t, _state.la_s)
+            _la_u = jnp.where(_cond, _state.la_u, _state.la_t)
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
+<<<<<<< HEAD
 <<<<<<< HEAD
             _w_t, _stla_st, _stla_tu = self._brownian_bridge(
                 _s, _t, _u, _w_s, _w_u, _stla_su, _key, shape, dtype
@@ -226,9 +232,12 @@ class VirtualSTLATree(AbstractSTLAPath):
             )
 =======
             _w_t, _stla_st, _stla_tu = self._midpoint_bridge(_s, _u, _w_s, _w_u, _stla_su, _key, shape, dtype)
+=======
+            _w_t, _la_t = self._midpoint_bridge(_s, _u, _w_s, _w_u, _la_s, _la_u, _key, shape, dtype)
+>>>>>>> ab84666 (fixed inconsistency in STLA tree)
             return _State(s=_s, t=_t, u=_u,
                           w_s=_w_s, w_t=_w_t, w_u=_w_u,
-                          stla_st = _stla_st, stla_tu = _stla_tu,
+                          la_s = _la_s, la_t = _la_t, la_u = _la_u,
                           key=_key)
 >>>>>>> 122b23d (added the correct midpoint rule for space-time levy area)
 
