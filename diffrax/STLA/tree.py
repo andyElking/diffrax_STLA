@@ -102,6 +102,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
             # return _evaluate(t1) - _evaluate(t0)
+            # TODO: this doesn't work for STLA yet
             return jtu.tree_map(
                 lambda x, y: x - y,
                 self._evaluate(t1),
@@ -113,6 +114,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         Args:
             τ:
         """
+        # TODO: how should STLA and w be zipped? Inside the PyTree, or as separate PyTrees of the same shape?
         map_func = lambda key, shape: self._evaluate_leaf(key, τ, shape)
         return jtu.tree_map(map_func, self.key, self.shape)
 
@@ -144,7 +146,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         key,
         τ: Scalar,
         shape: jax.ShapeDtypeStruct,
-    ) -> Array:
+    ) -> (Array, Array):
         shape, dtype = shape.shape, shape.dtype
 
         # reshuffle t0 and t1 so that t0 < t1
@@ -169,7 +171,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         key, init_key_w, init_key_la = jrandom.split(key, 3)
         thalf = t0 + 0.5 * (t1 - t0)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
-        
+
         la_std = jnp.sqrt(1/12 * jnp.power(t1 - t0, 3))
         la_mean = 0.5 * (t1 - t0) * w_t1
         la_t1 = la_std * jrandom.normal(init_key_la, shape, dtype) + la_mean
@@ -270,7 +272,11 @@ class VirtualSTLATree(AbstractSTLAPath):
         # `A` is the inverse of the above matrix, with s=0, t=0.5, u=1.
         A = jnp.array([[2, -4, 2], [-3, 4, -1], [1, 0, 0]])
         coeffs = jnp.tensordot(A, jnp.stack([w_s, w_t, w_u]), axes=1)
-        return jnp.polyval(coeffs, rescaled_τ)
+        w_τ = jnp.polyval(coeffs, rescaled_τ)
+
+        # provisionally set the Levy area to the midpoint value instead of interpolating
+        la_τ = final_state.la_t
+        return w_τ, la_τ
 
 
 VirtualSTLATree.__init__.__doc__ = """
