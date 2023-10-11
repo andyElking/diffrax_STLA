@@ -115,32 +115,28 @@ class VirtualSTLATree(AbstractSTLAPath):
         map_func = lambda key, shape: self._evaluate_leaf(key, τ, shape)
         return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _brownian_bridge(self, s, t, u, w_s, w_u, stla_su, key, shape, dtype):
-        """For s<t<u evaluates w_t, stla_st, and stla_tu conditional on w_s, w_u, stla_su
+    def _midpoint_bridge(self, s, u, w_s, w_u, la_s, la_u, key, shape, dtype):
+        """For t = (s+u)/2 evaluates w_t and la_t conditional on w_s, w_u, la_s, and la_u
         Args:
             s: start time
-            t: evaluation time
             u: end time
             w_s: value of BM at s
             w_u: value of BM at u
-            stla_su: space_time Levy area between s and u
+            la_s: space-time Levy integral at s
+            la_u: space-time Levy integral at u
             key:
             shape:
             dtype:
         """
-        mean = w_s + (w_u - w_s) * ((t - s) / (u - s))
-        var = (u - t) * (t - s) / (u - s)
-        std = jnp.sqrt(var)
+        h = u - s
 
-        # TODO
-        stla_st_mean, stla_st_std = 0, 1
-        stla_tu_mean, stla_tu_std = 0, 1
+        n_key, z_key = jrandom.split(key, 2)
+        n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
+        z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
 
-        w_key, stla_st_key, stla_tu_key = jrandom.split(key, 3)
-        w_t = mean + std * jrandom.normal(w_key, shape, dtype)
-        stla_st = stla_st_mean + stla_st_std * jrandom.normal(stla_st_key, shape, dtype)
-        stla_tu = stla_tu_mean + stla_tu_std * jrandom.normal(stla_tu_key, shape, dtype)
-        return w_t, stla_st, stla_tu
+        w_t = 3/(2*h) * (la_u - la_s) - 1/4 * (w_u + w_s) + z
+        la_t = 0.5 * (la_u + la_s) + h/4 * (n - w_u + w_s)
+        return w_t, la_t
 
     def _evaluate_leaf(
         self,
@@ -169,13 +165,12 @@ class VirtualSTLATree(AbstractSTLAPath):
         # errors are only raised after everything has finished executing.
         τ = jnp.clip(τ, t0, t1).astype(dtype)
 
-        key, init_key_w, init_key_stla = jrandom.split(key, 3)
+        key, init_key_w, init_key_la = jrandom.split(key, 3)
         thalf = t0 + 0.5 * (t1 - t0)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
 
-        # TODO: replace 1 with stla std
-        stla_t1 = jrandom.normal(init_key_stla, shape, dtype) * 1
-        w_thalf, stla_half, stla_half_one = self._brownian_bridge(t0, thalf, t1, 0, w_t1, stla_t1, key, shape, dtype)
+        la_t1 = jrandom.normal(init_key_la, shape, dtype) * jnp.sqrt(1/12 * (t1 - t0))
+        w_thalf, la_thalf = self._midpoint_bridge(t0, t1, 0, w_t1, 0, la_t1, key, shape, dtype)
         init_state = _State(
             s=t0,
             t=thalf,
@@ -214,7 +209,7 @@ class VirtualSTLATree(AbstractSTLAPath):
             _stla_su = jnp.where(_cond, _state.stla_tu, _state.stla_st)
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
-            _w_t, _stla_st, _stla_tu = self._brownian_bridge(_s, _t, _u, _w_s, _w_u, _stla_su, _key, shape, dtype)
+            _w_t, _stla_st, _stla_tu = self._midpoint_bridge(_s, _u, _w_s, _w_u, _stla_su, _key, shape, dtype)
             return _State(s=_s, t=_t, u=_u,
                           w_s=_w_s, w_t=_w_t, w_u=_w_u,
                           stla_st = _stla_st, stla_tu = _stla_tu,
