@@ -254,12 +254,12 @@ class VirtualSTLATree(AbstractSTLAPath):
         # This is different from original quadratic interpolation
         # TODO: check if it gives the right result
         h = u - s
-        w0 = w_u - w_s
-        w1 = w_t - w_s
-        H0 = 1/h * (la_u - la_s) - 0.5 * (w_s + w_u)
-        H1 = 2/h * (la_t - la_s) - 0.5 * (w_s + w_t)
-        x1 = 4/jnp.sqrt(h) * (w1 - 0.5*w0 - 1.5*H0)
-        x2 = jnp.sqrt(12/h) * (w1 + 2*H1 - 0.5*w0 - 2*H0)
+        w_su = w_u - w_s
+        w_st = w_t - w_s
+        H_su = 1/h * (la_u - la_s) - 0.5 * (w_s + w_u)
+        H_st = 2/h * (la_t - la_s) - 0.5 * (w_s + w_t)
+        x1 = 4/jnp.sqrt(h) * (w_st - 0.5*w_su - 1.5*H_su)
+        x2 = jnp.sqrt(12/h) * (w_st + 2*H_st - 0.5*w_su - 2*H_su)
         sr = r - s
         ru = u - r
         d = jnp.sqrt(jnp.power(sr,3) + jnp.power(ru, 3))
@@ -267,8 +267,8 @@ class VirtualSTLATree(AbstractSTLAPath):
         b = 1/(2 * h * d) * jnp.power(ru, 7/2) * jnp.sqrt(sr)
         c = 1/(jnp.sqrt(12) * d) * jnp.power(sr, 3/2) * jnp.power(ru, 3/2)
 
-        w_sr = sr/h * w0 + 6*sr*ru/jnp.square(h) * H0 + 2*(a+b)/h * x1
-        H_sr = jnp.square(sr/h) * H0 - a/sr * x1 + c/sr * x2
+        w_sr = sr/h * w_su + 6*sr*ru/jnp.square(h) * H_su + 2*(a+b)/h * x1
+        H_sr = jnp.square(sr/h) * H_su - a/sr * x1 + c/sr * x2
         w_r = w_s + w_sr
         la_r = la_s + sr * H_sr + sr/2 * (w_s + w_r)
 
