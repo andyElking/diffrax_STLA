@@ -39,6 +39,23 @@ class _State(eqx.Module):
     key: "jax.random.PRNGKey"
 
 
+class STLA_proc_value(object):
+    def __init__(self, t, w, la):
+        self.t = t
+        self.w = w
+        self.la = la
+
+
+@jax.jit
+def get_w(x0: STLA_proc_value, x1: STLA_proc_value):
+    return x1.w - x0.w
+
+
+@jax.jit
+def get_h(x0: STLA_proc_value, x1: STLA_proc_value):
+    return 1 / (x1.t - x0.t) * (x1.la - x0.la) - 0.5 * (x0.w + x1.w)
+
+
 class VirtualSTLATree(AbstractSTLAPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
@@ -67,12 +84,12 @@ class VirtualSTLATree(AbstractSTLAPath):
     key: "jax.random.PRNGKey"  # noqa: F821
 
     def __init__(
-        self,
-        t0: Scalar,
-        t1: Scalar,
-        tol: Scalar,
-        shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
-        key: "jax.random.PRNGKey",
+            self,
+            t0: Scalar,
+            t1: Scalar,
+            tol: Scalar,
+            shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
+            key: "jax.random.PRNGKey",
     ):
         self.t0 = t0
         self.t1 = t1
@@ -83,8 +100,8 @@ class VirtualSTLATree(AbstractSTLAPath):
             else shape
         )
         if any(
-            not jnp.issubdtype(x.dtype, jnp.inexact)
-            for x in jtu.tree_leaves(self.shape)
+                not jnp.issubdtype(x.dtype, jnp.inexact)
+                for x in jtu.tree_leaves(self.shape)
         ):
             raise ValueError(
                 "VirtualBrownianTree dtypes all have to be floating-point."
@@ -93,34 +110,30 @@ class VirtualSTLATree(AbstractSTLAPath):
 
     @eqx.filter_jit
     def evaluate(
-        self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
-    ) -> PyTree[Array]:
+            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
+    ) -> (PyTree[Array], PyTree[Array]):
         del left
         t0 = eqxi.nondifferentiable(t0, name="t0")
         if t1 is None:
             return self._evaluate(t0)
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
-            # return _evaluate(t1) - _evaluate(t0)
-            # TODO: this doesn't work for STLA yet
-            # \int_s^t W_{s,u} du = I_t - I_s - (t-s)W_s
-            # maybe lambda w0, la0, w1, la1: (w1-w0, la1-la0-(t1-t0)*w0)
-            return jtu.tree_map(
-                lambda x, y: x - y,
-                self._evaluate(t1),
-                self._evaluate(t0),
-            )
+
+            x0 = self._evaluate(t0)
+            x1 = self._evaluate(t1)
+            w_out = jtu.tree_map(get_w, x0, x1)
+            h_out = jtu.tree_map(get_h, x0, x1)
+            return w_out, h_out
 
     def _evaluate(self, τ: Scalar) -> PyTree[Array]:
         """Maps the _evaluate_leaf function at time τ using self.key onto self.shape
         Args:
             τ:
         """
-        # TODO: how should STLA and w be zipped? Inside the PyTree, or as separate PyTrees of the same shape?
         map_func = lambda key, shape: self._evaluate_leaf(key, τ, shape)
         return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _midpoint_bridge(self, s, u, w_s, w_u, la_s, la_u, key, shape, dtype):
+    def _brownian_arch(self, s, u, w_s, w_u, la_s, la_u, key, shape, dtype):
         """For t = (s+u)/2 evaluates w_t and la_t conditional on w_s, w_u, la_s, and la_u
         Args:
             s: start time
@@ -139,15 +152,15 @@ class VirtualSTLATree(AbstractSTLAPath):
         n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
         z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
 
-        w_t = 3/(2*h) * (la_u - la_s) - 1/4 * (w_u + w_s) + z
-        la_t = 0.5 * (la_u + la_s) + h/8 * (w_s - w_u) + h/4 * n
+        w_t = 3 / (2 * h) * (la_u - la_s) - 1 / 4 * (w_u + w_s) + z
+        la_t = 0.5 * (la_u + la_s) + h / 8 * (w_s - w_u) + h / 4 * n
         return w_t, la_t
 
     def _evaluate_leaf(
-        self,
-        key,
-        r: Scalar,
-        shape: jax.ShapeDtypeStruct,
+            self,
+            key,
+            r: Scalar,
+            shape: jax.ShapeDtypeStruct,
     ) -> (Array, Array):
         shape, dtype = shape.shape, shape.dtype
 
@@ -174,10 +187,10 @@ class VirtualSTLATree(AbstractSTLAPath):
         thalf = t0 + 0.5 * (t1 - t0)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
 
-        la_std = jnp.sqrt(1/12 * jnp.power(t1 - t0, 3))
+        la_std = jnp.sqrt(1 / 12 * jnp.power(t1 - t0, 3))
         la_mean = 0.5 * (t1 - t0) * w_t1
         la_t1 = la_std * jrandom.normal(init_key_la, shape, dtype) + la_mean
-        w_thalf, la_thalf = self._midpoint_bridge(t0, t1, 0, w_t1, 0, la_t1, midpoint_key, shape, dtype)
+        w_thalf, la_thalf = self._brownian_arch(t0, t1, 0, w_t1, 0, la_t1, midpoint_key, shape, dtype)
         init_state = _State(
             s=t0,
             t=thalf,
@@ -185,9 +198,9 @@ class VirtualSTLATree(AbstractSTLAPath):
             w_s=jnp.zeros_like(w_t1),
             w_t=w_thalf,
             w_u=w_t1,
-            la_s = 0,
-            la_t = la_thalf,
-            la_u = la_t1,
+            la_s=0,
+            la_t=la_thalf,
+            la_u=la_t1,
             key=key,
         )
 
@@ -221,10 +234,10 @@ class VirtualSTLATree(AbstractSTLAPath):
 
             # TODO: added more key splitting for generating the midpoint. Not sure if this is required.
             _key, _midpoint_key = jrandom.split(_key, 2)
-            _w_t, _la_t = self._midpoint_bridge(_s, _u, _w_s, _w_u, _la_s, _la_u, _midpoint_key, shape, dtype)
+            _w_t, _la_t = self._brownian_arch(_s, _u, _w_s, _w_u, _la_s, _la_u, _midpoint_key, shape, dtype)
             return _State(s=_s, t=_t, u=_u,
                           w_s=_w_s, w_t=_w_t, w_u=_w_u,
-                          la_s = _la_s, la_t = _la_t, la_u = _la_u,
+                          la_s=_la_s, la_t=_la_t, la_u=_la_u,
                           key=_key)
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
@@ -238,8 +251,6 @@ class VirtualSTLATree(AbstractSTLAPath):
         # bridge. (Provided s, t, u are greater than the discretisation level `tol`.)
         # (If you just do linear then you find that the variance is *ever so slightly*
         # too small.)
-
-        # TODO: add stla quadratic interpolation.
 
         s = final_state.s
         t = final_state.t
@@ -256,23 +267,23 @@ class VirtualSTLATree(AbstractSTLAPath):
         h = u - s
         w_su = w_u - w_s
         w_st = w_t - w_s
-        H_su = 1/h * (la_u - la_s) - 0.5 * (w_s + w_u)
-        H_st = 2/h * (la_t - la_s) - 0.5 * (w_s + w_t)
-        x1 = 4/jnp.sqrt(h) * (w_st - 0.5*w_su - 1.5*H_su)
-        x2 = jnp.sqrt(12/h) * (w_st + 2*H_st - 0.5*w_su - 2*H_su)
+        H_su = 1 / h * (la_u - la_s) - 0.5 * (w_s + w_u)
+        H_st = 2 / h * (la_t - la_s) - 0.5 * (w_s + w_t)
+        x1 = 4 / jnp.sqrt(h) * (w_st - 0.5 * w_su - 1.5 * H_su)
+        x2 = jnp.sqrt(12 / h) * (w_st + 2 * H_st - 0.5 * w_su - 2 * H_su)
         sr = r - s
         ru = u - r
-        d = jnp.sqrt(jnp.power(sr,3) + jnp.power(ru, 3))
-        a = 1/(2 * h * d) * jnp.power(sr, 7/2) * jnp.sqrt(ru)
-        b = 1/(2 * h * d) * jnp.power(ru, 7/2) * jnp.sqrt(sr)
-        c = 1/(jnp.sqrt(12) * d) * jnp.power(sr, 3/2) * jnp.power(ru, 3/2)
+        d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
+        a = 1 / (2 * h * d) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
+        b = 1 / (2 * h * d) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
+        c = 1 / (jnp.sqrt(12) * d) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
 
-        w_sr = sr/h * w_su + 6*sr*ru/jnp.square(h) * H_su + 2*(a+b)/h * x1
-        H_sr = jnp.square(sr/h) * H_su - a/sr * x1 + c/sr * x2
+        w_sr = sr / h * w_su + 6 * sr * ru / jnp.square(h) * H_su + 2 * (a + b) / h * x1
+        H_sr = jnp.square(sr / h) * H_su - a / sr * x1 + c / sr * x2
         w_r = w_s + w_sr
-        la_r = la_s + sr * H_sr + sr/2 * (w_s + w_r)
+        la_r = la_s + sr * H_sr + sr / 2 * (w_s + w_r)
 
-        return w_r, la_r
+        return STLA_proc_value(r, w_r, la_r)
 
 
 VirtualSTLATree.__init__.__doc__ = """
