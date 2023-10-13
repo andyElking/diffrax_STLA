@@ -39,6 +39,7 @@ class _State(eqx.Module):
     key: "jax.random.PRNGKey"
 
 
+# TODO: check if this is efficient and jit-able. Ask Patrick.
 class STLA_proc_value(object):
     def __init__(self, t, w, la):
         self.t = t
@@ -112,6 +113,7 @@ class VirtualSTLATree(AbstractSTLAPath):
     def evaluate(
             self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
     ) -> (PyTree[Array], PyTree[Array]):
+        # TODO: add an option where only W is computed, not H.
         del left
         t0 = eqxi.nondifferentiable(t0, name="t0")
         if t1 is None:
@@ -146,6 +148,7 @@ class VirtualSTLATree(AbstractSTLAPath):
             shape:
             dtype:
         """
+        # TODO: check for cancellation errors when applying Chen's relation
         h = u - s
 
         n_key, z_key = jrandom.split(key, 2)
