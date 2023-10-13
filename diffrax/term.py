@@ -11,6 +11,7 @@ from equinox.internal import ω
 
 from .custom_types import Array, LevyVal, PyTree, Scalar
 from .path import AbstractPath
+from STLA.tree import VirtualSTLATree
 
 
 class AbstractTerm(eqx.Module):
@@ -291,6 +292,34 @@ class ControlTerm(_ControlTerm):
     @staticmethod
     def prod(vf: PyTree, control: PyTree) -> PyTree:
         return jtu.tree_map(_prod, vf, control)
+
+
+class STLAControlTerm(ControlTerm):
+    control: VirtualSTLATree
+
+    def contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        """
+        Returns W_{t0, t1}, discards the STLA
+        Args:
+            t0:
+            t1:
+
+        Returns:
+
+        """
+        return self.control.evaluate(t0, t1)[0]
+
+    def contr_with_stla(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        """
+        Returns (W_{t0, t1}, H_{t0, t1}).
+        Args:
+            t0:
+            t1:
+
+        Returns:
+
+        """
+        return self.control.evaluate(t0, t1)
 
 
 class WeaklyDiagonalControlTerm(_ControlTerm):
