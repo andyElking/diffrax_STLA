@@ -6,4 +6,4 @@ dist/
 site/
 .all_objects.cache
 .pymon
-random_stuff.ipynb
+#STLA_statistical_tests.ipynb
