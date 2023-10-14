@@ -11,7 +11,7 @@ from equinox.internal import ω
 
 from .custom_types import Array, PyTree, Scalar
 from .path import AbstractPath
-from STLA.tree import VirtualSTLATree
+from .STLA.tree import VirtualSTLATree
 
 
 class AbstractTerm(eqx.Module):
