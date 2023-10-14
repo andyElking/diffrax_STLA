@@ -40,20 +40,19 @@ class _State(eqx.Module):
 
 
 # TODO: check if this is efficient and jit-able. Ask Patrick.
-class STLA_proc_value(object):
-    def __init__(self, t, w, la):
-        self.t = t
-        self.w = w
-        self.la = la
+class _STLA_proc_value(eqx.Module):
+    t: Scalar
+    w: Scalar
+    la: Scalar
 
 
 @jax.jit
-def get_w(x0: STLA_proc_value, x1: STLA_proc_value):
+def get_w(x0: _STLA_proc_value, x1: _STLA_proc_value):
     return x1.w - x0.w
 
 
 @jax.jit
-def get_h(x0: STLA_proc_value, x1: STLA_proc_value):
+def get_h(x0: _STLA_proc_value, x1: _STLA_proc_value):
     return 1 / (x1.t - x0.t) * (x1.la - x0.la) - 0.5 * (x0.w + x1.w)
 
 
@@ -121,11 +120,11 @@ class VirtualSTLATree(AbstractSTLAPath):
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
 
-            x0 = self._evaluate(t0)
-            x1 = self._evaluate(t1)
-            w_out = jtu.tree_map(get_w, x0, x1)
-            h_out = jtu.tree_map(get_h, x0, x1)
-            return w_out, h_out
+        x0 = self._evaluate(t0)
+        x1 = self._evaluate(t1)
+        w_out = jtu.tree_map(get_w, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
+        h_out = jtu.tree_map(get_h, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
+        return w_out, h_out
 
     def _evaluate(self, τ: Scalar) -> PyTree[Array]:
         """Maps the _evaluate_leaf function at time τ using self.key onto self.shape
@@ -201,7 +200,7 @@ class VirtualSTLATree(AbstractSTLAPath):
             w_s=jnp.zeros_like(w_t1),
             w_t=w_thalf,
             w_u=w_t1,
-            la_s=0,
+            la_s=jnp.zeros_like(la_t1),
             la_t=la_thalf,
             la_u=la_t1,
             key=key,
@@ -214,7 +213,9 @@ class VirtualSTLATree(AbstractSTLAPath):
             # jnp.abs(τ - state.s) > self.tol
             # Here, because we use quadratic splines to get better samples, we always
             # iterate down to the level of the spline.
-            return (_state.u - _state.s) > self.tol
+            return jnp.all(jnp.array([(_state.u - _state.s) > self.tol,
+                                      r < _state.u - 0.01 * self.tol,
+                                      r > _state.s + 0.01 * self.tol]))
 
         def _body_fun(_state):
             """ Single-step of binary search for τ.
@@ -244,49 +245,71 @@ class VirtualSTLATree(AbstractSTLAPath):
                           key=_key)
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
-        # Quadratic interpolation.
-        # We have w_s, w_t, w_u available to us, and interpolate with the unique
-        # parabola passing through them.
-        # Why quadratic and not just "linear from w_s to w_t to w_u"? Because linear
-        # only gets the conditional mean correct at every point, but not the
-        # conditional variance. This means that the Virtual Brownian Tree will pass
-        # statistical tests comparing w(t)|(w(s),w(u)) against the true Brownian
-        # bridge. (Provided s, t, u are greater than the discretisation level `tol`.)
-        # (If you just do linear then you find that the variance is *ever so slightly*
-        # too small.)
 
-        s = final_state.s
-        t = final_state.t
-        u = final_state.u
-        w_s = final_state.w_s
-        w_t = final_state.w_t
-        w_u = final_state.w_u
-        la_s = final_state.la_s
-        la_t = final_state.la_t
-        la_u = final_state.la_u
+        # Now we check if r==s or r==u, in which case we just output the value at that endpoint.
+        # Otherwise we interpolate in between.
 
-        # This is different from original quadratic interpolation
-        # TODO: check if it gives the right result
-        h = u - s
-        w_su = w_u - w_s
-        w_st = w_t - w_s
-        H_su = 1 / h * (la_u - la_s) - 0.5 * (w_s + w_u)
-        H_st = 2 / h * (la_t - la_s) - 0.5 * (w_s + w_t)
-        x1 = 4 / jnp.sqrt(h) * (w_st - 0.5 * w_su - 1.5 * H_su)
-        x2 = jnp.sqrt(12 / h) * (w_st + 2 * H_st - 0.5 * w_su - 2 * H_su)
-        sr = r - s
-        ru = u - r
-        d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
-        a = 1 / (2 * h * d) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
-        b = 1 / (2 * h * d) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
-        c = 1 / (jnp.sqrt(12) * d) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
+        def _final_interpolation(_state: _State) -> _STLA_proc_value:
+            # Quadratic interpolation.
+            # We have w_s, w_t, w_u available to us, and interpolate with the unique
+            # parabola passing through them.
+            # Why quadratic and not just "linear from w_s to w_t to w_u"? Because linear
+            # only gets the conditional mean correct at every point, but not the
+            # conditional variance. This means that the Virtual Brownian Tree will pass
+            # statistical tests comparing w(t)|(w(s),w(u)) against the true Brownian
+            # bridge. (Provided s, t, u are greater than the discretisation level `tol`.)
+            # (If you just do linear then you find that the variance is *ever so slightly*
+            # too small.)
 
-        w_sr = sr / h * w_su + 6 * sr * ru / jnp.square(h) * H_su + 2 * (a + b) / h * x1
-        H_sr = jnp.square(sr / h) * H_su - a / sr * x1 + c / sr * x2
-        w_r = w_s + w_sr
-        la_r = la_s + sr * H_sr + sr / 2 * (w_s + w_r)
+            s = _state.s
+            t = _state.t
+            u = _state.u
+            w_s = _state.w_s
+            w_t = _state.w_t
+            w_u = _state.w_u
+            la_s = _state.la_s
+            la_t = _state.la_t
+            la_u = _state.la_u
 
-        return STLA_proc_value(r, w_r, la_r)
+            # This is different from original quadratic interpolation
+            # TODO: check if it gives the right result
+            h = u - s
+            w_su = w_u - w_s
+            w_st = w_t - w_s
+            H_su = 1 / h * (la_u - la_s) - 0.5 * (w_s + w_u)
+            H_st = 2 / h * (la_t - la_s) - 0.5 * (w_s + w_t)
+            x1 = 4 / jnp.sqrt(h) * (w_st - 0.5 * w_su - 1.5 * H_su)
+            x2 = jnp.sqrt(12 / h) * (w_st + 2 * H_st - 0.5 * w_su - 2 * H_su)
+            sr = r - s
+            ru = u - r
+            d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
+            a = 1 / (2 * h * d) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
+            b = 1 / (2 * h * d) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
+            c = 1 / (jnp.sqrt(12) * d) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
+
+            w_sr = sr / h * w_su + 6 * sr * ru / jnp.square(h) * H_su + 2 * (a + b) / h * x1
+            H_sr = jnp.square(sr / h) * H_su - a / sr * x1 + c / sr * x2
+            w_r = w_s + w_sr
+            la_r = la_s + sr * H_sr + sr / 2 * (w_s + w_r)
+
+            return _STLA_proc_value(t=r, w=w_r, la=la_r)
+
+        def _equal_to_s_cond(_state: _State):
+            return r < (_state.s + 0.01 * self.tol)
+
+        def _return_s_value(_state: _State) -> _STLA_proc_value:
+            return _STLA_proc_value(t=_state.s, w=_state.w_s, la=_state.la_s)
+
+        def _equal_to_u_cond(_state: _State) -> bool:
+            return r > (_state.u - 0.01 * self.tol)
+
+        def _return_u_value(_state: _State) -> _STLA_proc_value:
+            return _STLA_proc_value(t=_state.u, w=_state.w_u, la=_state.la_u)
+
+        def _not_equal_to_s_fun(_state: _State) -> _STLA_proc_value:
+            return jax.lax.cond(_equal_to_u_cond(_state), _return_u_value, _final_interpolation, _state)
+
+        return jax.lax.cond(_equal_to_s_cond(final_state), _return_s_value, _not_equal_to_s_fun, final_state)
 
 
 VirtualSTLATree.__init__.__doc__ = """
