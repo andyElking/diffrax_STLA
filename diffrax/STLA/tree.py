@@ -116,7 +116,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         del left
         t0 = eqxi.nondifferentiable(t0, name="t0")
         if t1 is None:
-            return self._evaluate(t0)
+            t1 = eqxi.nondifferentiable(0, name="t1")
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
 
@@ -151,11 +151,11 @@ class VirtualSTLATree(AbstractSTLAPath):
         h = u - s
 
         n_key, z_key = jrandom.split(key, 2)
-        n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
-        z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
+        n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
+        z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
 
-        w_t = 3 / (2 * h) * (la_u - la_s) - 1 / 4 * (w_u + w_s) + z
-        la_t = 0.5 * (la_u + la_s) + h / 8 * (w_s - w_u) + h / 4 * n
+        w_t = (3 / (2 * h)) * (la_u - la_s) - (1 / 4) * (w_u + w_s) + z
+        la_t = 0.5 * (la_u + la_s) + (h / 8) * (w_s - w_u) + (h / 4) * n
         return w_t, la_t
 
     def _evaluate_leaf(
@@ -189,7 +189,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         thalf = t0 + 0.5 * (t1 - t0)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
 
-        la_std = jnp.sqrt(1 / 12 * jnp.power(t1 - t0, 3))
+        la_std = jnp.sqrt((1 / 12) * jnp.power(t1 - t0, 3))
         la_mean = 0.5 * (t1 - t0) * w_t1
         la_t1 = la_std * jrandom.normal(init_key_la, shape, dtype) + la_mean
         w_thalf, la_thalf = self._brownian_arch(t0, t1, 0, w_t1, 0, la_t1, midpoint_key, shape, dtype)
@@ -214,8 +214,8 @@ class VirtualSTLATree(AbstractSTLAPath):
             # Here, because we use quadratic splines to get better samples, we always
             # iterate down to the level of the spline.
             return jnp.all(jnp.array([(_state.u - _state.s) > self.tol,
-                                      r < _state.u - 0.01 * self.tol,
-                                      r > _state.s + 0.01 * self.tol]))
+                                      r < _state.u - 0.1 * self.tol,
+                                      r > _state.s + 0.1 * self.tol]))
 
         def _body_fun(_state):
             """Single-step of binary search for τ.
@@ -276,32 +276,32 @@ class VirtualSTLATree(AbstractSTLAPath):
             h = u - s
             w_su = w_u - w_s
             w_st = w_t - w_s
-            H_su = 1 / h * (la_u - la_s) - 0.5 * (w_s + w_u)
-            H_st = 2 / h * (la_t - la_s) - 0.5 * (w_s + w_t)
-            x1 = 4 / jnp.sqrt(h) * (w_st - 0.5 * w_su - 1.5 * H_su)
+            H_su = (1 / h) * (la_u - la_s) - 0.5 * (w_s + w_u)
+            H_st = (2 / h) * (la_t - la_s) - 0.5 * (w_s + w_t)
+            x1 = (4 / jnp.sqrt(h)) * (w_st - 0.5 * w_su - 1.5 * H_su)
             x2 = jnp.sqrt(12 / h) * (w_st + 2 * H_st - 0.5 * w_su - 2 * H_su)
             sr = r - s
             ru = u - r
             d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
-            a = 1 / (2 * h * d) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
-            b = 1 / (2 * h * d) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
-            c = 1 / (jnp.sqrt(12) * d) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
+            a = (1 / (2 * h * d)) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
+            b = (1 / (2 * h * d)) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
+            c = (1 / (jnp.sqrt(12) * d)) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
 
-            w_sr = sr / h * w_su + 6 * sr * ru / jnp.square(h) * H_su + 2 * (a + b) / h * x1
-            H_sr = jnp.square(sr / h) * H_su - a / sr * x1 + c / sr * x2
+            w_sr = (sr / h) * w_su + 6 * sr * ru / jnp.square(h) * H_su + 2 * ((a + b) / h) * x1
+            H_sr = jnp.square(sr / h) * H_su - (a / sr) * x1 + (c / sr) * x2
             w_r = w_s + w_sr
-            la_r = la_s + sr * H_sr + sr / 2 * (w_s + w_r)
+            la_r = la_s + sr * H_sr + (sr / 2) * (w_s + w_r)
 
             return _STLA_proc_value(t=r, w=w_r, la=la_r)
 
         def _equal_to_s_cond(_state: _State):
-            return r < (_state.s + 0.01 * self.tol)
+            return r < (_state.s + 0.002 * self.tol)
 
         def _return_s_value(_state: _State) -> _STLA_proc_value:
             return _STLA_proc_value(t=_state.s, w=_state.w_s, la=_state.la_s)
 
         def _equal_to_u_cond(_state: _State) -> bool:
-            return r > (_state.u - 0.01 * self.tol)
+            return r > (_state.u - 0.002 * self.tol)
 
         def _return_u_value(_state: _State) -> _STLA_proc_value:
             return _STLA_proc_value(t=_state.u, w=_state.w_u, la=_state.la_u)
