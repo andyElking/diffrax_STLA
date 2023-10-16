@@ -296,13 +296,13 @@ class VirtualSTLATree(AbstractSTLAPath):
             return _STLA_proc_value(t=r, w=w_r, la=la_r)
 
         def _equal_to_s_cond(_state: _State):
-            return r < (_state.s + 2**-5 * self.tol)
+            return r < (_state.s + 2**-3 * self.tol)
 
         def _return_s_value(_state: _State) -> _STLA_proc_value:
             return _STLA_proc_value(t=_state.s, w=_state.w_s, la=_state.la_s)
 
         def _equal_to_u_cond(_state: _State) -> bool:
-            return r > (_state.u - 2**-5 * self.tol)
+            return r > (_state.u - 2**-3 * self.tol)
 
         def _return_u_value(_state: _State) -> _STLA_proc_value:
             return _STLA_proc_value(t=_state.u, w=_state.w_u, la=_state.la_u)

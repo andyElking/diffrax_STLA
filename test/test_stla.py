@@ -121,7 +121,7 @@ def test_statistics(ctr):
 
 
 def test_conditional_statistics():
-    key = jrandom.PRNGKey(5679)
+    key = jrandom.PRNGKey(5677)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
 
     # Get >80 randomly selected points; not too close to avoid discretisation error.
@@ -132,7 +132,7 @@ def test_conditional_statistics():
     ts = []
     prev_ti = sorted_ts[0]
     for ti in sorted_ts[1:]:
-        if ti < prev_ti + 2**-6:
+        if ti < prev_ti + 2**-7:
             continue
         prev_ti = ti
         ts.append(ti)
@@ -144,7 +144,7 @@ def test_conditional_statistics():
     bm_keys = jrandom.split(bm_key, 100000)
     path = jax.vmap(
         lambda k: diffrax.VirtualSTLATree(
-            t0=t0, t1=t1, shape=(), tol=2**-8, key=k
+            t0=t0, t1=t1, shape=(), tol=2**-10, key=k
         )
     )(bm_keys)
 
@@ -180,7 +180,7 @@ def test_conditional_statistics():
         w_std = 2 * (a + b) / su
         normalised_w = (w_r - w_mean) / w_std
         hh_mean = (s / r) * hh_s + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su + 0.5 * w_s - s / (2 * r) * w_mean
-        hh_var = (jnp.square(a) + jnp.square(c)) / jnp.square(r) + jnp.square((s * (a + b)) / (r * su))
+        hh_var = jnp.square(c/r) + jnp.square((a*u + s*b) / (r*su))
         hh_std = jnp.sqrt(hh_var)
         normalised_hh = (hh_r - hh_mean) / hh_std
 
@@ -190,3 +190,4 @@ def test_conditional_statistics():
         # Raise if the failure is statistically significant at 10%, subject to
         # multiple-testing correction.
         assert pval_w > 0.001
+        assert pval_hh > 0.001
