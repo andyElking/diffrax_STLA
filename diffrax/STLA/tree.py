@@ -213,9 +213,10 @@ class VirtualSTLATree(AbstractSTLAPath):
             # jnp.abs(τ - state.s) > self.tol
             # Here, because we use quadratic splines to get better samples, we always
             # iterate down to the level of the spline.
-            return jnp.all(jnp.array([(_state.u - _state.s) > self.tol,
-                                      r < _state.u - 0.1 * self.tol,
-                                      r > _state.s + 0.1 * self.tol]))
+            # return jnp.all(jnp.array([(_state.u - _state.s) > self.tol,
+            #                           r < _state.u - 0.1 * self.tol,
+            #                           r > _state.s + 0.1 * self.tol]))
+            return (_state.u - _state.s) > self.tol
 
         def _body_fun(_state):
             """Single-step of binary search for τ.
@@ -295,13 +296,13 @@ class VirtualSTLATree(AbstractSTLAPath):
             return _STLA_proc_value(t=r, w=w_r, la=la_r)
 
         def _equal_to_s_cond(_state: _State):
-            return r < (_state.s + 0.002 * self.tol)
+            return r < (_state.s + 2**-5 * self.tol)
 
         def _return_s_value(_state: _State) -> _STLA_proc_value:
             return _STLA_proc_value(t=_state.s, w=_state.w_s, la=_state.la_s)
 
         def _equal_to_u_cond(_state: _State) -> bool:
-            return r > (_state.u - 0.002 * self.tol)
+            return r > (_state.u - 2**-5 * self.tol)
 
         def _return_u_value(_state: _State) -> _STLA_proc_value:
             return _STLA_proc_value(t=_state.u, w=_state.w_u, la=_state.la_u)
