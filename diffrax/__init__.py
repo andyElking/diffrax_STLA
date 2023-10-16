@@ -7,7 +7,7 @@ from .adjoint import (
 )
 from .autocitation import citation, citation_rules
 from .brownian import AbstractBrownianPath, UnsafeBrownianPath, VirtualBrownianTree
-from .STLA import AbstractSTLAPath, UnsafeSTLAPath, VirtualSTLATree
+from .STLA import AbstractSTLAPath, VirtualSTLATree
 from .event import (
     AbstractDiscreteTerminatingEvent,
     DiscreteTerminatingEvent,

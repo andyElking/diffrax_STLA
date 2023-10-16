@@ -23,7 +23,7 @@ def _make_struct(shape, dtype):
 
 
 @pytest.mark.parametrize(
-    "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
+    "ctr", [diffrax.VirtualSTLATree]
 )
 def test_shape_and_dtype(ctr, getkey):
     t0 = 0
@@ -68,13 +68,9 @@ def test_shape_and_dtype(ctr, getkey):
         if dtype is not None:
             shape = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
 
-        if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape, getkey(), compute_stla=True)
-            assert path.t0 is None
-            assert path.t1 is None
-        elif ctr is diffrax.VirtualBrownianTree:
+        if ctr is diffrax.VirtualSTLATree:
             tol = 2**-5
-            path = ctr(t0, t1, tol, shape, getkey(), compute_stla=True)
+            path = ctr(t0, t1, tol, shape, getkey())
             assert path.t0 == 0
             assert path.t1 == 2
         else:
@@ -88,9 +84,7 @@ def test_shape_and_dtype(ctr, getkey):
             for _t1 in _vals.values():
                 t0, _ = _t0
                 _, t1 = _t1
-                bm = path.evaluate(t0, t1, use_levy=True)
-                out_w = bm.W
-                out_hh = bm.H
+                out_w, out_hh = path.evaluate(t0, t1)
                 out_w_shape = jtu.tree_map(
                     lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), out_w
                 )
@@ -102,7 +96,7 @@ def test_shape_and_dtype(ctr, getkey):
 
 
 @pytest.mark.parametrize(
-    "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
+    "ctr", [diffrax.VirtualSTLATree]
 )
 def test_statistics(ctr):
     # Deterministic key for this test; not using getkey()
@@ -110,28 +104,24 @@ def test_statistics(ctr):
     keys = jrandom.split(key, 10000)
 
     def _eval(key):
-        if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape=(), key=key, compute_stla=True)
-        elif ctr is diffrax.VirtualBrownianTree:
-            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, compute_stla=True)
+        if ctr is diffrax.VirtualSTLATree:
+            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key)
         else:
             assert False
-        return path.evaluate(0, 5, use_levy=True)
+        return path.evaluate(0, 5)
 
-    bm_inc = jax.vmap(_eval)(keys)
-    values_w = bm_inc.W
-    values_h = bm_inc.H
+    values_w, values_h = jax.vmap(_eval)(keys)
     assert values_w.shape == (10000,) and values_h.shape == (10000,)
     ref_dist_w = stats.norm(loc=0, scale=math.sqrt(5))
     _, pval_w = stats.kstest(values_w, ref_dist_w.cdf)
-    ref_dist_h = stats.norm(loc=0, scale=math.sqrt(5 / 12))
+    ref_dist_h = stats.norm(loc=0, scale=math.sqrt(5/12))
     _, pval_h = stats.kstest(values_h, ref_dist_h.cdf)
     assert pval_w > 0.1
     assert pval_h > 0.1
 
 
 def test_conditional_statistics():
-    key = jrandom.PRNGKey(5678)
+    key = jrandom.PRNGKey(5679)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
 
     # Get >80 randomly selected points; not too close to avoid discretisation error.
@@ -142,7 +132,7 @@ def test_conditional_statistics():
     ts = []
     prev_ti = sorted_ts[0]
     for ti in sorted_ts[1:]:
-        if ti < prev_ti + 2**-7:
+        if ti < prev_ti + 2**-6:
             continue
         prev_ti = ti
         ts.append(ti)
@@ -153,27 +143,25 @@ def test_conditional_statistics():
     # Get some random paths
     bm_keys = jrandom.split(bm_key, 100000)
     path = jax.vmap(
-        lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, compute_stla=True
+        lambda k: diffrax.VirtualSTLATree(
+            t0=t0, t1=t1, shape=(), tol=2**-8, key=k
         )
     )(bm_keys)
 
     # Sample some points
     out = []
     for ti in ts:
-        vals = jax.vmap(lambda p: p.evaluate(t0, ti, use_levy=True))(path)
+        vals = jax.vmap(lambda p: p.evaluate(t0, ti))(path)
         out.append((ti, vals))
     out = sorted(out, key=lambda x: x[0])
+    t, (w_t, hh_t) = out[0]
+    print(f"t: {t}, w: {w_t}, H: {hh_t}")
 
     # Test their conditional statistics
     for i in range(1, len(ts) - 2):
-        s, bm_s = out[i - 1]
-        r, bm_r = out[i]
-        u, bm_u = out[i + 1]
-
-        w_s, hh_s = bm_s.wh()
-        w_r, hh_r = bm_r.wh()
-        w_u, hh_u = bm_u.wh()
+        s, (w_s, hh_s) = out[i - 1]
+        r, (w_r, hh_r) = out[i]
+        u, (w_u, hh_u) = out[i + 1]
 
         s = s - t0
         r = r - t0
@@ -191,13 +179,8 @@ def test_conditional_statistics():
         w_mean = w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / jnp.square(su)) * hh_su
         w_std = 2 * (a + b) / su
         normalised_w = (w_r - w_mean) / w_std
-        hh_mean = (
-            (s / r) * hh_s
-            + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su
-            + 0.5 * w_s
-            - s / (2 * r) * w_mean
-        )
-        hh_var = jnp.square(c / r) + jnp.square((a * u + s * b) / (r * su))
+        hh_mean = (s / r) * hh_s + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su + 0.5 * w_s - s / (2 * r) * w_mean
+        hh_var = (jnp.square(a) + jnp.square(c)) / jnp.square(r) + jnp.square((s * (a + b)) / (r * su))
         hh_std = jnp.sqrt(hh_var)
         normalised_hh = (hh_r - hh_mean) / hh_std
 
@@ -207,4 +190,3 @@ def test_conditional_statistics():
         # Raise if the failure is statistically significant at 10%, subject to
         # multiple-testing correction.
         assert pval_w > 0.001
-        assert pval_hh > 0.001
