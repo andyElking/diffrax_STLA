@@ -77,7 +77,7 @@ from .solver import (
     ReversibleHeun,
     SEA,
     SemiImplicitEuler,
-    ShARK,
+    ShiftedEuler,
     Sil3,
     StratonovichMilstein,
     Tsit5,

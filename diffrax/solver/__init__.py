@@ -39,6 +39,6 @@ from .runge_kutta import (
 )
 from .sea import SEA
 from .semi_implicit_euler import SemiImplicitEuler
-from .shark import ShARK
+from .shifted_euler_srk import ShiftedEuler
 from .sil3 import Sil3
 from .tsit5 import Tsit5
