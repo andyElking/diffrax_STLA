@@ -11,6 +11,9 @@ from equinox.internal import ω
 
 from .custom_types import Array, PyTree, Scalar
 from .path import AbstractPath
+from .STLA.base import AbstractSTLAPath
+
+
 # from diffrax import VirtualSTLATree, VirtualBrownianTree, UnsafeBrownianPath
 
 
@@ -281,32 +284,6 @@ class ControlTerm(_ControlTerm):
         return jtu.tree_map(_prod, vf, control)
 
 
-class STLAControlTerm(ControlTerm):
-
-    def contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
-        """
-        Returns W_{t0, t1}, discards the STLA
-        Args:
-            t0:
-            t1:
-
-        Returns:
-
-        """
-        return self.control.evaluate(t0, t1)[0]
-
-    def contr_with_stla(self, t0: Scalar, t1: Scalar) -> Tuple[PyTree, ...]:
-        """
-        Args:
-            t0:
-            t1:
-
-        Returns:
-        (W_{t0, t1}, H_{t0, t1})
-        """
-        return self.control.evaluate(t0, t1)
-
-
 class WeaklyDiagonalControlTerm(_ControlTerm):
     r"""A term representing the case of $f(t, y(t), args) \mathrm{d}x(t)$, in
     which the vector field - control interaction is a matrix-vector product, and the
@@ -409,26 +386,67 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
         return any(term.is_vf_expensive(t0, t1, y, args) for term in self.terms)
 
 
-class STLAMultiTerm(MultiTerm):
-    terms: _Terms
-    non_stla_terms: _Terms
-    stla_terms: Tuple[STLAControlTerm, ...]
+class AbstractSTLATerm(AbstractTerm):
 
-    def __init__(self, *terms: AbstractTerm):
-        super().__init__(*terms)
-        self.non_stla_terms = tuple(term for term in terms if not isinstance(term, STLAMultiTerm))
-        self.stla_terms = tuple(term for term in terms if isinstance(term, STLAControlTerm))
+    @abc.abstractmethod
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        """
+        Returns a tuple where
+        Args:
+            t0:
+            t1:
+        """
+        pass
+
+
+class STLAControlTerm(ControlTerm, AbstractSTLATerm):
+    control: AbstractSTLAPath
+
+    def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
+        """
+        Returns W_{t0, t1}, discards the STLA
+        Args:
+            t0:
+            t1:
+
+        Returns:
+
+        """
+        return self.control.evaluate(t0, t1)[0]
+
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        """
+        Args:
+            t0:
+            t1:
+
+        Returns:
+        (W_{t0, t1}, H_{t0, t1})
+        """
+        return self.control.evaluate(t0, t1)
+
+
+class STLAMultiTerm(MultiTerm, AbstractSTLATerm):
+    terms: _Terms
+    non_stla_terms: AbstractTerm
+    stla_term: STLAControlTerm
+
+    def __init__(self, non_stla_term: AbstractTerm, stla_term: STLAControlTerm):
+        super().__init__(non_stla_term, stla_term)
+        self.non_stla_terms = non_stla_term
+        self.stla_term = stla_term
 
         # Ordering: first non-stla terms, then stla-terms
-        self.terms = self.non_stla_terms + self.stla_terms
+        self.terms = (self.non_stla_terms, self.stla_term)
 
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> tuple[tuple[PyTree | PyTree, ...], tuple[Any, ...]]:
-        stla_term_outs = tuple(term.contr_with_stla(t0, t1) for term in self.stla_terms)
-        stla_outs = tuple(out[1] for out in stla_term_outs)
-        w_outs = tuple(out[0] for out in stla_term_outs)
-        other_contr = tuple(term.contr(t0, t1) for term in self.non_stla_terms)
-        all_contr = tuple(other_contr + w_outs)
-        return all_contr, stla_outs
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        w, hh = self.stla_term.stla_contr(t0, t1)
+        contr_out = (self.non_stla_terms.contr(t0, t1), w)
+        return contr_out, hh
+
+    def only_stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        return self.stla_term.stla_contr(t0, t1)
+
 
 
 class WrapTerm(AbstractTerm):
@@ -461,6 +479,10 @@ class WrapTerm(AbstractTerm):
         _t0 = jnp.where(self.direction == 1, t0, -t1)
         _t1 = jnp.where(self.direction == 1, t1, -t0)
         return self.term.is_vf_expensive(_t0, _t1, y, args)
+
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        assert isinstance(self.term, STLAControlTerm)
+        return self.term.stla_contr(t0, t1)
 
 
 class AdjointTerm(AbstractTerm):
