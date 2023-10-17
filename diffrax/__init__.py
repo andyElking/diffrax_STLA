@@ -74,6 +74,7 @@ from .solver import (
     Ralston,
     ReversibleHeun,
     SemiImplicitEuler,
+    ShiftedEuler,
     Sil3,
     StratonovichMilstein,
     Tsit5,
