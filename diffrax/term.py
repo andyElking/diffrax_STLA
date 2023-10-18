@@ -11,10 +11,7 @@ from equinox.internal import ω
 
 from .custom_types import Array, LevyVal, PyTree, Scalar
 from .path import AbstractPath
-from .STLA.base import AbstractSTLAPath
-
-
-# from diffrax import VirtualSTLATree, VirtualBrownianTree, UnsafeBrownianPath
+from .STLA.base import AbstractSTLAPath, BMInc
 
 
 class AbstractTerm(eqx.Module):
@@ -402,7 +399,7 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
 class AbstractSTLATerm(AbstractTerm):
 
     @abc.abstractmethod
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> BMInc:
         """
         Returns a tuple where
         Args:
@@ -415,7 +412,7 @@ class AbstractSTLATerm(AbstractTerm):
 class STLAControlTerm(ControlTerm, AbstractSTLATerm):
     control: AbstractSTLAPath
 
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> BMInc:
         """
         Args:
             t0:
@@ -424,7 +421,7 @@ class STLAControlTerm(ControlTerm, AbstractSTLATerm):
         Returns:
         (W_{t0, t1}, H_{t0, t1})
         """
-        return self.control.eval_with_stla(t0, t1)
+        return self.control.evaluate(t0, t1, use_hh=True)
 
 
 class STLAMultiTerm(MultiTerm, AbstractSTLATerm):
@@ -447,7 +444,6 @@ class STLAMultiTerm(MultiTerm, AbstractSTLATerm):
 
     def only_stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
         return self.stla_term.stla_contr(t0, t1)
-
 
 
 class WrapTerm(AbstractTerm):
