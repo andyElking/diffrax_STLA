@@ -1,37 +1,73 @@
-import numpy as np
+from typing import Tuple
+import jax.tree_util as jtu
+from equinox.internal import ω
 
-from .ansr import ANSR, StochasticButcherTableau
+from ..custom_types import Bool, DenseInfo, PyTree, Scalar
+from ..local_interpolation import LocalLinearInterpolation
+from ..solution import RESULTS
+from ..term import AbstractTerm, STLAMultiTerm
+from .base import AbstractItoSolver
 
-
-tab = StochasticButcherTableau(
-    c=np.array([5 / 6]),
-    b=np.array([0.4, 0.6]),
-    a=[np.array([5 / 6])],
-    cw=np.array([0.0, 5 / 6]),
-    ch=np.array([1.0, 0.0]),
-    cw_last=1.0,
-    ch_last=0.0,
-)
+_ErrorEstimate = None
+_SolverState = None
 
 
-class ShARK(ANSR):
+class ShARK(AbstractItoSolver):
     """Shifted Additive-noise Runge-Kutta method for SDEs.
     When applied to SDEs with additive noise, it converges
     strongly with order 1.5.
-
-    Based on equation (6.1) in
-    Foster, J., dos Reis, G., & Strange, C. (2023).
-    High order splitting methods for SDEs satisfying a commutativity condition.
-    arXiv [Math.NA] http://arxiv.org/abs/2210.17543
     """
 
-    tableau = tab
-
-    def __init__(self):
-        pass
+    term_structure = AbstractTerm
+    interpolation_cls = LocalLinearInterpolation
 
     def order(self, terms):
         return 2
 
     def strong_order(self, terms):
         return 1.5
+
+    def init(
+            self,
+            terms: STLAMultiTerm,
+            t0: Scalar,
+            t1: Scalar,
+            y0: PyTree,
+            args: PyTree,
+    ) -> _SolverState:
+        return None
+
+    def step(
+            self,
+            terms: STLAMultiTerm,
+            t0: Scalar,
+            t1: Scalar,
+            y0: PyTree,
+            args: PyTree,
+            solver_state: _SolverState,
+            made_jump: Bool,
+    ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+        del solver_state, made_jump
+        # control, stla = terms.stla_contr(t0, t1)
+        h = t1 - t0
+        w_term = terms.stla_term
+        ode_term = terms.non_stla_terms
+        w, hh = w_term.stla_contr(t0, t1)
+        y_tilde1 = (y0**ω + (w_term.vf_prod(t0, y0, args, hh))**ω).ω
+        ode_out_1 = ode_term.vf_prod(t0, y_tilde1, args, h)
+        w_term_out = w_term.vf_prod(t0, y0, args, w)
+        y_tilde2 = (y_tilde1 ** ω + (5/6) *
+                    (ode_out_1 ** ω + w_term_out ** ω)).ω
+        ode_out_2 = ode_term.vf_prod(t0, y_tilde2, args, h)
+        y1 = (y0**ω + (2/5) * ode_out_1**ω + (3/5) * ode_out_2**ω + w_term_out ** ω).ω
+        dense_info = dict(y0=y0, y1=y1)
+        return y1, None, dense_info, None, RESULTS.successful
+
+    def func(
+            self,
+            terms: AbstractTerm,
+            t0: Scalar,
+            y0: PyTree,
+            args: PyTree,
+    ) -> PyTree:
+        return terms.vf(t0, y0, args)
