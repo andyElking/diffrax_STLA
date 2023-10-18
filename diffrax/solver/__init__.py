@@ -7,6 +7,7 @@ from .base import (
     AbstractWrappedSolver,
     HalfSolver,
 )
+from .additive_noise_srk import AdditiveNoiseSRK
 from .bosh3 import Bosh3
 from .dopri5 import Dopri5
 from .dopri8 import Dopri8

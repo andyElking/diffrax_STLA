@@ -12,10 +12,6 @@ _ErrorEstimate = None
 _SolverState = None
 
 
-def _sum(*x):
-    return sum(x[1:], x[0])
-
-
 class ShiftedEuler(AbstractItoSolver):
     """Shifted Euler's method for SDEs. When applied to SDEs with
      additive noise, it has a local error of O(h^2) compared to

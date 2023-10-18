@@ -51,6 +51,7 @@ from .solver import (
     AbstractSolver,
     AbstractStratonovichSolver,
     AbstractWrappedSolver,
+    AdditiveNoiseSRK,
     Bosh3,
     ButcherTableau,
     CalculateJacobian,
