@@ -165,12 +165,9 @@ def test_conditional_statistics():
         r, bm_r = out[i]
         u, bm_u = out[i + 1]
 
-        w_s = bm_s.W
-        hh_s = bm_s.H
-        w_r = bm_r.W
-        hh_r = bm_r.H
-        w_u = bm_u.W
-        hh_u = bm_u.H
+        w_s, hh_s = bm_s.wh()
+        w_r, hh_r = bm_r.wh()
+        w_u, hh_u = bm_u.wh()
 
         s = s - t0
         r = r - t0
