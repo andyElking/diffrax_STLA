@@ -51,7 +51,9 @@ class SEA(AbstractItoSolver):
         # control, stla = terms.stla_contr(t0, t1)
         w_term = terms.stla_term
         t_terms = terms.non_stla_terms
-        w, hh = w_term.stla_contr(t0, t1)
+        bm_inc = w_term.stla_contr(t0, t1)
+        w = bm_inc.W
+        hh = bm_inc.H
         contr_tilde = 0.5 * w + hh
         y_tilde = (y0 ** ω + (w_term.vf_prod(t0, y0, args, contr_tilde)) ** ω).ω
         y1 = (y0**ω + (t_terms.vf_prod(t0, y_tilde, args, t1 - t0))**ω + (w_term.vf_prod(t0, y0, args, w))**ω).ω
