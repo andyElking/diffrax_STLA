@@ -121,7 +121,7 @@ def test_statistics(ctr):
 
 
 def test_conditional_statistics():
-    key = jrandom.PRNGKey(5677)
+    key = jrandom.PRNGKey(5679)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
 
     # Get >80 randomly selected points; not too close to avoid discretisation error.
@@ -154,8 +154,6 @@ def test_conditional_statistics():
         vals = jax.vmap(lambda p: p.evaluate(t0, ti))(path)
         out.append((ti, vals))
     out = sorted(out, key=lambda x: x[0])
-    t, (w_t, hh_t) = out[0]
-    print(f"t: {t}, w: {w_t}, H: {hh_t}")
 
     # Test their conditional statistics
     for i in range(1, len(ts) - 2):

@@ -12,11 +12,7 @@ _ErrorEstimate = None
 _SolverState = None
 
 
-def _sum(*x):
-    return sum(x[1:], x[0])
-
-
-class ShiftedEuler(AbstractItoSolver):
+class AdditiveNoiseSRK(AbstractItoSolver):
     """Shifted Euler's method for SDEs. When applied to SDEs with
      additive noise, it has a local error of O(h^2) compared to
      standard Euler-Maruyama, which has O(h^1.5).
@@ -55,12 +51,15 @@ class ShiftedEuler(AbstractItoSolver):
         # control, stla = terms.stla_contr(t0, t1)
         h = t1 - t0
         w_term = terms.stla_term
-        t_terms = terms.non_stla_terms
+        ode_term = terms.non_stla_terms
         w, hh = w_term.stla_contr(t0, t1)
         y_tilde1 = (y0**ω + (w_term.vf_prod(t0, y0, args, hh))**ω).ω
-        # y_tilde2 = (y_tilde1**ω + ((5/6) * t_terms.vf_prod(t0, y_tilde1, args, h))**ω + (w_term.vf_prod(t0, y0, args, w))**ω).ω
-        # y1 = (y0**ω + (t_terms.vf_prod(t0, y_tilde, args, t1 - t0))**ω + (w_term.vf_prod(t0, y0, args, w))**ω).ω
-        y1 = y0
+        ode_out_1 = ode_term.vf_prod(t0, y_tilde1, args, h)
+        w_term_out = w_term.vf_prod(t0, y0, args, w)
+        y_tilde2 = (y_tilde1 ** ω + (5/6) *
+                    (ode_out_1 ** ω + w_term_out ** ω)).ω
+        ode_out_2 = ode_term.vf_prod(t0, y_tilde2, args, h)
+        y1 = (y0**ω + (2/5) * ode_out_1**ω + (3/5) * ode_out_2**ω + w_term_out ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, None, dense_info, None, RESULTS.successful
 
