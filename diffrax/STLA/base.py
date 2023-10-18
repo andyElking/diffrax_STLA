@@ -9,7 +9,7 @@ class AbstractSTLAPath(AbstractPath):
     "Abstract base class for all Brownian paths."
 
     @abc.abstractmethod
-    def evaluate(self, t0: Scalar, t1: Scalar, left: bool = True) -> typing.Tuple[PyTree[Array], ...]:
+    def eval_with_stla(self, t0: Scalar, t1: Scalar, left: bool = True) -> (PyTree[Array], PyTree[Array]):
         r"""Samples a Brownian increment $w(t_1) - w(t_0)$.
 
         Each increment has distribution $\mathcal{N}(0, t_1 - t_0)$.
