@@ -39,21 +39,17 @@ class _State(eqx.Module):
     key: "jax.random.PRNGKey"
 
 
-# TODO: check if this is efficient and jit-able. Ask Patrick.
-class _STLA_proc_value(eqx.Module):
-    t: Scalar
-    w: Scalar
-    la: Scalar
+def is_tuple_of_arrays(obj):
+    return isinstance(obj, tuple) and len(obj) == 2 and all(isinstance(x, jax.Array) for x in obj)
 
 
 @jax.jit
-def get_w(x0: _STLA_proc_value, x1: _STLA_proc_value):
-    return x1.w - x0.w
-
-
-@jax.jit
-def get_h(x0: _STLA_proc_value, x1: _STLA_proc_value):
-    return 1 / (x1.t - x0.t) * (x1.la - x0.la) - 0.5 * (x0.w + x1.w)
+def wh_from_wj(h: Scalar, x0: (jax.Array, jax.Array), x1: (jax.Array, jax.Array)) -> (jax.Array, jax.Array):
+    w0, j0 = x0
+    w1, j1 = x1
+    w_01 = w1 - w0
+    hh_01 = (1 / h) * (j1 - j0) - 0.5 * (w0 + w1)
+    return w_01, hh_01
 
 
 class VirtualSTLATree(AbstractSTLAPath):
@@ -120,11 +116,18 @@ class VirtualSTLATree(AbstractSTLAPath):
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
 
-        x0 = self._evaluate(t0)
-        x1 = self._evaluate(t1)
-        w_out = jtu.tree_map(get_w, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
-        h_out = jtu.tree_map(get_h, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
-        return w_out, h_out
+        h = t1 - t0
+        w_j_0 = self._evaluate(t0)
+        w_j_1 = self._evaluate(t1)
+        wh = jtu.tree_map(lambda x0, x1: wh_from_wj(h, x0, x1), w_j_0, w_j_1, is_leaf=is_tuple_of_arrays)
+        w_out, hh_out = jtu.tree_transpose(
+            outer_treedef=jax.tree_structure(self.shape),
+            inner_treedef=jax.tree_structure((0, 0)),
+            pytree_to_transpose=wh
+        )
+        # w_out = jtu.tree_map(get_w, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
+        # hh_out = jtu.tree_map(get_h, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
+        return w_out, hh_out
 
     def _evaluate(self, τ: Scalar) -> PyTree[Array]:
         """Maps the _evaluate_leaf function at time τ using self.key onto self.shape
@@ -249,8 +252,9 @@ class VirtualSTLATree(AbstractSTLAPath):
 
         # Now we check if r==s or r==u, in which case we just output the value at that endpoint.
         # Otherwise we interpolate in between.
+        cancellation_err_tol = self.tol * (2 ** -3)
 
-        def _final_interpolation(_state: _State) -> _STLA_proc_value:
+        def _final_interpolation(_state: _State) -> (jax.Array, jax.Array):
             # Quadratic interpolation.
             # We have w_s, w_t, w_u available to us, and interpolate with the unique
             # parabola passing through them.
@@ -292,22 +296,22 @@ class VirtualSTLATree(AbstractSTLAPath):
             H_sr = jnp.square(sr / h) * H_su - (a / sr) * x1 + (c / sr) * x2
             w_r = w_s + w_sr
             la_r = la_s + sr * H_sr + (sr / 2) * (w_s + w_r)
-
-            return _STLA_proc_value(t=r, w=w_r, la=la_r)
+            
+            return w_r, la_r
 
         def _equal_to_s_cond(_state: _State):
-            return r < (_state.s + 2**-3 * self.tol)
+            return r < (_state.s + cancellation_err_tol)
 
-        def _return_s_value(_state: _State) -> _STLA_proc_value:
-            return _STLA_proc_value(t=_state.s, w=_state.w_s, la=_state.la_s)
+        def _return_s_value(_state: _State) -> (jax.Array, jax.Array):
+            return _state.w_s, _state.la_s
 
         def _equal_to_u_cond(_state: _State) -> bool:
-            return r > (_state.u - 2**-3 * self.tol)
+            return r > (_state.u - cancellation_err_tol)
 
-        def _return_u_value(_state: _State) -> _STLA_proc_value:
-            return _STLA_proc_value(t=_state.u, w=_state.w_u, la=_state.la_u)
+        def _return_u_value(_state: _State) -> (jax.Array, jax.Array):
+            return _state.w_u, _state.la_u
 
-        def _not_equal_to_s_fun(_state: _State) -> _STLA_proc_value:
+        def _not_equal_to_s_fun(_state: _State) -> (jax.Array, jax.Array):
             return jax.lax.cond(_equal_to_u_cond(_state), _return_u_value, _final_interpolation, _state)
 
         return jax.lax.cond(_equal_to_s_cond(final_state), _return_s_value, _not_equal_to_s_fun, final_state)
