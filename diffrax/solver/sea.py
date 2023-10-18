@@ -12,9 +12,9 @@ _ErrorEstimate = None
 _SolverState = None
 
 
-class ShiftedEuler(AbstractItoSolver):
-    """Shifted Euler's method for SDEs. When applied to SDEs with
-     additive noise, it has a local error of O(h^2) compared to
+class SEA(AbstractItoSolver):
+    """Shifted Euler method for SDEs with additive noise.
+     It has a local error of O(h^2) compared to
      standard Euler-Maruyama, which has O(h^1.5).
     """
 
