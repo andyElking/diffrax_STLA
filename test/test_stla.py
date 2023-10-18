@@ -84,7 +84,9 @@ def test_shape_and_dtype(ctr, getkey):
             for _t1 in _vals.values():
                 t0, _ = _t0
                 _, t1 = _t1
-                out_w, out_hh = path.evaluate(t0, t1)
+                bm = path.evaluate(t0, t1, use_hh=True)
+                out_w = bm.W
+                out_hh = bm.H
                 out_w_shape = jtu.tree_map(
                     lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), out_w
                 )
@@ -108,9 +110,11 @@ def test_statistics(ctr):
             path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key)
         else:
             assert False
-        return path.evaluate(0, 5)
+        return path.evaluate(0, 5, use_hh=True)
 
-    values_w, values_h = jax.vmap(_eval)(keys)
+    bm_inc = jax.vmap(_eval)(keys)
+    values_w = bm_inc.W
+    values_h = bm_inc.H
     assert values_w.shape == (10000,) and values_h.shape == (10000,)
     ref_dist_w = stats.norm(loc=0, scale=math.sqrt(5))
     _, pval_w = stats.kstest(values_w, ref_dist_w.cdf)
@@ -151,15 +155,22 @@ def test_conditional_statistics():
     # Sample some points
     out = []
     for ti in ts:
-        vals = jax.vmap(lambda p: p.evaluate(t0, ti))(path)
+        vals = jax.vmap(lambda p: p.evaluate(t0, ti, use_hh=True))(path)
         out.append((ti, vals))
     out = sorted(out, key=lambda x: x[0])
 
     # Test their conditional statistics
     for i in range(1, len(ts) - 2):
-        s, (w_s, hh_s) = out[i - 1]
-        r, (w_r, hh_r) = out[i]
-        u, (w_u, hh_u) = out[i + 1]
+        s, bm_s = out[i - 1]
+        r, bm_r = out[i]
+        u, bm_u = out[i + 1]
+
+        w_s = bm_s.W
+        hh_s = bm_s.H
+        w_r = bm_r.W
+        hh_r = bm_r.H
+        w_u = bm_u.W
+        hh_u = bm_u.H
 
         s = s - t0
         r = r - t0
