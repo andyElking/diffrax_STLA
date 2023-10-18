@@ -1,3 +1,4 @@
+import typing
 from dataclasses import field
 from typing import Optional, Tuple, Union
 
@@ -107,6 +108,12 @@ class VirtualSTLATree(AbstractSTLAPath):
 
     @eqx.filter_jit
     def evaluate(
+        self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
+    ) -> PyTree[Array]:
+        return self.eval_with_stla(t0, t1)[0]
+
+    @eqx.filter_jit
+    def eval_with_stla(
             self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
     ) -> (PyTree[Array], PyTree[Array]):
         # TODO: add an option where only W is computed, not H.
