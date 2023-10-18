@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional
 import jax.tree_util as jtu
 from equinox.internal import ω
 
@@ -27,6 +27,9 @@ class ShARK(AbstractItoSolver):
     def strong_order(self, terms):
         return 1.5
 
+    # def error_order(self, terms: PyTree[AbstractTerm]) -> Optional[Scalar]:
+    #     return 2
+
     def init(
             self,
             terms: STLAMultiTerm,
@@ -52,7 +55,9 @@ class ShARK(AbstractItoSolver):
         h = t1 - t0
         w_term = terms.stla_term
         ode_term = terms.non_stla_terms
-        w, hh = w_term.stla_contr(t0, t1)
+        bm_inc = w_term.stla_contr(t0, t1)
+        w = bm_inc.W
+        hh = bm_inc.H
         y_tilde1 = (y0**ω + (w_term.vf_prod(t0, y0, args, hh))**ω).ω
         ode_out_1 = ode_term.vf_prod(t0, y_tilde1, args, h)
         w_term_out = w_term.vf_prod(t0, y0, args, w)

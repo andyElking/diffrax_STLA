@@ -46,12 +46,8 @@ class AbstractPath(eqx.Module):
 
     @abc.abstractmethod
     def evaluate(
-        self,
-        t0: Scalar,
-        t1: Optional[Scalar] = None,
-        left: bool = True,
-        use_levy: bool = False,
-    ) -> PyTree | LevyVal:
+        self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_hh: bool = False,
+    ) -> PyTree:
         r"""Evaluate the path at any point in the interval $[t_0, t_1]$.
 
         **Arguments:**

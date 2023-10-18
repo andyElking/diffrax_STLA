@@ -12,7 +12,7 @@ import jax.tree_util as jtu
 
 from ..custom_types import Array, PyTree, Scalar
 from ..misc import is_tuple_of_ints, split_by_tree
-from .base import AbstractSTLAPath
+from .base import AbstractSTLAPath, BMInc
 
 
 #
@@ -34,24 +34,25 @@ class _State(eqx.Module):
     w_s: Scalar
     w_t: Scalar
     w_u: Scalar
-    la_s: Scalar
-    la_t: Scalar
-    la_u: Scalar
+    J_s: Scalar
+    J_t: Scalar
+    J_u: Scalar
     key: "jax.random.PRNGKey"
 
 
-def is_tuple_of_arrays(obj):
-    return isinstance(obj, tuple) and len(obj) == 2 and all(isinstance(x, jax.Array) for x in obj)
-
-
-@jax.jit
-def wh_from_wj(h: Scalar, x0: (jax.Array, jax.Array), x1: (jax.Array, jax.Array)) -> (jax.Array, jax.Array):
-    w0, j0 = x0
-    w1, j1 = x1
-    w_01 = w1 - w0
-    h = h.astype(w0.dtype)
-    hh_01 = (j1 - j0) * (1 / h) - 0.5 * (w0 + w1)
-    return w_01, hh_01
+@eqx.filter_jit
+def wh_from_wj(x0: BMInc, x1: Optional[BMInc] = None) -> BMInc:
+    if x1 is None:
+        w_01 = x0.W
+        h = x0.h.astype(w_01.dtype)
+        inverse_h = jnp.nan_to_num(1/h)
+        hh_01 = x0.J * inverse_h - 0.5 * x0.W
+    else:
+        h = (x1.h - x0.h).astype(x0.W.dtype)
+        inverse_h = jnp.nan_to_num(1/h)
+        w_01 = x1.W - x0.W
+        hh_01 = (x1.J - x0.J) * inverse_h - 0.5 * (x1.W + x0.W)
+    return BMInc(h=h, W=w_01, J=None, H=hh_01)
 
 
 class VirtualSTLATree(AbstractSTLAPath):
@@ -77,6 +78,7 @@ class VirtualSTLATree(AbstractSTLAPath):
 
     t0: Scalar = field(init=True)
     t1: Scalar = field(init=True)  # override init=False in AbstractPath
+    _tot_len: Scalar
     tol: Scalar
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
     key: "jax.random.PRNGKey"  # noqa: F821
@@ -89,9 +91,10 @@ class VirtualSTLATree(AbstractSTLAPath):
             shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
             key: "jax.random.PRNGKey",
     ):
-        self.t0 = t0
-        self.t1 = t1
-        self.tol = tol
+        self.t0 = jnp.minimum(t0, t1)
+        self.t1 = jnp.maximum(t0, t1)
+        self._tot_len = self.t1 - self.t0
+        self.tol = tol/self._tot_len
         self.shape = (
             jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(None))
             if is_tuple_of_ints(shape)
@@ -106,54 +109,89 @@ class VirtualSTLATree(AbstractSTLAPath):
             )
         self.key = split_by_tree(key, self.shape)
 
+    @jax.jit
+    def normalise_t(self, t: Scalar):
+        return (t - self.t0)/self._tot_len
+
+    @jax.jit
+    def denormalise_bm_inc(self, x: BMInc) -> BMInc:
+        sqrt_len = jnp.sqrt(self._tot_len)
+
+        def sqrt_mult(z):
+            return z * sqrt_len
+
+        def mult(z):
+            return z * self._tot_len
+
+        return BMInc(h=jtu.tree_map(mult, x.h),
+                     W=jtu.tree_map(sqrt_mult, x.W),
+                     J=jtu.tree_map(mult, x.J),
+                     H=jtu.tree_map(sqrt_mult, x.H))
+
     @eqx.filter_jit
     def evaluate(
-        self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
-    ) -> PyTree[Array]:
-        return self.eval_with_stla(t0, t1)[0]
-
-    @eqx.filter_jit
-    def eval_with_stla(
-            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
-    ) -> (PyTree[Array], PyTree[Array]):
+            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_hh: bool = False
+    ) -> BMInc:
         # TODO: add an option where only W is computed, not H.
         del left
-        t0 = eqxi.nondifferentiable(t0, name="t0")
-        if t1 is None:
-            t1 = eqxi.nondifferentiable(0, name="t1")
-        else:
-            t1 = eqxi.nondifferentiable(t1, name="t1")
 
-        h = t1 - t0
+        def is_bm_inc(obj):
+            return isinstance(obj, BMInc)
+
+        t0 = eqxi.nondifferentiable(t0, name="t0") - self.t0
         w_j_0 = self._evaluate(t0)
-        w_j_1 = self._evaluate(t1)
-        wh = jtu.tree_map(lambda x0, x1: wh_from_wj(h, x0, x1), w_j_0, w_j_1, is_leaf=is_tuple_of_arrays)
-        w_out, hh_out = jtu.tree_transpose(
+        if t1 is not None:
+            t1 = eqxi.nondifferentiable(0, name="t1")
+            w_j_1 = self._evaluate(t1)
+            wh = jtu.tree_map(wh_from_wj, w_j_0, w_j_1, is_leaf=is_bm_inc)
+        else:
+            wh = jtu.tree_map(wh_from_wj, w_j_0, is_leaf=is_bm_inc)
+
+        bm_inc_out: BMInc = jtu.tree_transpose(
             outer_treedef=jax.tree_structure(self.shape),
-            inner_treedef=jax.tree_structure((0, 0)),
+            inner_treedef=jax.tree_structure(BMInc(h=0.0, W=0.0, J=None, H=0.0)),
             pytree_to_transpose=wh
         )
-        # w_out = jtu.tree_map(get_w, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
-        # hh_out = jtu.tree_map(get_h, x0, x1, is_leaf=lambda x: isinstance(x, _STLA_proc_value))
-        return w_out, hh_out
+        bm_inc_out = self.denormalise_bm_inc(bm_inc_out)
+        if use_hh:
+            return bm_inc_out
+        else:
+            return bm_inc_out.W
 
-    def _evaluate(self, τ: Scalar) -> PyTree[Array]:
+    def _evaluate(self, r: Scalar) -> PyTree[BMInc]:
         """Maps the _evaluate_leaf function at time τ using self.key onto self.shape
         Args:
-            τ:
+            r:
         """
-        map_func = lambda key, shape: self._evaluate_leaf(key, τ, shape)
+        # reshuffle t0 and t1 so that t0 < t1
+
+        r = self.normalise_t(r)
+
+        eqxi.error_if(
+            r,
+            r < 0,
+            "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
+        )
+        eqxi.error_if(
+            r,
+            r > 1,
+            "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
+        )
+        # Clip because otherwise the while loop below won't terminate, and the above
+        # errors are only raised after everything has finished executing.
+        r = jnp.clip(r, 0.0, 1.0)
+        map_func = lambda key, shape: self._evaluate_leaf(key, r, shape)
         return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _brownian_arch(self, s, u, w_s, w_u, la_s, la_u, key, shape, dtype):
-        """For t = (s+u)/2 evaluates w_t and la_t conditional on w_s, w_u, la_s, and la_u
+    def _brownian_arch(self, s, u, w_s, w_u, J_s, J_u, key, shape, dtype):
+        """For t = (s+u)/2 evaluates w_t and J_t conditional on w_s, w_u, J_s, and J_u
         Args:
             s: start time
             u: end time
             w_s: value of BM at s
             w_u: value of BM at u
-            la_s: space-time Levy integral at s
-            la_u: space-time Levy integral at u
+            J_s: space-time Levy integral at s
+            J_u: space-time Levy integral at u
             key:
             shape:
             dtype:
@@ -165,45 +203,30 @@ class VirtualSTLATree(AbstractSTLAPath):
         n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
         z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
 
-        w_t = (3 / (2 * h)) * (la_u - la_s) - (1 / 4) * (w_u + w_s) + z
-        la_t = 0.5 * (la_u + la_s) + (h / 8) * (w_s - w_u) + (h / 4) * n
-        return w_t, la_t
+        w_t = (3 / (2 * h)) * (J_u - J_s) - (1 / 4) * (w_u + w_s) + z
+        J_t = 0.5 * (J_u + J_s) + (h / 8) * (w_s - w_u) + (h / 4) * n
+        return w_t, J_t
 
     def _evaluate_leaf(
             self,
             key,
             r: Scalar,
             shape: jax.ShapeDtypeStruct,
-    ) -> (Array, Array):
+    ) -> BMInc:
         shape, dtype = shape.shape, shape.dtype
 
-        # reshuffle t0 and t1 so that t0 < t1
-        cond = self.t0 < self.t1
-        t0 = jnp.where(cond, self.t0, self.t1).astype(dtype)
-        t1 = jnp.where(cond, self.t1, self.t0).astype(dtype)
-
-        t0 = eqxi.error_if(
-            t0,
-            r < t0,
-            "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
-        )
-        t1 = eqxi.error_if(
-            t1,
-            r > t1,
-            "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
-        )
-        # Clip because otherwise the while loop below won't terminate, and the above
-        # errors are only raised after everything has finished executing.
-        r = jnp.clip(r, t0, t1).astype(dtype)
+        t0 = jnp.zeros((), dtype)
+        t1 = jnp.ones((), dtype)
+        r = r.astype(dtype)
 
         key, init_key_w, init_key_la, midpoint_key = jrandom.split(key, 4)
-        thalf = t0 + 0.5 * (t1 - t0)
+        thalf = jnp.array(0.5, dtype)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
 
-        la_std = jnp.sqrt((1 / 12) * jnp.power(t1 - t0, 3))
-        la_mean = 0.5 * (t1 - t0) * w_t1
-        la_t1 = la_std * jrandom.normal(init_key_la, shape, dtype) + la_mean
-        w_thalf, la_thalf = self._brownian_arch(t0, t1, 0, w_t1, 0, la_t1, midpoint_key, shape, dtype)
+        J_std = jnp.sqrt((1 / 12) * jnp.power(t1 - t0, 3))
+        J_mean = 0.5 * (t1 - t0) * w_t1
+        J_t1 = J_std * jrandom.normal(init_key_la, shape, dtype) + J_mean
+        w_thalf, J_thalf = self._brownian_arch(t0, t1, 0, w_t1, 0, J_t1, midpoint_key, shape, dtype)
         init_state = _State(
             s=t0,
             t=thalf,
@@ -211,11 +234,13 @@ class VirtualSTLATree(AbstractSTLAPath):
             w_s=jnp.zeros_like(w_t1),
             w_t=w_thalf,
             w_u=w_t1,
-            la_s=jnp.zeros_like(la_t1),
-            la_t=la_thalf,
-            la_u=la_t1,
+            J_s=jnp.zeros_like(J_t1),
+            J_t=J_thalf,
+            J_u=J_t1,
             key=key,
         )
+
+        cancellation_err_tol = self.tol * (2 ** -5)
 
         def _cond_fun(_state):
             # Slight adaptation on the version of the algorithm given in the
@@ -225,8 +250,8 @@ class VirtualSTLATree(AbstractSTLAPath):
             # Here, because we use quadratic splines to get better samples, we always
             # iterate down to the level of the spline.
             # return jnp.all(jnp.array([(_state.u - _state.s) > self.tol,
-            #                           r < _state.u - 0.1 * self.tol,
-            #                           r > _state.s + 0.1 * self.tol]))
+            #                           r < _state.u - cancellation_err_tol,
+            #                           r > _state.s + cancellation_err_tol]))
             return (_state.u - _state.s) > self.tol
 
         def _body_fun(_state):
@@ -243,36 +268,25 @@ class VirtualSTLATree(AbstractSTLAPath):
             _u = jnp.where(_cond, _state.u, _state.t)
             _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
             _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
-            _la_s = jnp.where(_cond, _state.la_t, _state.la_s)
-            _la_u = jnp.where(_cond, _state.la_u, _state.la_t)
+            _J_s = jnp.where(_cond, _state.J_t, _state.J_s)
+            _J_u = jnp.where(_cond, _state.J_u, _state.J_t)
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
 
             # TODO: added more key splitting for generating the midpoint. Not sure if this is required.
             _key, _midpoint_key = jrandom.split(_key, 2)
-            _w_t, _la_t = self._brownian_arch(_s, _u, _w_s, _w_u, _la_s, _la_u, _midpoint_key, shape, dtype)
+            _w_t, _J_t = self._brownian_arch(_s, _u, _w_s, _w_u, _J_s, _J_u, _midpoint_key, shape, dtype)
             return _State(s=_s, t=_t, u=_u,
                           w_s=_w_s, w_t=_w_t, w_u=_w_u,
-                          la_s=_la_s, la_t=_la_t, la_u=_la_u,
+                          J_s=_J_s, J_t=_J_t, J_u=_J_u,
                           key=_key)
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
 
         # Now we check if r==s or r==u, in which case we just output the value at that endpoint.
         # Otherwise we interpolate in between.
-        cancellation_err_tol = self.tol * (2 ** -3)
 
         def _final_interpolation(_state: _State) -> (jax.Array, jax.Array):
-            # Quadratic interpolation.
-            # We have w_s, w_t, w_u available to us, and interpolate with the unique
-            # parabola passing through them.
-            # Why quadratic and not just "linear from w_s to w_t to w_u"? Because linear
-            # only gets the conditional mean correct at every point, but not the
-            # conditional variance. This means that the Virtual Brownian Tree will pass
-            # statistical tests comparing w(t)|(w(s),w(u)) against the true Brownian
-            # bridge. (Provided s, t, u are greater than the discretisation level `tol`.)
-            # (If you just do linear then you find that the variance is *ever so slightly*
-            # too small.)
 
             s = _state.s
             t = _state.t
@@ -280,49 +294,53 @@ class VirtualSTLATree(AbstractSTLAPath):
             w_s = _state.w_s
             w_t = _state.w_t
             w_u = _state.w_u
-            la_s = _state.la_s
-            la_t = _state.la_t
-            la_u = _state.la_u
+            J_s = _state.J_s
+            J_t = _state.J_t
+            J_u = _state.J_u
 
             # This is different from original quadratic interpolation
-            # TODO: check if it gives the right result
             h = u - s
             w_su = w_u - w_s
             w_st = w_t - w_s
-            H_su = (1 / h) * (la_u - la_s) - 0.5 * (w_s + w_u)
-            H_st = (2 / h) * (la_t - la_s) - 0.5 * (w_s + w_t)
+            H_su = (1 / h) * (J_u - J_s) - 0.5 * (w_s + w_u)
+            H_st = (2 / h) * (J_t - J_s) - 0.5 * (w_s + w_t)
             x1 = (4 / jnp.sqrt(h)) * (w_st - 0.5 * w_su - 1.5 * H_su)
             x2 = jnp.sqrt(12 / h) * (w_st + 2 * H_st - 0.5 * w_su - 2 * H_su)
             sr = r - s
             ru = u - r
             d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
-            a = (1 / (2 * h * d)) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
-            b = (1 / (2 * h * d)) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
-            c = (1 / (jnp.sqrt(12) * d)) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
+            d_prime = 1 / (2 * h * d)
+            a = d_prime * jnp.power(sr, 3.5) * jnp.sqrt(ru)
+            b = d_prime * jnp.power(ru, 3.5) * jnp.sqrt(sr)
+            c = (1 / (jnp.sqrt(12) * d)) * jnp.power(sr, 1.5) * jnp.power(ru, 1.5)
 
             w_sr = (sr / h) * w_su + 6 * sr * ru / jnp.square(h) * H_su + 2 * ((a + b) / h) * x1
-            H_sr = jnp.square(sr / h) * H_su - (a / sr) * x1 + (c / sr) * x2
+            H_sr = (jnp.square(sr / h) * H_su
+                    - d_prime * jnp.power(sr, 2.5) * jnp.sqrt(ru) * x1
+                    + (1 / (jnp.sqrt(12) * d)) * jnp.sqrt(sr) * jnp.power(ru, 1.5) * x2)
             w_r = w_s + w_sr
-            la_r = la_s + sr * H_sr + (sr / 2) * (w_s + w_r)
+            J_r = J_s + sr * H_sr + (sr / 2) * (w_s + w_r)
 
-            return w_r, la_r
+            return BMInc(h=r, W=w_r, J=J_r, H=None)
 
-        def _equal_to_s_cond(_state: _State):
-            return r < (_state.s + cancellation_err_tol)
+        return _final_interpolation(final_state)
 
-        def _return_s_value(_state: _State) -> (jax.Array, jax.Array):
-            return _state.w_s, _state.la_s
-
-        def _equal_to_u_cond(_state: _State) -> bool:
-            return r > (_state.u - cancellation_err_tol)
-
-        def _return_u_value(_state: _State) -> (jax.Array, jax.Array):
-            return _state.w_u, _state.la_u
-
-        def _not_equal_to_s_fun(_state: _State) -> (jax.Array, jax.Array):
-            return jax.lax.cond(_equal_to_u_cond(_state), _return_u_value, _final_interpolation, _state)
-
-        return jax.lax.cond(_equal_to_s_cond(final_state), _return_s_value, _not_equal_to_s_fun, final_state)
+        # def _equal_to_s_cond(_state: _State):
+        #     return r < (_state.s + cancellation_err_tol)
+        #
+        # def _return_s_value(_state: _State) -> BMInc:
+        #     return BMInc(h=r, W=_state.w_s, J=_state.J_s, H=None)
+        #
+        # def _equal_to_u_cond(_state: _State):
+        #     return r > (_state.u - cancellation_err_tol)
+        #
+        # def _return_u_value(_state: _State) -> BMInc:
+        #     return BMInc(h=r, W=_state.w_u, J=_state.J_u, H=None)
+        #
+        # def _not_equal_to_s_fun(_state: _State) -> BMInc:
+        #     return jax.lax.cond(_equal_to_u_cond(_state), _return_u_value, _final_interpolation, _state)
+        #
+        # return jax.lax.cond(_equal_to_s_cond(final_state), _return_s_value, _not_equal_to_s_fun, final_state)
 
 
 VirtualSTLATree.__init__.__doc__ = """
