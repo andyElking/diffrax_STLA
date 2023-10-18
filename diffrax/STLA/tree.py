@@ -48,7 +48,8 @@ def wh_from_wj(h: Scalar, x0: (jax.Array, jax.Array), x1: (jax.Array, jax.Array)
     w0, j0 = x0
     w1, j1 = x1
     w_01 = w1 - w0
-    hh_01 = (1 / h) * (j1 - j0) - 0.5 * (w0 + w1)
+    h = h.astype(w0.dtype)
+    hh_01 = (j1 - j0) * (1 / h) - 0.5 * (w0 + w1)
     return w_01, hh_01
 
 
@@ -296,7 +297,7 @@ class VirtualSTLATree(AbstractSTLAPath):
             H_sr = jnp.square(sr / h) * H_su - (a / sr) * x1 + (c / sr) * x2
             w_r = w_s + w_sr
             la_r = la_s + sr * H_sr + (sr / 2) * (w_s + w_r)
-            
+
             return w_r, la_r
 
         def _equal_to_s_cond(_state: _State):
