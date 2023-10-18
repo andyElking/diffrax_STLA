@@ -12,6 +12,12 @@ class BMInc(eqx.Module):
     J: Optional[PyTree[Array]]
     H: Optional[PyTree[Array]]
 
+    def wh(self):
+        return self.W, self.H
+
+    def wj(self):
+        return self.W, self.J
+
 
 class AbstractSTLAPath(AbstractPath):
     "Abstract base class for all Brownian paths."
