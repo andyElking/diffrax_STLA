@@ -141,7 +141,6 @@ class VirtualSTLATree(AbstractSTLAPath):
         t0 = eqxi.nondifferentiable(t0, name="t0") - self.t0
         w_j_0 = self._evaluate(t0)
         if t1 is not None:
-            t1 = eqxi.nondifferentiable(0, name="t1")
             w_j_1 = self._evaluate(t1)
             wh = jtu.tree_map(wh_from_wj, w_j_0, w_j_1, is_leaf=is_bm_inc)
         else:
@@ -163,8 +162,6 @@ class VirtualSTLATree(AbstractSTLAPath):
         Args:
             r:
         """
-        # reshuffle t0 and t1 so that t0 < t1
-
         r = self.normalise_t(r)
 
         eqxi.error_if(
