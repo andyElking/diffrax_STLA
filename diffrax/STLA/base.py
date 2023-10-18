@@ -1,15 +1,25 @@
 import abc
-import typing
+from typing import Optional
+import equinox as eqx
 
 from ..custom_types import Array, PyTree, Scalar
 from ..path import AbstractPath
+
+
+class BMInc(eqx.Module):
+    h: Scalar
+    W: PyTree[Array]
+    J: Optional[PyTree[Array]]
+    H: Optional[PyTree[Array]]
 
 
 class AbstractSTLAPath(AbstractPath):
     "Abstract base class for all Brownian paths."
 
     @abc.abstractmethod
-    def eval_with_stla(self, t0: Scalar, t1: Scalar, left: bool = True) -> (PyTree[Array], PyTree[Array]):
+    def evaluate(
+            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_hh: bool = False
+    ) -> BMInc:
         r"""Samples a Brownian increment $w(t_1) - w(t_0)$.
 
         Each increment has distribution $\mathcal{N}(0, t_1 - t_0)$.

@@ -98,7 +98,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             return self._evaluate(t0)
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
-            # return _evaluate(t1) - _evaluate(t0)
+
             return jtu.tree_map(
                 lambda x, y: x - y,
                 self._evaluate(t1),
