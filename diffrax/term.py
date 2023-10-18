@@ -402,18 +402,6 @@ class AbstractSTLATerm(AbstractTerm):
 class STLAControlTerm(ControlTerm, AbstractSTLATerm):
     control: AbstractSTLAPath
 
-    def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
-        """
-        Returns W_{t0, t1}, discards the STLA
-        Args:
-            t0:
-            t1:
-
-        Returns:
-
-        """
-        return self.control.evaluate(t0, t1)[0]
-
     def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
         """
         Args:
@@ -423,7 +411,7 @@ class STLAControlTerm(ControlTerm, AbstractSTLATerm):
         Returns:
         (W_{t0, t1}, H_{t0, t1})
         """
-        return self.control.evaluate(t0, t1)
+        return self.control.eval_with_stla(t0, t1)
 
 
 class STLAMultiTerm(MultiTerm, AbstractSTLATerm):
