@@ -7,7 +7,7 @@ from .base import (
     AbstractWrappedSolver,
     HalfSolver,
 )
-from .additive_noise_srk import AdditiveNoiseSRK
+from .shark import ShARK
 from .bosh3 import Bosh3
 from .dopri5 import Dopri5
 from .dopri8 import Dopri8
@@ -37,6 +37,6 @@ from .runge_kutta import (
     MultiButcherTableau,
 )
 from .semi_implicit_euler import SemiImplicitEuler
-from .shifted_euler_srk import ShiftedEuler
+from .sea import SEA
 from .sil3 import Sil3
 from .tsit5 import Tsit5

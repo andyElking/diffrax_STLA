@@ -12,10 +12,10 @@ _ErrorEstimate = None
 _SolverState = None
 
 
-class AdditiveNoiseSRK(AbstractItoSolver):
-    """Shifted Euler's method for SDEs. When applied to SDEs with
-     additive noise, it has a local error of O(h^2) compared to
-     standard Euler-Maruyama, which has O(h^1.5).
+class ShARK(AbstractItoSolver):
+    """Shifted Additive-noise Runge-Kutta method for SDEs.
+    When applied to SDEs with additive noise, it converges
+    strongly with order 1.5.
     """
 
     term_structure = AbstractTerm
