@@ -19,7 +19,7 @@ class BMInc(eqx.Module):
         return self.W, self.J
 
 
-class AbstractSTLAPath(AbstractPath):
+class AbstractLevyPath(AbstractPath):
     "Abstract base class for all Brownian paths."
 
     @abc.abstractmethod

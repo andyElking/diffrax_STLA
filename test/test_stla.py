@@ -23,7 +23,7 @@ def _make_struct(shape, dtype):
 
 
 @pytest.mark.parametrize(
-    "ctr", [diffrax.VirtualSTLATree]
+    "ctr", [diffrax.VirtualLevyTree]
 )
 def test_shape_and_dtype(ctr, getkey):
     t0 = 0
@@ -68,7 +68,7 @@ def test_shape_and_dtype(ctr, getkey):
         if dtype is not None:
             shape = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
 
-        if ctr is diffrax.VirtualSTLATree:
+        if ctr is diffrax.VirtualLevyTree:
             tol = 2**-5
             path = ctr(t0, t1, tol, shape, getkey())
             assert path.t0 == 0
@@ -98,7 +98,7 @@ def test_shape_and_dtype(ctr, getkey):
 
 
 @pytest.mark.parametrize(
-    "ctr", [diffrax.VirtualSTLATree]
+    "ctr", [diffrax.VirtualLevyTree]
 )
 def test_statistics(ctr):
     # Deterministic key for this test; not using getkey()
@@ -106,7 +106,7 @@ def test_statistics(ctr):
     keys = jrandom.split(key, 10000)
 
     def _eval(key):
-        if ctr is diffrax.VirtualSTLATree:
+        if ctr is diffrax.VirtualLevyTree:
             path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key)
         else:
             assert False
@@ -147,7 +147,7 @@ def test_conditional_statistics():
     # Get some random paths
     bm_keys = jrandom.split(bm_key, 100000)
     path = jax.vmap(
-        lambda k: diffrax.VirtualSTLATree(
+        lambda k: diffrax.VirtualLevyTree(
             t0=t0, t1=t1, shape=(), tol=2**-10, key=k
         )
     )(bm_keys)

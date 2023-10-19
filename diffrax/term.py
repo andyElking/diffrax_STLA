@@ -11,7 +11,7 @@ from equinox.internal import ω
 
 from .custom_types import Array, PyTree, Scalar
 from .path import AbstractPath
-from .STLA.base import AbstractSTLAPath, BMInc
+from .STLA.base import AbstractLevyPath, BMInc
 
 
 class AbstractTerm(eqx.Module):
@@ -397,7 +397,7 @@ class AbstractSTLATerm(AbstractTerm):
 
 
 class STLAControlTerm(ControlTerm, AbstractSTLATerm):
-    control: AbstractSTLAPath
+    control: AbstractLevyPath
 
     def stla_contr(self, t0: Scalar, t1: Scalar) -> BMInc:
         """
