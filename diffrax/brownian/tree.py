@@ -33,10 +33,10 @@ class _State(eqx.Module):
     w_s: Scalar
     w_t: Scalar
     w_u: Scalar
+    key: "jax.random.PRNGKey"
     J_s: Scalar = field(default=None)
     J_t: Scalar = field(default=None)
     J_u: Scalar = field(default=None)
-    key: "jax.random.PRNGKey"
 
 
 class VirtualBrownianTree(AbstractBrownianPath):
@@ -257,23 +257,18 @@ The Brownian motion is defined to equal 0 at `t0`.
 
 
 @jax.jit
-def levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
-    pred = x1.J is None or x0.J is None
-    return jax.cond(pred, LevyVal(h=x1.h - x0.h, W=x1.W - x0.W), wj_to_wh_diff(x0, x1))
-
-
-@jax.jit
 def wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     h = (x1.h - x0.h).astype(x0.W.dtype)
-    inverse_h = jnp.nan_to_num(1 / h)
+    inverse_h = jnp.nan_to_num(1 / h).astype(x0.W.dtype)
     w_01 = x1.W - x0.W
     hh_01 = (x1.J - x0.J) * inverse_h - 0.5 * (x1.W + x0.W)
     return LevyVal(h=h, W=w_01, H=hh_01)
 
 
 @jax.jit
-def wj_to_wh_single(x0: LevyVal) -> LevyVal:
-    jax.cond(x0.J is None, x0, LevyVal(h=x0.h, W=x0.W, H=x0.J * jnp.nan_to_num(1 / x0.h) - 0.5 * x0.W))
+def wj_to_wh_single(x: LevyVal) -> LevyVal:
+    inverse_h = jnp.nan_to_num(1 / x.h).astype(x.W.dtype)
+    return LevyVal(h=x.h, W=x.W, H=x.J * inverse_h - 0.5 * x.W)
 
 
 class VirtualLevyTree(AbstractBrownianPath):
@@ -311,13 +306,14 @@ class VirtualLevyTree(AbstractBrownianPath):
             t1: Scalar,
             tol: Scalar,
             shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
-            compute_stla: bool,
             key: "jax.random.PRNGKey",
+            compute_stla: bool = False,
     ):
         self.t0 = jnp.minimum(t0, t1)
         self.t1 = jnp.maximum(t0, t1)
         self._interval_len = self.t1 - self.t0
         self.tol = tol / self._interval_len
+        self.compute_stla=compute_stla
         self.shape = (
             jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(None))
             if is_tuple_of_ints(shape)
@@ -341,34 +337,41 @@ class VirtualLevyTree(AbstractBrownianPath):
         sqrt_len = jnp.sqrt(self._interval_len)
 
         def sqrt_mult(z):
-            return z * sqrt_len
+            return (z * sqrt_len).astype(z.dtype)
 
         def mult(z):
-            return z * self._interval_len
+            return (z * self._interval_len).astype(z.dtype)
 
         return LevyVal(h=jtu.tree_map(mult, x.h),
                        W=jtu.tree_map(sqrt_mult, x.W),
                        J=jtu.tree_map(mult, x.J),
                        H=jtu.tree_map(sqrt_mult, x.H))
 
-    @eqx.filter_jit
     def evaluate(
-            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_levy: bool = False
+            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_levy: bool =False
+    ) -> PyTree[Array]:
+        del left
+        return self._eval_helper(t0, t1, use_levy, self.compute_stla)
+
+    @eqx.filter_jit
+    def _eval_helper(
+            self, t0: Scalar, t1: Optional[Scalar] = None, use_levy: bool = False,
+            compute_stla: bool = True,
     ) -> LevyVal:
         # TODO: add an option where only W is computed, not H.
-        del left
 
         def is_levy_val(obj):
             return isinstance(obj, LevyVal)
 
         t0 = eqxi.nondifferentiable(t0, name="t0")
-        levy_0 = self._evaluate(t0)
+        levy_0 = self._evaluate(t0, compute_stla)
         if t1 is not None:
             t1 = eqxi.nondifferentiable(t1, name="t1")
-            levy_1 = self._evaluate(t1)
+            levy_1 = self._evaluate(t1, compute_stla)
+            levy_diff = wj_to_wh_diff if compute_stla else lambda x, y: LevyVal(h=y.h - x.h, W=y.W - x.W)
             wh = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=is_levy_val)
         else:
-            wh = jtu.tree_map(wj_to_wh_single, levy_0, is_leaf=is_levy_val)
+            wh = jtu.tree_map(wj_to_wh_single, levy_0, is_leaf=is_levy_val) if compute_stla else levy_0
 
         levy_out: LevyVal = jtu.tree_transpose(
             outer_treedef=jax.tree_structure(self.shape),
@@ -378,7 +381,7 @@ class VirtualLevyTree(AbstractBrownianPath):
         levy_out = self.denormalise_bm_inc(levy_out)
         return levy_out if use_levy else levy_out.W
 
-    def _evaluate(self, r: Scalar) -> PyTree[LevyVal]:
+    def _evaluate(self, r: Scalar, compute_stla: bool) -> PyTree[LevyVal]:
         """Maps the _evaluate_leaf function at time τ using self.key onto self.shape
         Args:
             r:
@@ -398,10 +401,10 @@ class VirtualLevyTree(AbstractBrownianPath):
         # Clip because otherwise the while loop below won't terminate, and the above
         # errors are only raised after everything has finished executing.
         r = jnp.clip(r, 0.0, 1.0)
-        map_func = lambda key, shape: self._evaluate_leaf(key, r, shape)
+        map_func = lambda key, shape: self._evaluate_leaf(key, r, shape, compute_stla)
         return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _brownian_arch(self, s, u, w_s, w_u, key, shape, dtype, J_s=None, J_u=None):
+    def _brownian_arch(self, s, u, w_s, w_u, key, shape, dtype, J_s=None, J_u=None, compute_stla=False):
         """For t = (s+u)/2 evaluates w_t and J_t conditional on w_s, w_u, J_s, and J_u
         Args:
             s: start time
@@ -415,20 +418,20 @@ class VirtualLevyTree(AbstractBrownianPath):
             dtype:
         """
         # TODO: check for cancellation errors when applying Chen's relation
-        h = u - s
+        h = (u - s).astype(w_s.dtype)
 
-        if (not self.compute_stla) or J_s is None or J_u is None:
-            mean = w_s + 0.5 * (w_u - w_s)
-            std = 0.5 * jnp.sqrt(h)
-            w_t = mean + std * jrandom.normal(key, shape, dtype)
-            J_t = None
-        else:
+        if compute_stla:
             n_key, z_key = jrandom.split(key, 2)
             n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
             z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
 
             w_t = (3 / (2 * h)) * (J_u - J_s) - (1 / 4) * (w_u + w_s) + z
             J_t = 0.5 * (J_u + J_s) + (h / 8) * (w_s - w_u) + (h / 4) * n
+        else:
+            mean = w_s + 0.5 * (w_u - w_s)
+            std = 0.5 * jnp.sqrt(h)
+            w_t = mean + std * jrandom.normal(key, shape, dtype)
+            J_t = None
         return w_t, J_t
 
     def _evaluate_leaf(
@@ -436,6 +439,7 @@ class VirtualLevyTree(AbstractBrownianPath):
             key,
             r: Scalar,
             shape: jax.ShapeDtypeStruct,
+            compute_stla: bool
     ) -> LevyVal:
         shape, dtype = shape.shape, shape.dtype
 
@@ -446,19 +450,20 @@ class VirtualLevyTree(AbstractBrownianPath):
         key, init_key_w, init_key_la, midpoint_key = jrandom.split(key, 4)
         thalf = jnp.array(0.5, dtype)
         w_t1 = jrandom.normal(init_key_w, shape, dtype) * jnp.sqrt(t1 - t0)
+        w_s = jnp.zeros_like(w_t1)
         J_t1 = None
         J_s = None
-        if self.compute_stla:
+        if compute_stla:
             J_std = jnp.sqrt((1 / 12) * jnp.power(t1 - t0, 3))
             J_mean = 0.5 * (t1 - t0) * w_t1
             J_t1 = J_std * jrandom.normal(init_key_la, shape, dtype) + J_mean
             J_s = jnp.zeros_like(J_t1)
-        w_thalf, J_thalf = self._brownian_arch(t0, t1, 0, w_t1, 0, J_t1, midpoint_key, shape, dtype)
+        w_thalf, J_thalf = self._brownian_arch(t0, t1, w_s, w_t1, midpoint_key, shape, dtype, J_s, J_t1, compute_stla)
         init_state = _State(
             s=t0,
             t=thalf,
             u=t1,
-            w_s=jnp.zeros_like(w_t1),
+            w_s=w_s,
             w_t=w_thalf,
             w_u=w_t1,
             J_s=J_s,
@@ -466,8 +471,6 @@ class VirtualLevyTree(AbstractBrownianPath):
             J_u=J_t1,
             key=key,
         )
-
-        cancellation_err_tol = self.tol * (2 ** -5)
 
         def _cond_fun(_state):
             # Slight adaptation on the version of the algorithm given in the
@@ -496,7 +499,7 @@ class VirtualLevyTree(AbstractBrownianPath):
             _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
             _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
             _J_s, _J_u = None, None
-            if self.compute_stla:
+            if compute_stla:
                 _J_s = jnp.where(_cond, _state.J_t, _state.J_s)
                 _J_u = jnp.where(_cond, _state.J_u, _state.J_t)
             _key = jnp.where(_cond, _key1, _key2)
@@ -504,7 +507,7 @@ class VirtualLevyTree(AbstractBrownianPath):
 
             # TODO: added more key splitting for generating the midpoint. Not sure if this is required.
             _key, _midpoint_key = jrandom.split(_key, 2)
-            _w_t, _J_t = self._brownian_arch(_s, _u, _w_s, _w_u, _J_s, _J_u, _midpoint_key, shape, dtype)
+            _w_t, _J_t = self._brownian_arch(_s, _u, _w_s, _w_u, _midpoint_key, shape, dtype, _J_s, _J_u, compute_stla)
             return _State(s=_s, t=_t, u=_u,
                           w_s=_w_s, w_t=_w_t, w_u=_w_u,
                           J_s=_J_s, J_t=_J_t, J_u=_J_u,
@@ -515,7 +518,7 @@ class VirtualLevyTree(AbstractBrownianPath):
         # Now we check if r==s or r==u, in which case we just output the value at that endpoint.
         # Otherwise we interpolate in between.
 
-        def _final_interpolation(_state: _State) -> (jax.Array, jax.Array):
+        def _final_interpolation(_state: _State) -> LevyVal:
             s = _state.s
             t = _state.t
             u = _state.u
@@ -533,7 +536,7 @@ class VirtualLevyTree(AbstractBrownianPath):
             sr = r - s
             ru = u - r
 
-            if self.compute_stla:
+            if compute_stla:
                 H_su = (1 / h) * (J_u - J_s) - 0.5 * (w_s + w_u)
                 H_st = (2 / h) * (J_t - J_s) - 0.5 * (w_s + w_t)
                 x1 = (4 / jnp.sqrt(h)) * (w_st - 0.5 * w_su - 1.5 * H_su)
