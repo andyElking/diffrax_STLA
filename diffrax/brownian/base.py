@@ -1,8 +1,23 @@
 import abc
 from typing import Optional
+import equinox as eqx
+from dataclasses import field
 
 from ..custom_types import Array, PyTree, Scalar
 from ..path import AbstractPath
+
+
+class LevyVal(eqx.Module):
+    h: Scalar = field(default=0.0)
+    W: PyTree[Array] = field(default=None)
+    J: Optional[PyTree[Array]] = field(default=None)
+    H: Optional[PyTree[Array]] = field(default=None)
+
+    def wh(self):
+        return self.W, self.H
+
+    def wj(self):
+        return self.W, self.J
 
 
 class AbstractBrownianPath(AbstractPath):
@@ -10,11 +25,7 @@ class AbstractBrownianPath(AbstractPath):
 
     @abc.abstractmethod
     def evaluate(
-        self,
-        t0: Scalar,
-        t1: Optional[Scalar] = None,
-        left: bool = True,
-        use_levy: bool = False,
+            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_levy: bool =False
     ) -> PyTree[Array]:
         r"""Samples a Brownian increment $w(t_1) - w(t_0)$.
 
