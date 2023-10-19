@@ -1,2 +1,2 @@
-from .base import AbstractSTLAPath
-from .tree import VirtualSTLATree
+from .base import AbstractLevyPath
+from .tree import VirtualLevyTree
