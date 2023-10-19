@@ -1,3 +1,3 @@
-from .base import AbstractBrownianPath
+from .base import AbstractBrownianPath, LevyVal
 from .path import UnsafeBrownianPath
-from .tree import VirtualBrownianTree
+from .tree import VirtualBrownianTree, VirtualLevyTree
