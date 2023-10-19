@@ -6,7 +6,7 @@ from .adjoint import (
     RecursiveCheckpointAdjoint,
 )
 from .autocitation import citation, citation_rules
-from .brownian import AbstractBrownianPath, UnsafeBrownianPath, VirtualBrownianTree, VirtualLevyTree, LevyVal
+from .brownian import AbstractBrownianPath, UnsafeBrownianPath, VirtualBrownianTree, LevyVal
 from .event import (
     AbstractDiscreteTerminatingEvent,
     DiscreteTerminatingEvent,
