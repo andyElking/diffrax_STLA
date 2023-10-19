@@ -421,7 +421,7 @@ class STLAControlTerm(ControlTerm, AbstractSTLATerm):
         Returns:
         (W_{t0, t1}, H_{t0, t1})
         """
-        return self.control.evaluate(t0, t1, use_hh=True)
+        return self.control.evaluate(t0, t1, use_levy=True)
 
 
 class STLAMultiTerm(MultiTerm, AbstractSTLATerm):
