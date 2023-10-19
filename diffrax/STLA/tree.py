@@ -12,7 +12,7 @@ import jax.tree_util as jtu
 
 from ..custom_types import Array, PyTree, Scalar
 from ..misc import is_tuple_of_ints, split_by_tree
-from .base import AbstractSTLAPath, BMInc
+from .base import AbstractLevyPath, BMInc
 
 
 #
@@ -55,7 +55,7 @@ def wh_from_wj(x0: BMInc, x1: Optional[BMInc] = None) -> BMInc:
     return BMInc(h=h, W=w_01, J=None, H=hh_01)
 
 
-class VirtualSTLATree(AbstractSTLAPath):
+class VirtualLevyTree(AbstractLevyPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
 
@@ -138,9 +138,10 @@ class VirtualSTLATree(AbstractSTLAPath):
         def is_bm_inc(obj):
             return isinstance(obj, BMInc)
 
-        t0 = eqxi.nondifferentiable(t0, name="t0") - self.t0
+        t0 = eqxi.nondifferentiable(t0, name="t0")
         w_j_0 = self._evaluate(t0)
         if t1 is not None:
+            t1 = eqxi.nondifferentiable(t1, name="t1")
             w_j_1 = self._evaluate(t1)
             wh = jtu.tree_map(wh_from_wj, w_j_0, w_j_1, is_leaf=is_bm_inc)
         else:
@@ -340,7 +341,7 @@ class VirtualSTLATree(AbstractSTLAPath):
         # return jax.lax.cond(_equal_to_s_cond(final_state), _return_s_value, _not_equal_to_s_fun, final_state)
 
 
-VirtualSTLATree.__init__.__doc__ = """
+VirtualLevyTree.__init__.__doc__ = """
 **Arguments:**
 
 - `t0`: The start of the interval the Brownian motion is defined over.
