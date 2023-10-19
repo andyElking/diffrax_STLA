@@ -70,7 +70,7 @@ def test_shape_and_dtype(ctr, getkey):
 
         if ctr is diffrax.VirtualLevyTree:
             tol = 2**-5
-            path = ctr(t0, t1, tol, shape, getkey())
+            path = ctr(t0, t1, tol, shape, getkey(), compute_stla=True)
             assert path.t0 == 0
             assert path.t1 == 2
         else:
@@ -84,7 +84,7 @@ def test_shape_and_dtype(ctr, getkey):
             for _t1 in _vals.values():
                 t0, _ = _t0
                 _, t1 = _t1
-                bm = path.evaluate(t0, t1, use_hh=True)
+                bm = path.evaluate(t0, t1, use_levy=True)
                 out_w = bm.W
                 out_hh = bm.H
                 out_w_shape = jtu.tree_map(
@@ -107,10 +107,10 @@ def test_statistics(ctr):
 
     def _eval(key):
         if ctr is diffrax.VirtualLevyTree:
-            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key)
+            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, compute_stla=True)
         else:
             assert False
-        return path.evaluate(0, 5, use_hh=True)
+        return path.evaluate(0, 5, use_levy=True)
 
     bm_inc = jax.vmap(_eval)(keys)
     values_w = bm_inc.W
@@ -125,7 +125,7 @@ def test_statistics(ctr):
 
 
 def test_conditional_statistics():
-    key = jrandom.PRNGKey(5679)
+    key = jrandom.PRNGKey(5678)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
 
     # Get >80 randomly selected points; not too close to avoid discretisation error.
@@ -148,14 +148,14 @@ def test_conditional_statistics():
     bm_keys = jrandom.split(bm_key, 100000)
     path = jax.vmap(
         lambda k: diffrax.VirtualLevyTree(
-            t0=t0, t1=t1, shape=(), tol=2**-10, key=k
+            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, compute_stla=True
         )
     )(bm_keys)
 
     # Sample some points
     out = []
     for ti in ts:
-        vals = jax.vmap(lambda p: p.evaluate(t0, ti, use_hh=True))(path)
+        vals = jax.vmap(lambda p: p.evaluate(t0, ti, use_levy=True))(path)
         out.append((ti, vals))
     out = sorted(out, key=lambda x: x[0])
 
