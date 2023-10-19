@@ -11,7 +11,7 @@ from equinox.internal import ω
 
 from .custom_types import Array, LevyVal, PyTree, Scalar
 from .path import AbstractPath
-from .STLA.base import AbstractLevyPath, BMInc
+from .brownian import AbstractBrownianPath, LevyVal
 
 
 class AbstractTerm(eqx.Module):
@@ -399,7 +399,7 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
 class AbstractSTLATerm(AbstractTerm):
 
     @abc.abstractmethod
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> BMInc:
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
         """
         Returns a tuple where
         Args:
@@ -410,9 +410,9 @@ class AbstractSTLATerm(AbstractTerm):
 
 
 class STLAControlTerm(ControlTerm, AbstractSTLATerm):
-    control: AbstractLevyPath
+    control: AbstractBrownianPath
 
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> BMInc:
+    def stla_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
         """
         Args:
             t0:
