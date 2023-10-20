@@ -379,21 +379,21 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
             # (0 if control_ == 0 else term.prod(vf, control_))
             # for term, vf_, control_ in zip(self.terms, vf, control)
             term.prod(vf, control_)
-            for term, vf_, control_ in zip(self.terms, vf, control) if control_ != 0
+            for term, vf_, control_ in zip(self.terms, vf, control)
         ]
-        return 0 if len(out) ==0 else jtu.tree_map(_sum, *out)
+        return jtu.tree_map(_sum, *out)
 
     def vf_prod(
             self, t: Scalar, y: PyTree, args: PyTree, control: Tuple[PyTree, ...]
     ) -> PyTree:
+        zero = jtu.tree_map(lambda a: jnp.zeros_like(a, dtype=a.dtype), y)
+        zero_fun = lambda _: zero
         out = [
-            # lax.cond(control_ == 0, lambda _: 0.0, lambda ctr: term.vf_prod(t, y, args, ctr), control_)
-            # (0 if control_ == 0 else term.vf_prod(t, y, args, control_))
-            term.vf_prod(t, y, args, control_)
-            for term, control_ in zip(self.terms, control) if control_ != 0
+            lax.cond(control_ == 0, zero_fun, lambda ctr: term.vf_prod(t, y, args, ctr), control_)
+            for term, control_ in zip(self.terms, control)
 
         ]
-        return 0 if len(out) ==0 else jtu.tree_map(_sum, *out)
+        return jtu.tree_map(_sum, *out)
 
     def is_vf_expensive(
             self,
