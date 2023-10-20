@@ -5,7 +5,7 @@ from equinox.internal import ω
 from ..custom_types import Bool, DenseInfo, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, STLAMultiTerm
+from ..term import AbstractTerm, LevyVal
 from .base import AbstractItoSolver
 
 _ErrorEstimate = None
@@ -29,7 +29,7 @@ class SEA(AbstractItoSolver):
 
     def init(
             self,
-            terms: STLAMultiTerm,
+            terms: AbstractTerm,
             t0: Scalar,
             t1: Scalar,
             y0: PyTree,
@@ -39,7 +39,7 @@ class SEA(AbstractItoSolver):
 
     def step(
             self,
-            terms: STLAMultiTerm,
+            terms: AbstractTerm,
             t0: Scalar,
             t1: Scalar,
             y0: PyTree,
@@ -48,15 +48,19 @@ class SEA(AbstractItoSolver):
             made_jump: Bool,
     ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del solver_state, made_jump
-        # control, stla = terms.stla_contr(t0, t1)
-        w_term = terms.stla_term
-        t_terms = terms.non_stla_terms
-        bm_inc = w_term.stla_contr(t0, t1)
-        w = bm_inc.W
-        hh = bm_inc.H
-        contr_tilde = 0.5 * w + hh
-        y_tilde = (y0 ** ω + (w_term.vf_prod(t0, y0, args, contr_tilde)) ** ω).ω
-        y1 = (y0**ω + (t_terms.vf_prod(t0, y_tilde, args, t1 - t0))**ω + (w_term.vf_prod(t0, y0, args, w))**ω).ω
+        levy_contr = terms.levy_contr(t0, t1)
+        is_levy_val = lambda l: isinstance(l, LevyVal)
+
+        def filt_contr(ctr):
+            return 0.5 * ctr.W + ctr.H if isinstance(ctr, LevyVal) else 0
+        filtered_contr = jtu.tree_map(filt_contr, levy_contr, is_leaf=is_levy_val)
+        y_tilde = (y0 ** ω + (terms.vf_prod(t0, y0, args, filtered_contr)) ** ω).ω
+
+        def w_and_t(ctr):
+            return ctr.W if isinstance(ctr, LevyVal) else ctr
+        w_and_t_contr = jtu.tree_map(w_and_t, levy_contr, is_leaf=is_levy_val)
+
+        y1 = (y0**ω + (terms.vf_prod(t0, y_tilde, args, w_and_t_contr))**ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, None, dense_info, None, RESULTS.successful
 
