@@ -1064,7 +1064,7 @@ class AbstractRungeKutta(AbstractAdaptiveSolver):
         if any(not tableau.ssal for tableau in jtu.tree_leaves(tableaus)):
 
             def _increment(tab_i, k_i):
-                return vector_tree_dot(tab_i.b_sol, k_i)
+                return vector_tree_dot(tab_i.b, k_i)
 
             increment = t_map(_increment, tableaus, ks)
             y1 = y_map(_sum, y0, *t_leaves(increment))

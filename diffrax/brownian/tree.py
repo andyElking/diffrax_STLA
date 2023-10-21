@@ -9,9 +9,9 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 
-from ..custom_types import Array, PyTree, Scalar
+from ..custom_types import Array, PyTree, Scalar, LevyVal
 from ..misc import is_tuple_of_ints, split_by_tree
-from .base import AbstractBrownianPath, LevyVal
+from .base import AbstractBrownianPath
 
 
 #
