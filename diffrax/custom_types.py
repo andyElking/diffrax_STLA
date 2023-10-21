@@ -1,7 +1,9 @@
 import inspect
 import typing
-from typing import Any, Dict, Generic, Tuple, TypeVar, Union
+from dataclasses import field
+from typing import Any, Dict, Generic, Tuple, TypeVar, Union, Optional
 
+import equinox as eqx
 import equinox.internal as eqxi
 import jax.tree_util as jtu
 
@@ -131,3 +133,16 @@ else:
 DenseInfo = Dict[str, PyTree[Array]]
 DenseInfos = Dict[str, PyTree[Array["times", ...]]]  # noqa: F821
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
+
+
+class LevyVal(eqx.Module):
+    h: Scalar = field(default=0.0)
+    W: PyTree[Array] = field(default=None)
+    J: Optional[PyTree[Array]] = field(default=None)
+    H: Optional[PyTree[Array]] = field(default=None)
+
+    def wh(self):
+        return self.W, self.H
+
+    def wj(self):
+        return self.W, self.J
