@@ -1,57 +1,43 @@
-from dataclasses import dataclass
-from typing import Tuple
+from dataclasses import dataclass, field
+from typing import Tuple, Optional
 
-import diffrax
 import jax
-import jax.lax as lax
-import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+import jax.numpy as jnp
+import jax.lax as lax
+import equinox.internal as eqxi
 from equinox.internal import ω
 
-from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
+from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm, WrapTerm
+from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
 from .base import AbstractItoSolver
-
 
 _ErrorEstimate = None
 _SolverState = None
 
 
-def check_diffusion_has_stla(diffusion):
-    # ensure that STLA will be computed
-    if isinstance(diffusion, WrapTerm):
-        if isinstance(diffusion.term, ControlTerm):
-            control = diffusion.term.control
-        else:
-            raise TypeError("diffusion should be a ControlTerm")
-    else:
-        control = diffusion.control
-    if not isinstance(control, diffrax.VirtualBrownianTree):
-        raise TypeError(
-            "A VirtualBrownianTree should be used " "to control the diffusion term."
-        )
-    elif not control.compute_stla:
-        raise ValueError(
-            "The VirtualBrownianTree controlling the diffusion"
-            ' should be initialised with "compute_stla=True"'
-        )
+def linear_combination(a: jax.Array):
+    def lin_comb(*k_leaf):
+        return jnp.vdot(a, jnp.array([*k_leaf]))
+
+    def fun(ks: list[PyTree]) -> PyTree:
+        return jtu.tree_map(lin_comb, *ks)
+    return fun
 
 
 @dataclass(frozen=True)
 class StochasticButcherTableau:
-    """A Butcher Tableau for Additive-noise SRK methods."""
-
     # Only supports explicit SRK so far
-    c: np.ndarray
-    b: np.ndarray
-    a: list[np.ndarray]
+    c: jax.Array
+    b: jax.Array
+    a: list[jax.Array]
 
     # coefficients for W and H (of shape (len(c)+1,)
-    cw: np.ndarray
-    ch: np.ndarray
+    cw: jax.Array
+    ch: jax.Array
     cw_last: Scalar
     ch_last: Scalar
 
@@ -69,147 +55,90 @@ class StochasticButcherTableau:
             assert np.allclose(sum(a_i), c_i)
         assert np.allclose(sum(self.b), 1.0)
 
-        # TODO: add checks for whether the method is FSAL
+        # FSAL checks TBA
 
 
 class ANSR(AbstractItoSolver):
     """Additive-Noise Stochastic Runge-Kutta method.
-
-    The second term in the MultiTerm must be a Control term with
-    control=VirtualBrownianTree(compute_stla=True), since this method
-    makes use of space-time Levy area.
-
-    Given the SDE
-    dX_t = f(t, X_t) dt + σ dW_t
-
-    We construct the SRK as follows:
-    y_1 = y_0 + h (Σ_{j=1}^s b_j k_j) + σ * (cw_last * ΔW + ch_last * ΔH)
-    k_j = f(t_0 + c_j h, z_j)
-    z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cw_j * ΔW + ch_j * ΔH)
-
-    where ΔW := W_{t0, t1} is the increment of the Brownian motion and
-    ΔH := H_{t0, t1} is its corresponding space-time Levy Area.
-
-    The values a_j_i, b_j, c_j, cw_j, ch_j, cw_last, ch_last are provided
-    in the StochasticButcherTableau.
+    Takes in Butcher Tableau (ish). Description TBA.
     """
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
 
+    def __init__(self, tab):
+        self.tableau = tab
+
     def order(self, terms):
-        return 1  # should be modified depending on tableau
+        return 2
 
     def strong_order(self, terms):
-        return 0.5  # should be modified depending on tableau
+        return 1.5
 
     def init(
-        self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
-        t0: Scalar,
-        t1: Scalar,
-        y0: PyTree,
-        args: PyTree,
+            self,
+            terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+            t0: Scalar,
+            t1: Scalar,
+            y0: PyTree,
+            args: PyTree,
     ) -> _SolverState:
         return None
 
-    def embed_a_lower(self, dtype):
-        """
-        Takes the lower-triangular (a_j_i) and embeds it in an n*n array.
-        """
-        num_stages = len(self.tableau.b)
-        a = self.tableau.a
-        tab_a = np.zeros((num_stages, num_stages))
-        for i, a_i in enumerate(a):
-            tab_a[i + 1, : i + 1] = a_i
-        return jnp.asarray(tab_a, dtype=dtype)
-
     def step(
-        self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
-        t0: Scalar,
-        t1: Scalar,
-        y0: PyTree,
-        args: PyTree,
-        solver_state: _SolverState,
-        made_jump: Bool,
+            self,
+            terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+            t0: Scalar,
+            t1: Scalar,
+            y0: PyTree,
+            args: PyTree,
+            solver_state: _SolverState,
+            made_jump: Bool,
     ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del solver_state, made_jump
 
         h = t1 - t0
         drift, diffusion = terms.terms
-        check_diffusion_has_stla(diffusion)
-
-        # compute the Brownian increment and space-time Levy area
         levy: LevyVal = diffusion.levy_contr(t0, t1)
         w = levy.W
         hh = levy.H
         sigma = diffusion.vf(t0, y0, args)
 
-        def stage(
-            carry: tuple[int, list[PyTree]], x: tuple[jax.Array, Scalar, Scalar, Scalar]
-        ):
-            # Represents the jth stage of the SRK.
-            # carry = (j, hks_{j-1}) where
-            # hks_{j-1} = [hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
-            # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
+        def stage(ks: list[PyTree], x: tuple[jax.Array, Scalar, Scalar, Scalar]):
+            # carry = [k1, k2, ..., k_{j-1}] where ki are already multiplied by h, i.e.
+            # ki = drift.vf_prod(t0 + c_i*h, y_i, args, h)
             a_j, c_j, cw_j, ch_j = x
-            j, hks_j = carry
-            diffusion_control = cw_j * w + ch_j * hh
+            diffusion_contr = cw_j * w + ch_j * hh
+            mult_with_a_j = linear_combination(a_j)
 
-            # compute Σ_{i=1}^{j-1} a_j_i hk_i
-            def lin_comb_a_j(hk_leaf):
-                return jnp.tensordot(a_j, hk_leaf, axes=1)
+            y_j = (y0 ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
+            y_j = lax.cond(len(ks) > 0,
+                           lambda y_: (y_ ** ω + (mult_with_a_j(ks)) ** ω).ω,
+                           lambda y_: y_,
+                           y_j)
 
-            a_j_mult_k = jtu.tree_map(lin_comb_a_j, hks_j)
+            k_j = drift.vf_prod(t0 + c_j * h, y_j, args, h)
+            ks.append(k_j)
+            # note that carry will already contain the whole stack of k_js, so no need for second return value
+            return ks, None
 
-            # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cw_j * ΔW + ch_j * ΔH)
-            z_j = (
-                y0**ω
-                + a_j_mult_k**ω
-                + (diffusion.prod(sigma, diffusion_control)) ** ω
-            ).ω
+        a = [jnp.array([], dtype=self.tableau.a[0].dtype)] + list(self.tableau.a)
+        c = jnp.insert(self.tableau.c, 0, 0.0)
+        b, cw, ch = self.tableau.b, self.tableau.cw, self.tableau.ch
+        ks, _ = lax.scan(stage, [], (a, c ,cw, ch), length=len(b))
 
-            hk_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
-            hks_j = jtu.tree_map(
-                lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), hks_j, hk_j
-            )
-            # note that carry will already contain the whole stack of
-            # k_js, so no need for second return value
-            return (j + 1, hks_j), None
-
-        a = self.embed_a_lower(jnp.dtype(y0))
-        c = jnp.insert(jnp.asarray(self.tableau.c, dtype=jnp.dtype(y0)), 0, 0.0)
-        b = jnp.asarray(self.tableau.b, dtype=jnp.dtype(y0))
-        cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))
-        ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
-        # hks is a PyTree of the same shape as y0, except that the arrays inside have
-        # an additional batch dimension of size len(b) (i.e. num stages)
-        hks = jtu.tree_map(
-            lambda leaf: jnp.zeros(shape=(len(b),) + leaf.shape, dtype=leaf.dtype), y0
-        )
-        carry = (0, hks)
-
-        # output of lax.scan is ((num_stages, hks), [None, None, ... , None])
-        (_, hks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b))
-
-        # compute Σ_{j=1}^s b_j k_j
-        def lin_comb_b(k_leaf):
-            return jnp.tensordot(b, k_leaf, axes=1)
-
-        b_mult_k = jtu.tree_map(lin_comb_b, hks)
-
+        mult_with_b = linear_combination(b)
         diffusion_contr = self.tableau.cw_last * w + self.tableau.ch_last * hh
-        y1 = (y0**ω + b_mult_k**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
+        y1 = (y0 ** ω + (mult_with_b(ks)) ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, None, dense_info, None, RESULTS.successful
 
     def func(
-        self,
-        terms: AbstractTerm,
-        t0: Scalar,
-        y0: PyTree,
-        args: PyTree,
+            self,
+            terms: AbstractTerm,
+            t0: Scalar,
+            y0: PyTree,
+            args: PyTree,
     ) -> PyTree:
         return terms.vf(t0, y0, args)

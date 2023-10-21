@@ -1,7 +1,7 @@
 import inspect
 import typing
 from dataclasses import field
-from typing import Any, Dict, Generic, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, Generic, Tuple, TypeVar, Union, Optional
 
 import equinox as eqx
 import equinox.internal as eqxi
