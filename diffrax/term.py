@@ -10,9 +10,9 @@ import numpy as np
 from equinox.internal import ω
 from jax import lax
 
-from .custom_types import Array, PyTree, Scalar
+from .custom_types import Array, PyTree, Scalar, LevyVal
 from .path import AbstractPath
-from .brownian import AbstractBrownianPath, LevyVal
+from .brownian import AbstractBrownianPath
 
 
 class AbstractTerm(eqx.Module):
@@ -69,11 +69,10 @@ class AbstractTerm(eqx.Module):
         """
         pass
 
-
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> PyTree:
+    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
         r""" Same as contr, except if it is a Brownian path it outputs LevyVal.
         """
-        return self.contr(t0,t1)
+        pass
 
     @abc.abstractmethod
     def prod(self, vf: PyTree, control: PyTree) -> PyTree:
@@ -220,11 +219,8 @@ class _ControlTerm(AbstractTerm):
     def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
         return self.control.evaluate(t0, t1)
 
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal | PyTree:
-        if isinstance(self.control, AbstractBrownianPath):
-            return self.control.evaluate(t0, t1, use_levy=True)
-        else:
-            return self.control.evaluate(t0, t1)
+    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
+        return self.control.eval_levy(t0, t1)
 
     def to_ode(self) -> ODETerm:
         r"""If the control is differentiable then $f(t, y(t), args) \mathrm{d}x(t)$
@@ -370,14 +366,8 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
     def contr(self, t0: Scalar, t1: Scalar) -> Tuple[PyTree, ...]:
         return tuple(term.contr(t0, t1) for term in self.terms)
 
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> Tuple[PyTree, ...]:
-        return tuple(term.levy_contr(t0, t1) for term in self.terms)
-
     def prod(self, vf: Tuple[PyTree, ...], control: Tuple[PyTree, ...]) -> PyTree:
         out = [
-            # lax.cond(control_ == 0, lambda _: 0, lambda ctr: term.prod(vf, ctr), control_)
-            # (0 if control_ == 0 else term.prod(vf, control_))
-            # for term, vf_, control_ in zip(self.terms, vf, control)
             term.prod(vf, control_)
             for term, vf_, control_ in zip(self.terms, vf, control)
         ]
@@ -386,12 +376,9 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
     def vf_prod(
             self, t: Scalar, y: PyTree, args: PyTree, control: Tuple[PyTree, ...]
     ) -> PyTree:
-        zero = jtu.tree_map(lambda a: jnp.zeros_like(a, dtype=a.dtype), y)
-        zero_fun = lambda _: zero
         out = [
-            lax.cond(control_ == 0, zero_fun, lambda ctr: term.vf_prod(t, y, args, ctr), control_)
+            term.vf_prod(t, y, args, control_)
             for term, control_ in zip(self.terms, control)
-
         ]
         return jtu.tree_map(_sum, *out)
 
@@ -485,9 +472,9 @@ class WrapTerm(AbstractTerm):
         _t1 = jnp.where(self.direction == 1, t1, -t0)
         return self.term.is_vf_expensive(_t0, _t1, y, args)
 
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
-        assert isinstance(self.term, STLAControlTerm)
-        return self.term.stla_contr(t0, t1)
+    def levy_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
+        assert isinstance(self.term, _ControlTerm)
+        return self.term.levy_contr(t0, t1)
 
 
 class AdjointTerm(AbstractTerm):
