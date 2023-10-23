@@ -86,5 +86,4 @@ tab = StochasticButcherTableau(
 
 
 class ShARK(ANSR):
-    def __init__(self, tableau):
-        self.tableau = tab
+    tableau = tab
