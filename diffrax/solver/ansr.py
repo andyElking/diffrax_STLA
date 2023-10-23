@@ -8,24 +8,25 @@ import jax.numpy as jnp
 import jax.lax as lax
 import equinox.internal as eqxi
 from equinox.internal import ω
+from jax import debug
 
 from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
+from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm, _sum
 from .base import AbstractItoSolver
 
 _ErrorEstimate = None
 _SolverState = None
 
 
-def linear_combination(a: jax.Array):
-    def lin_comb(*k_leaf):
-        return jnp.vdot(a, jnp.array([*k_leaf]))
-
-    def fun(ks: list[PyTree]) -> PyTree:
-        return jtu.tree_map(lin_comb, *ks)
-    return fun
+# def linear_combination(a: jax.Array):
+#     def lin_comb(*k_leaf):
+#         return jnp.vdot(a, jnp.array([*k_leaf]))
+#
+#     def fun(ks: list[PyTree]) -> PyTree:
+#         return jtu.tree_map(lin_comb, *ks)
+#     return fun
 
 
 @dataclass(frozen=True)
@@ -65,10 +66,15 @@ class ANSR(AbstractItoSolver):
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
-    tableau: StochasticButcherTableau
-
-    def __init__(self, tab):
-        self.tableau = tab
+    tableau = StochasticButcherTableau(
+        c=jnp.array([5 / 6]),
+        b=jnp.array([0.4, 0.6]),
+        a=[jnp.array([5 / 6])],
+        cw=jnp.array([0.0, 5 / 6]),
+        ch=jnp.array([1.0, 0.0]),
+        cw_last=1.0,
+        ch_last=0.0
+    )
 
     def order(self, terms):
         return 2
@@ -85,6 +91,14 @@ class ANSR(AbstractItoSolver):
             args: PyTree,
     ) -> _SolverState:
         return None
+
+    def embed_a_lower(self):
+        num_stages = len(self.tableau.b)
+        a = self.tableau.a
+        tab_a = np.zeros((num_stages, num_stages))
+        for i, a_i in enumerate(a):
+            tab_a[i + 1, : i + 1] = a_i
+        return jnp.asarray(tab_a)
 
     def step(
             self,
@@ -105,32 +119,40 @@ class ANSR(AbstractItoSolver):
         hh = levy.H
         sigma = diffusion.vf(t0, y0, args)
 
-        def stage(ks: list[PyTree], x: tuple[jax.Array, Scalar, Scalar, Scalar]):
-            # carry = [k1, k2, ..., k_{j-1}] where ki are already multiplied by h, i.e.
+        def stage(carry: tuple[int, list[PyTree]], x: tuple[jax.Array, Scalar, Scalar, Scalar]):
+            # carry = [k1, k2, ..., k_{j-1}, 0, 0, ..., 0] where ki are already multiplied by h, i.e.
             # ki = drift.vf_prod(t0 + c_i*h, y_i, args, h)
             a_j, c_j, cw_j, ch_j = x
+            j, ks = carry
             diffusion_contr = cw_j * w + ch_j * hh
-            mult_with_a_j = linear_combination(a_j)
 
-            y_j = (y0 ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
-            y_j = lax.cond(len(ks) > 0,
-                           lambda y_: (y_ ** ω + (mult_with_a_j(ks)) ** ω).ω,
-                           lambda y_: y_,
-                           y_j)
+            def lin_comb_a_j(k_leaf):
+                return jnp.tensordot(a_j, k_leaf, axes=1)
+            a_j_mult_k = jtu.tree_map(lin_comb_a_j, ks)
+
+            y_j = (y0 ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω + a_j_mult_k ** ω).ω
 
             k_j = drift.vf_prod(t0 + c_j * h, y_j, args, h)
-            ks.append(k_j)
+            ks = jtu.tree_map(lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), ks, k_j)
             # note that carry will already contain the whole stack of k_js, so no need for second return value
-            return ks, None
+            carry = (j+1, ks)
+            return carry, None
 
-        a = [jnp.array([], dtype=self.tableau.a[0].dtype)] + list(self.tableau.a)
+        a = self.embed_a_lower()
         c = jnp.insert(self.tableau.c, 0, 0.0)
         b, cw, ch = self.tableau.b, self.tableau.cw, self.tableau.ch
-        ks, _ = lax.scan(stage, [], (a, c ,cw, ch), length=len(b))
+        # ks is a PyTree of the same shape as y0, except that the arrays inside have
+        # an additional batch dimesnion of size len(b) (i.e. num stages)
+        ks = jtu.tree_map(lambda leaf: jnp.zeros(shape=(len(b),) + leaf.shape, dtype=leaf.dtype), y0)
+        carry = (0, ks)
+        (_, ks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b))
 
-        mult_with_b = linear_combination(b)
+        def lin_comb_b(k_leaf):
+            return jnp.tensordot(b, k_leaf, axes=1)
+        b_mult_k = jtu.tree_map(lin_comb_b, ks)
+
         diffusion_contr = self.tableau.cw_last * w + self.tableau.ch_last * hh
-        y1 = (y0 ** ω + (mult_with_b(ks)) ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
+        y1 = (y0 ** ω + b_mult_k ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, None, dense_info, None, RESULTS.successful
 
