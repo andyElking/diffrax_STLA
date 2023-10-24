@@ -14,64 +14,19 @@ from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
 from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
-from .base import AbstractItoSolver
+from .base import AbstractSolver
 
 _ErrorEstimate = None
 _SolverState = dict[str, Array | float | Any]
 
 
-@dataclass(frozen=True)
-class StochasticButcherTableau:
-    """A Butcher Tableau for Additive-noise SRK methods.
-
-    Given the SDE
-    dX_t = f(t, X_t) dt + σ dW_t
-
-    We construct the SRK as follows:
-    y_1 = y_0 + h (Σ_{j=1}^s b_j k_j) + σ * (cw_last * ΔW + ch_last * ΔH)
-    k_j = f(t_0 + c_j h, z_j)
-    z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_j) + σ * (cw_j * ΔW + ch_j * ΔH)
-
-    where ΔW := W_{t0, t1} is the increment of the Brownian motion and
-    ΔH := H_{t0, t1} is its corresponding space-time Levy Area.
-    """
-
-    # Only supports explicit SRK so far
-    c: np.ndarray
-    b: np.ndarray
-    a: list[np.ndarray]
-
-    # coefficients for W and H (of shape (len(c)+1,)
-    cw: np.ndarray
-    ch: np.ndarray
-    cw_last: Scalar
-    ch_last: Scalar
-
-    def __post_init__(self):
-        assert self.c.ndim == 1
-        for a_i in self.a:
-            assert a_i.ndim == 1
-        assert self.b.ndim == 1
-        assert self.c.shape[0] == len(self.a)
-        assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.a))
-        assert self.c.shape[0] + 1 == self.b.shape[0]
-        assert self.cw.shape[0] == self.b.shape[0]
-        assert self.ch.shape[0] == self.b.shape[0]
-        for i, (a_i, c_i) in enumerate(zip(self.a, self.c)):
-            assert np.allclose(sum(a_i), c_i)
-        assert np.allclose(sum(self.b), 1.0)
-
-        # TODO: add checks for whether the method is FSAL
-
-
-class ANSR(AbstractItoSolver):
+class ALIGN(AbstractSolver):
     """Additive-Noise Stochastic Runge-Kutta method.
     For description see StochasticButcherTableau.
     """
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
-    tableau: StochasticButcherTableau
 
     def order(self, terms):
         return 2
@@ -84,7 +39,7 @@ class ANSR(AbstractItoSolver):
             terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
             t0: Scalar,
             t1: Scalar,
-            y0: PyTree,
+            y0: Array,
             args: PyTree,
     ) -> _SolverState:
         γ, u, f = args  # f is in fact grad(f)
@@ -99,9 +54,19 @@ class ANSR(AbstractItoSolver):
 
         a3 = u * ((1 + α) * β - 1) / (jnp.square(γ) * h)
         a4 = a2 / h
+        ρ2 = ρ * γ
+        ch2 = -(6 * ρ2 / α) * (1 + β + 2 * (β-1) / α)
+        cw2 = ρ2 * (1 - β) / α
 
-        ch2 = -6 * ρ / α * (1 + β + 2 * (1 - β) / α)
-        cw2 = ρ * (1 - β) / α
+        jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
+                        beta=β, a1=a1, a2=a2, ch1=ch1, cw1=cw1)
+        jax.debug.print("a3: {a3}, a4: {a4}, ch2: {ch2}, cw2: {cw2}",
+                        a3=a3, a4=a4, ch2=ch2, cw2=cw2)
+
+        assert y0.ndim == 1
+        dim = int(y0.shape[0] / 2)
+        assert y0.shape[0] == 2 * dim
+        x0 = y0[:dim]
 
         return {'h': h,
                 'gamma': γ,
@@ -114,35 +79,46 @@ class ANSR(AbstractItoSolver):
                 'cw1': cw1,
                 'ch1': ch1,
                 'cw2': cw2,
-                'ch2': ch2}
+                'ch2': ch2,
+                'f(x)': f(x0)}
 
     def step(
             self,
             terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
             t0: Scalar,
             t1: Scalar,
-            y0: PyTree,
+            y0: Array,
             args: PyTree,
             solver_state: _SolverState,
             made_jump: Bool,
-    ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+    ) -> Tuple[Array, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del made_jump
         h = t1 - t0
         γ, u, f = args
         h_s, gamma_s, u_s = solver_state['h'], solver_state['gamma'], solver_state['u']
-        cond = jnp.all(jnp.array([h == h_s, γ == gamma_s, u == u_s]))
-        solver_state = lax.cond(cond, self.init(terms, t0, t1, y0, args), solver_state)
+        cond = jnp.allclose(jnp.array([h, γ, u]), jnp.array([h_s, gamma_s, u_s]))
+        state = lax.cond(cond, lambda x: x, lambda _: self.init(terms, t0, t1, y0, args), solver_state)
+        # jax.debug.print("{h}", h=state['h'])
 
         drift, diffusion = terms.terms
         levy: LevyVal = diffusion.levy_contr(t0, t1)
         w = levy.W
         hh = levy.H
 
-        # TODO: add body
+        assert y0.ndim == 1
+        dim = int(y0.shape[0] / 2)
+        assert y0.shape[0] == 2 * dim
+        x0, v0 = y0[:dim], y0[dim:]
 
-        y1 = y0
+        f0 = state['f(x)']
+        x1 = x0 + state['a1'] * v0 + state['a2'] * f0 + state['cw1'] * w + state['ch1'] * hh
+        f1 = f(x1)
+        state['f(x)'] = f1
+        v1 = state['beta'] * v0 + state['a3'] * f0 + state['a4'] * f1 + state['cw2'] * w + state['ch2'] * hh
+
+        y1 = jnp.concatenate((x1, v1))
         dense_info = dict(y0=y0, y1=y1)
-        return y1, None, dense_info, solver_state, RESULTS.successful
+        return y1, None, dense_info, state, RESULTS.successful
 
     def func(
             self,
