@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 
 import jax
 import jax.tree_util as jtu
@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jax.lax as lax
 import equinox.internal as eqxi
 from equinox.internal import ω
-from jax import debug
+from jax import debug, Array
 
 from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
 from ..local_interpolation import LocalLinearInterpolation
@@ -17,7 +17,7 @@ from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
 from .base import AbstractItoSolver
 
 _ErrorEstimate = None
-_SolverState = None
+_SolverState = dict[str, Array | float | Any]
 
 
 @dataclass(frozen=True)
@@ -87,15 +87,34 @@ class ANSR(AbstractItoSolver):
             y0: PyTree,
             args: PyTree,
     ) -> _SolverState:
-        return None
+        γ, u, f = args  # f is in fact grad(f)
+        h = t1 - t0
+        α = γ * h
+        β = jnp.exp(-α)
+        a1 = (1 - β) / γ
+        a2 = u * (1 - β - α) / jnp.square(γ)
+        ρ = jnp.sqrt(2 * u / γ)
+        ch1 = 6 * ρ * ((1 + β) / α + 2 * (β - 1) / jnp.square(α))
+        cw1 = ρ * ((β - 1) / α + 1)
 
-    def embed_a_lower(self):
-        num_stages = len(self.tableau.b)
-        a = self.tableau.a
-        tab_a = np.zeros((num_stages, num_stages))
-        for i, a_i in enumerate(a):
-            tab_a[i + 1, : i + 1] = a_i
-        return jnp.asarray(tab_a)
+        a3 = u * ((1 + α) * β - 1) / (jnp.square(γ) * h)
+        a4 = a2 / h
+
+        ch2 = -6 * ρ / α * (1 + β + 2 * (1 - β) / α)
+        cw2 = ρ * (1 - β) / α
+
+        return {'h': h,
+                'gamma': γ,
+                'u': u,
+                'beta': β,
+                'a1': a1,
+                'a2': a2,
+                'a3': a3,
+                'a4': a4,
+                'cw1': cw1,
+                'ch1': ch1,
+                'cw2': cw2,
+                'ch2': ch2}
 
     def step(
             self,
@@ -107,51 +126,23 @@ class ANSR(AbstractItoSolver):
             solver_state: _SolverState,
             made_jump: Bool,
     ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
-        del solver_state, made_jump
-
+        del made_jump
         h = t1 - t0
+        γ, u, f = args
+        h_s, gamma_s, u_s = solver_state['h'], solver_state['gamma'], solver_state['u']
+        cond = jnp.all(jnp.array([h == h_s, γ == gamma_s, u == u_s]))
+        solver_state = lax.cond(cond, self.init(terms, t0, t1, y0, args), solver_state)
+
         drift, diffusion = terms.terms
         levy: LevyVal = diffusion.levy_contr(t0, t1)
         w = levy.W
         hh = levy.H
-        sigma = diffusion.vf(t0, y0, args)
 
-        def stage(carry: tuple[int, list[PyTree]], x: tuple[jax.Array, Scalar, Scalar, Scalar]):
-            # carry = [k1, k2, ..., k_{j-1}, 0, 0, ..., 0] where ki are already multiplied by h, i.e.
-            # ki = drift.vf_prod(t0 + c_i*h, y_i, args, h)
-            a_j, c_j, cw_j, ch_j = x
-            j, ks = carry
-            diffusion_contr = cw_j * w + ch_j * hh
+        # TODO: add body
 
-            def lin_comb_a_j(k_leaf):
-                return jnp.tensordot(a_j, k_leaf, axes=1)
-            a_j_mult_k = jtu.tree_map(lin_comb_a_j, ks)
-
-            z_j = (y0 ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω + a_j_mult_k ** ω).ω
-
-            k_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
-            ks = jtu.tree_map(lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), ks, k_j)
-            # note that carry will already contain the whole stack of k_js, so no need for second return value
-            carry = (j+1, ks)
-            return carry, None
-
-        a = self.embed_a_lower()
-        c = jnp.insert(self.tableau.c, 0, 0.0)
-        b, cw, ch = self.tableau.b, self.tableau.cw, self.tableau.ch
-        # ks is a PyTree of the same shape as y0, except that the arrays inside have
-        # an additional batch dimesnion of size len(b) (i.e. num stages)
-        ks = jtu.tree_map(lambda leaf: jnp.zeros(shape=(len(b),) + leaf.shape, dtype=leaf.dtype), y0)
-        carry = (0, ks)
-        (_, ks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b))
-
-        def lin_comb_b(k_leaf):
-            return jnp.tensordot(b, k_leaf, axes=1)
-        b_mult_k = jtu.tree_map(lin_comb_b, ks)
-
-        diffusion_contr = self.tableau.cw_last * w + self.tableau.ch_last * hh
-        y1 = (y0 ** ω + b_mult_k ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
+        y1 = y0
         dense_info = dict(y0=y0, y1=y1)
-        return y1, None, dense_info, None, RESULTS.successful
+        return y1, None, dense_info, solver_state, RESULTS.successful
 
     def func(
             self,
