@@ -1,3 +1,4 @@
+from .align import ALIGN
 from .ansr import ANSR
 from .base import (
     AbstractAdaptiveSolver,
