@@ -51,6 +51,7 @@ from .solver import (
     AbstractSolver,
     AbstractStratonovichSolver,
     AbstractWrappedSolver,
+    ALIGN,
     ANSR,
     ShARK,
     Bosh3,
