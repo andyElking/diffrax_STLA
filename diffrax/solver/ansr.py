@@ -20,25 +20,30 @@ _ErrorEstimate = None
 _SolverState = None
 
 
-# def linear_combination(a: jax.Array):
-#     def lin_comb(*k_leaf):
-#         return jnp.vdot(a, jnp.array([*k_leaf]))
-#
-#     def fun(ks: list[PyTree]) -> PyTree:
-#         return jtu.tree_map(lin_comb, *ks)
-#     return fun
-
-
 @dataclass(frozen=True)
 class StochasticButcherTableau:
+    """A Butcher Tableau for Additive-noise SRK methods.
+
+    Given the SDE
+    dX_t = f(t, X_t) dt + σ dW_t
+
+    We construct the SRK as follows:
+    y_1 = y_0 + h (Σ_{j=1}^s b_j k_j) + σ * (cw_last * ΔW + ch_last * ΔH)
+    k_j = f(t_0 + c_j h, z_j)
+    z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_j) + σ * (cw_j * ΔW + ch_j * ΔH)
+
+    where ΔW := W_{t0, t1} is the increment of the Brownian motion and
+    ΔH := H_{t0, t1} is its corresponding space-time Levy Area.
+    """
+
     # Only supports explicit SRK so far
-    c: jax.Array
-    b: jax.Array
-    a: list[jax.Array]
+    c: np.ndarray
+    b: np.ndarray
+    a: list[np.ndarray]
 
     # coefficients for W and H (of shape (len(c)+1,)
-    cw: jax.Array
-    ch: jax.Array
+    cw: np.ndarray
+    ch: np.ndarray
     cw_last: Scalar
     ch_last: Scalar
 
@@ -56,25 +61,17 @@ class StochasticButcherTableau:
             assert np.allclose(sum(a_i), c_i)
         assert np.allclose(sum(self.b), 1.0)
 
-        # FSAL checks TBA
+        # TODO: add checks for whether the method is FSAL
 
 
 class ANSR(AbstractItoSolver):
     """Additive-Noise Stochastic Runge-Kutta method.
-    Takes in Butcher Tableau (ish). Description TBA.
+    For description see StochasticButcherTableau.
     """
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
-    tableau = StochasticButcherTableau(
-        c=jnp.array([5 / 6]),
-        b=jnp.array([0.4, 0.6]),
-        a=[jnp.array([5 / 6])],
-        cw=jnp.array([0.0, 5 / 6]),
-        ch=jnp.array([1.0, 0.0]),
-        cw_last=1.0,
-        ch_last=0.0
-    )
+    tableau: StochasticButcherTableau
 
     def order(self, terms):
         return 2
@@ -130,9 +127,9 @@ class ANSR(AbstractItoSolver):
                 return jnp.tensordot(a_j, k_leaf, axes=1)
             a_j_mult_k = jtu.tree_map(lin_comb_a_j, ks)
 
-            y_j = (y0 ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω + a_j_mult_k ** ω).ω
+            z_j = (y0 ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω + a_j_mult_k ** ω).ω
 
-            k_j = drift.vf_prod(t0 + c_j * h, y_j, args, h)
+            k_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
             ks = jtu.tree_map(lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), ks, k_j)
             # note that carry will already contain the whole stack of k_js, so no need for second return value
             carry = (j+1, ks)
