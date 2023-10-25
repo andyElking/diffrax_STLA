@@ -94,8 +94,9 @@ class ALIGN(AbstractItoSolver):
                 'ch2': ch2}
 
     def recompute_coeffs(self, h, args, taylor_coeffs):
+        jax.debug.print("recomputing coeffs for h = {h}", h=h)
         γ, _, _ = args
-        return lax.cond(h * γ < 0.2,
+        return lax.cond(h * γ < 0.01,
                         lambda h_: self.eval_taylor(h_, taylor_coeffs),
                         lambda h_: self.directly_compute_coeffs(h_, args),
                         h)
@@ -143,14 +144,15 @@ class ALIGN(AbstractItoSolver):
         st = solver_state
         h = t1 - t0
         γ, u, f = args
-        h_s = st['h']
+        h_state = st['h']
         tay = st['taylor_coeffs']
         cfs = st['coeffs']
 
         # If h changed recompute coefficients
-        cond = jnp.isclose(h_s, h)
+        cond = jnp.isclose(h_state, h)
         cfs = lax.cond(cond, lambda x: x, lambda _: self.recompute_coeffs(h, args, tay), cfs)
         st['coeffs'] = cfs
+        st['h'] = h
         # jax.debug.print("{h}", h=st['h'])
 
         drift, diffusion = terms.terms
