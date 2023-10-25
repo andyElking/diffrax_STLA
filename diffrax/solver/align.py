@@ -63,11 +63,13 @@ class ALIGN(AbstractItoSolver):
 
     @staticmethod
     def eval_taylor(h, coeffs):
+        # jax.debug.print("eval taylor for h = {h}", h=h)
         h_powers = jnp.power(h, jnp.array([0, 1, 2, 3, 4]))
         return jtu.tree_map(lambda tay_coeffs: jnp.vdot(h_powers, tay_coeffs), coeffs)
 
     @staticmethod
     def directly_compute_coeffs(h, args):
+        # jax.debug.print("direct compute coeffs for h = {h}", h=h)
         γ, u, _ = args  # f is in fact grad(f)
         α = γ * h
         β = jnp.exp(-α)
@@ -94,7 +96,7 @@ class ALIGN(AbstractItoSolver):
                 'ch2': ch2}
 
     def recompute_coeffs(self, h, args, taylor_coeffs):
-        jax.debug.print("recomputing coeffs for h = {h}", h=h)
+        # jax.debug.print("recomputing coeffs for h = {h}", h=h)
         γ, _, _ = args
         return lax.cond(h * γ < 0.01,
                         lambda h_: self.eval_taylor(h_, taylor_coeffs),
