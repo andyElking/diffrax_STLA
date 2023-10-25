@@ -14,13 +14,13 @@ from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
 from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
-from .base import AbstractSolver
+from .base import AbstractItoSolver
 
 _ErrorEstimate = None
 _SolverState = dict[str, Array | float | Any]
 
 
-class ALIGN(AbstractSolver):
+class ALIGN(AbstractItoSolver):
     """Additive-Noise Stochastic Runge-Kutta method.
     For description see StochasticButcherTableau.
     """
@@ -58,10 +58,10 @@ class ALIGN(AbstractSolver):
         ch2 = -(6 * ρ2 / α) * (1 + β + 2 * (β-1) / α)
         cw2 = ρ2 * (1 - β) / α
 
-        jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
-                        beta=β, a1=a1, a2=a2, ch1=ch1, cw1=cw1)
-        jax.debug.print("a3: {a3}, a4: {a4}, ch2: {ch2}, cw2: {cw2}",
-                        a3=a3, a4=a4, ch2=ch2, cw2=cw2)
+        # jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
+        #                 beta=β, a1=a1, a2=a2, ch1=ch1, cw1=cw1)
+        # jax.debug.print("a3: {a3}, a4: {a4}, ch2: {ch2}, cw2: {cw2}",
+        #                 a3=a3, a4=a4, ch2=ch2, cw2=cw2)
 
         assert y0.ndim == 1
         dim = int(y0.shape[0] / 2)
