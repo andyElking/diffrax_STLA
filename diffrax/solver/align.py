@@ -5,6 +5,7 @@ import jax
 import jax.tree_util as jtu
 import numpy as np
 import jax.numpy as jnp
+from jax.numpy import sqrt
 import jax.lax as lax
 import equinox.internal as eqxi
 from equinox.internal import ω
@@ -34,6 +35,30 @@ class ALIGN(AbstractItoSolver):
     def strong_order(self, terms):
         return 1.5
 
+    @staticmethod
+    def taylor_coeffs(args):
+        c, u, _ = args
+        c2 = jnp.square(c)
+        c3 = c2 * c
+        c4 = c3 * c
+        rcu = jnp.sqrt(u*c)
+        a1 = jnp.array([0, 1, -c/2, c2/6, -c3/24])
+        a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24])
+        a3 = jnp.array([0, -u/2, c*u/3, -c2*u/8, c3*u/30])
+        a4 = jnp.array([0, -u/2, c*u/6, -c2*u/24, c3*u/120])
+        cw1 = sqrt(2) * jnp.array([0, rcu, -c*rcu/6, c2*rcu/24, c3*rcu/120])
+        ch1 = sqrt(2) * jnp.array([0, rcu, -c*rcu/2, 3*c2*rcu/20, -c3*rcu/30])
+        cw2 = sqrt(2) * jnp.array([rcu, -c*rcu/2, c2*rcu/6, -c3*rcu/24, c4*rcu/120])
+        ch2 = -c * ch1
+        return {'a1': a1,
+                'a2': a2,
+                'a3': a3,
+                'a4': a4,
+                'cw1': cw1,
+                'ch1': ch1,
+                'cw2': cw2,
+                'ch2': ch2}
+
     def init(
             self,
             terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
@@ -55,7 +80,8 @@ class ALIGN(AbstractItoSolver):
         a3 = u * ((1 + α) * β - 1) / (jnp.square(γ) * h)
         a4 = a2 / h
         ρ2 = ρ * γ
-        ch2 = -(6 * ρ2 / α) * (1 + β + 2 * (β-1) / α)
+        # ch2 = -(6 * ρ2 / α) * (1 + β + 2 * (β-1) / α)
+        ch2 = -γ * ch1
         cw2 = ρ2 * (1 - β) / α
 
         # jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
