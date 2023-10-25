@@ -41,16 +41,18 @@ class ALIGN(AbstractItoSolver):
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
-        rcu = jnp.sqrt(u*c)
-        a1 = jnp.array([0, 1, -c/2, c2/6, -c3/24])
+        rcu = jnp.sqrt(u * c)
+        β = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24])
+        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24])
         a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24])
-        a3 = jnp.array([0, -u/2, c*u/3, -c2*u/8, c3*u/30])
-        a4 = jnp.array([0, -u/2, c*u/6, -c2*u/24, c3*u/120])
-        cw1 = sqrt(2) * jnp.array([0, rcu, -c*rcu/6, c2*rcu/24, c3*rcu/120])
-        ch1 = sqrt(2) * jnp.array([0, rcu, -c*rcu/2, 3*c2*rcu/20, -c3*rcu/30])
-        cw2 = sqrt(2) * jnp.array([rcu, -c*rcu/2, c2*rcu/6, -c3*rcu/24, c4*rcu/120])
+        a3 = jnp.array([0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30])
+        a4 = jnp.array([0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120])
+        cw1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 6, c2 * rcu / 24, c3 * rcu / 120])
+        ch1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30])
+        cw2 = sqrt(2) * jnp.array([rcu, -c * rcu / 2, c2 * rcu / 6, -c3 * rcu / 24, c4 * rcu / 120])
         ch2 = -c * ch1
-        return {'a1': a1,
+        return {'beta': β,
+                'a1': a1,
                 'a2': a2,
                 'a3': a3,
                 'a4': a4,
@@ -59,16 +61,14 @@ class ALIGN(AbstractItoSolver):
                 'cw2': cw2,
                 'ch2': ch2}
 
-    def init(
-            self,
-            terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
-            t0: Scalar,
-            t1: Scalar,
-            y0: Array,
-            args: PyTree,
-    ) -> _SolverState:
-        γ, u, f = args  # f is in fact grad(f)
-        h = t1 - t0
+    @staticmethod
+    def eval_taylor(h, coeffs):
+        h_powers = jnp.power(h, jnp.array([0, 1, 2, 3, 4]))
+        return jtu.tree_map(lambda tay_coeffs: jnp.vdot(h_powers, tay_coeffs), coeffs)
+
+    @staticmethod
+    def directly_compute_coeffs(h, args):
+        γ, u, _ = args  # f is in fact grad(f)
         α = γ * h
         β = jnp.exp(-α)
         a1 = (1 - β) / γ
@@ -83,21 +83,7 @@ class ALIGN(AbstractItoSolver):
         # ch2 = -(6 * ρ2 / α) * (1 + β + 2 * (β-1) / α)
         ch2 = -γ * ch1
         cw2 = ρ2 * (1 - β) / α
-
-        # jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
-        #                 beta=β, a1=a1, a2=a2, ch1=ch1, cw1=cw1)
-        # jax.debug.print("a3: {a3}, a4: {a4}, ch2: {ch2}, cw2: {cw2}",
-        #                 a3=a3, a4=a4, ch2=ch2, cw2=cw2)
-
-        assert y0.ndim == 1
-        dim = int(y0.shape[0] / 2)
-        assert y0.shape[0] == 2 * dim
-        x0 = y0[:dim]
-
-        return {'h': h,
-                'gamma': γ,
-                'u': u,
-                'beta': β,
+        return {'beta': β,
                 'a1': a1,
                 'a2': a2,
                 'a3': a3,
@@ -105,7 +91,42 @@ class ALIGN(AbstractItoSolver):
                 'cw1': cw1,
                 'ch1': ch1,
                 'cw2': cw2,
-                'ch2': ch2,
+                'ch2': ch2}
+
+    def recompute_coeffs(self, h, args, taylor_coeffs):
+        γ, _, _ = args
+        return lax.cond(h * γ < 0.2,
+                        lambda h_: self.eval_taylor(h_, taylor_coeffs),
+                        lambda h_: self.directly_compute_coeffs(h_, args),
+                        h)
+
+    def init(
+            self,
+            terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+            t0: Scalar,
+            t1: Scalar,
+            y0: Array,
+            args: PyTree,
+    ) -> _SolverState:
+        γ, u, f = args  # f is in fact grad(f)
+        h = t1 - t0
+
+        # jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
+        #                 beta=β, a1=a1, a2=a2, ch1=ch1, cw1=cw1)
+        # jax.debug.print("a3: {a3}, a4: {a4}, ch2: {ch2}, cw2: {cw2}",
+        #                 a3=a3, a4=a4, ch2=ch2, cw2=cw2)
+
+        taylor_coeffs = self.taylor_coeffs(args)
+        coeffs = self.recompute_coeffs(h, args, taylor_coeffs)
+
+        assert y0.ndim == 1
+        dim = int(y0.shape[0] / 2)
+        assert y0.shape[0] == 2 * dim
+        x0 = y0[:dim]
+
+        return {'h': h,
+                'taylor_coeffs': taylor_coeffs,
+                'coeffs': coeffs,
                 'f(x)': f(x0)}
 
     def step(
@@ -119,12 +140,18 @@ class ALIGN(AbstractItoSolver):
             made_jump: Bool,
     ) -> Tuple[Array, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del made_jump
+        st = solver_state
         h = t1 - t0
         γ, u, f = args
-        h_s, gamma_s, u_s = solver_state['h'], solver_state['gamma'], solver_state['u']
-        cond = jnp.allclose(jnp.array([h, γ, u]), jnp.array([h_s, gamma_s, u_s]))
-        state = lax.cond(cond, lambda x: x, lambda _: self.init(terms, t0, t1, y0, args), solver_state)
-        # jax.debug.print("{h}", h=state['h'])
+        h_s = st['h']
+        tay = st['taylor_coeffs']
+        cfs = st['coeffs']
+
+        # If h changed recompute coefficients
+        cond = jnp.isclose(h_s, h)
+        cfs = lax.cond(cond, lambda x: x, lambda _: self.recompute_coeffs(h, args, tay), cfs)
+        st['coeffs'] = cfs
+        # jax.debug.print("{h}", h=st['h'])
 
         drift, diffusion = terms.terms
         levy: LevyVal = diffusion.levy_contr(t0, t1)
@@ -136,15 +163,15 @@ class ALIGN(AbstractItoSolver):
         assert y0.shape[0] == 2 * dim
         x0, v0 = y0[:dim], y0[dim:]
 
-        f0 = state['f(x)']
-        x1 = x0 + state['a1'] * v0 + state['a2'] * f0 + state['cw1'] * w + state['ch1'] * hh
+        f0 = st['f(x)']
+        x1 = x0 + cfs['a1'] * v0 + cfs['a2'] * f0 + cfs['cw1'] * w + cfs['ch1'] * hh
         f1 = f(x1)
-        state['f(x)'] = f1
-        v1 = state['beta'] * v0 + state['a3'] * f0 + state['a4'] * f1 + state['cw2'] * w + state['ch2'] * hh
+        st['f(x)'] = f1
+        v1 = cfs['beta'] * v0 + cfs['a3'] * f0 + cfs['a4'] * f1 + cfs['cw2'] * w + cfs['ch2'] * hh
 
         y1 = jnp.concatenate((x1, v1))
         dense_info = dict(y0=y0, y1=y1)
-        return y1, None, dense_info, state, RESULTS.successful
+        return y1, None, dense_info, st, RESULTS.successful
 
     def func(
             self,
