@@ -1,1 +1,1 @@
-from .sde_solver_convergence import get_errs
+from .sde_solver_convergence import solver_order
