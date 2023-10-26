@@ -33,7 +33,7 @@ class ALIGN(AbstractItoSolver):
         return 2
 
     def strong_order(self, terms):
-        return 1.5
+        return 2
 
     @staticmethod
     def taylor_coeffs(args):
@@ -41,15 +41,17 @@ class ALIGN(AbstractItoSolver):
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
+        c5 = c4 * c
         rcu = jnp.sqrt(u * c)
-        β = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24])
-        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24])
-        a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24])
-        a3 = jnp.array([0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30])
-        a4 = jnp.array([0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120])
-        cw1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 6, c2 * rcu / 24, c3 * rcu / 120])
-        ch1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30])
-        cw2 = sqrt(2) * jnp.array([rcu, -c * rcu / 2, c2 * rcu / 6, -c3 * rcu / 24, c4 * rcu / 120])
+
+        β = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5/120])
+        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4/120])
+        a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120])
+        a3 = jnp.array([0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30, -c4*u/144])
+        a4 = jnp.array([0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120, - c4*u/720])
+        cw1 = sqrt(2) * jnp.array([0, rcu/2, -c * rcu / 6, c2 * rcu / 24, -c3 * rcu / 120, c4*rcu/720])
+        ch1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30, c4 * rcu/168])
+        cw2 = sqrt(2) * jnp.array([rcu, -c * rcu / 2, c2 * rcu / 6, -c3 * rcu / 24, c4 * rcu / 120, -c5*rcu/720])
         ch2 = -c * ch1
         return {'beta': β,
                 'a1': a1,
@@ -64,7 +66,7 @@ class ALIGN(AbstractItoSolver):
     @staticmethod
     def eval_taylor(h, coeffs):
         # jax.debug.print("eval taylor for h = {h}", h=h)
-        h_powers = jnp.power(h, jnp.array([0, 1, 2, 3, 4]))
+        h_powers = jnp.power(h, jnp.arange(0, 6, dtype=jnp.dtype(h)))
         return jtu.tree_map(lambda tay_coeffs: jnp.vdot(h_powers, tay_coeffs), coeffs)
 
     @staticmethod
@@ -98,7 +100,7 @@ class ALIGN(AbstractItoSolver):
     def recompute_coeffs(self, h, args, taylor_coeffs):
         # jax.debug.print("recomputing coeffs for h = {h}", h=h)
         γ, _, _ = args
-        return lax.cond(h * γ < 0.01,
+        return lax.cond(h * γ < 0.05,
                         lambda h_: self.eval_taylor(h_, taylor_coeffs),
                         lambda h_: self.directly_compute_coeffs(h_, args),
                         h)
