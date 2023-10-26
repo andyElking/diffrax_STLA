@@ -6,7 +6,7 @@ from jax import config
 from diffrax import diffeqsolve, ControlTerm, MultiTerm, ODETerm, SaveAt, VirtualBrownianTree
 
 
-def l2_distance(ys1: jax.Array, ys2: jax.Array):
+def l2_dist(ys1: jax.Array, ys2: jax.Array):
     assert ys1.shape == ys2.shape
     n = ys1.shape[0]
     square_dist = jnp.square(ys1 - ys2)
@@ -28,14 +28,20 @@ def solutions(keys, sde, dt0, solver):
     return jax.vmap(end_value)(keys)
 
 
-def get_errs(keys, sde, solver, correct_solver, dt_precise, hs=None):
+def solver_distance(keys, sde, solver1, dt1, solver2, dt2):
+    sols1 = solutions(keys, sde, dt0=dt1, solver=solver1)
+    sols2 = solutions(keys, sde, dt0=dt2, solver=solver2)
+    return l2_dist(sols1, sols2)
+
+
+def solver_order(keys, sde, solver, correct_solver, dt_precise, hs=None):
     correct_sols = solutions(keys, sde, dt0=dt_precise, solver=correct_solver)
     if hs is None:
-        hs = jnp.float32(0.025) * jnp.power(jnp.float32(2.0), jnp.arange(0, 6, dtype=jnp.float32))
+        hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 6))
 
     def get_single_err(h):
         sols = solutions(keys, sde, dt0=h, solver=solver)
-        return l2_distance(sols, correct_sols)
+        return l2_dist(sols, correct_sols)
 
     errs = jax.vmap(get_single_err)(hs)
     return hs, errs
