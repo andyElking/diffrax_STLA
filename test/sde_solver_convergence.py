@@ -15,12 +15,12 @@ def l2_dist(ys1: jax.Array, ys2: jax.Array):
 
 
 def solutions(keys, sde, dt0, solver):
-    drift, diffusion, args, y0, t0, t1 = sde
+    drift, diffusion, args, y0, t0, t1, w_dim = sde
     saveat = SaveAt(ts=[t1])
     ode_term = ODETerm(drift)
 
     def end_value(key):
-        path = VirtualBrownianTree(t0=t0, t1=t1, shape=(2,), tol=2 ** -9, key=key, compute_stla=True)
+        path = VirtualBrownianTree(t0=t0, t1=t1, shape=(w_dim,), tol=2 ** -9, key=key, compute_stla=True)
         terms = MultiTerm(ode_term, ControlTerm(diffusion, path))
         sol = diffeqsolve(terms, solver, t0, t1, dt0=dt0, y0=y0, args=args, saveat=saveat)
         return sol.ys[0]
@@ -37,7 +37,7 @@ def solver_distance(keys, sde, solver1, dt1, solver2, dt2):
 def solver_order(keys, sde, solver, correct_solver, dt_precise, hs=None):
     correct_sols = solutions(keys, sde, dt0=dt_precise, solver=correct_solver)
     if hs is None:
-        hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 6))
+        hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5))
 
     def get_single_err(h):
         sols = solutions(keys, sde, dt0=h, solver=solver)
