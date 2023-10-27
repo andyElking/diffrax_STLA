@@ -34,10 +34,9 @@ def solver_distance(keys, sde, solver1, dt1, solver2, dt2):
     return l2_dist(sols1, sols2)
 
 
-def solver_order(keys, sde, solver, correct_solver, dt_precise, hs=None):
+def solver_order(keys, sde, solver, correct_solver, dt_precise, hs_num=5):
     correct_sols = solutions(keys, sde, dt0=dt_precise, solver=correct_solver)
-    if hs is None:
-        hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5))
+    hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, hs_num))
 
     def get_single_err(h):
         sols = solutions(keys, sde, dt0=h, solver=solver)
