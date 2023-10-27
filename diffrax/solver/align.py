@@ -17,7 +17,7 @@ from ..solution import RESULTS
 from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
 from .base import AbstractItoSolver
 
-_ErrorEstimate = None
+_ErrorEstimate = Array
 _SolverState = dict[str, Array | float | Any]
 
 
@@ -176,8 +176,11 @@ class ALIGN(AbstractItoSolver):
         v1 = cfs['beta'] * v0 + cfs['a3'] * f0 + cfs['a4'] * f1 + cfs['cw2'] * w + cfs['ch2'] * hh
 
         y1 = jnp.concatenate((x1, v1))
+
+        error_estimate = jnp.sqrt(jnp.sum(jnp.square(cfs['a4'] * (f1 - f0))))
+
         dense_info = dict(y0=y0, y1=y1)
-        return y1, None, dense_info, st, RESULTS.successful
+        return y1, error_estimate, dense_info, st, RESULTS.successful
 
     def func(
             self,
