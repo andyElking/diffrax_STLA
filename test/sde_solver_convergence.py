@@ -14,7 +14,7 @@ def l2_dist(ys1: jax.Array, ys2: jax.Array):
     return jnp.sqrt(avg)
 
 
-def solutions(keys, sde, dt0, solver):
+def solutions(keys, sde, dt0, solver, stepsize_controller=None):
     drift, diffusion, args, y0, t0, t1, w_dim = sde
     saveat = SaveAt(ts=[t1])
     ode_term = ODETerm(drift)
@@ -22,7 +22,11 @@ def solutions(keys, sde, dt0, solver):
     def end_value(key):
         path = VirtualBrownianTree(t0=t0, t1=t1, shape=(w_dim,), tol=2 ** -9, key=key, compute_stla=True)
         terms = MultiTerm(ode_term, ControlTerm(diffusion, path))
-        sol = diffeqsolve(terms, solver, t0, t1, dt0=dt0, y0=y0, args=args, saveat=saveat)
+        if stepsize_controller is None:
+            sol = diffeqsolve(terms, solver, t0, t1, dt0=dt0, y0=y0, args=args, saveat=saveat)
+        else:
+            sol = diffeqsolve(terms, solver, t0, t1, dt0=dt0, y0=y0, args=args, saveat=saveat,
+                              stepsize_controller=stepsize_controller)
         return sol.ys[0]
 
     return jax.vmap(end_value)(keys)
