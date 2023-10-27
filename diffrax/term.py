@@ -220,6 +220,12 @@ class _ControlTerm(AbstractTerm):
         return self.control.evaluate(t0, t1)
 
     def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
+        """
+        Same as contr, except that it returns a LevyVal.
+        Intended for use with VirtualBrownianTree when computing
+        Levy area (use the compute_stla flag when initialising the
+        Virtual Brownian Tree).
+        """
         return self.control.eval_levy(t0, t1)
 
     def to_ode(self) -> ODETerm:
@@ -390,55 +396,6 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
             args: PyTree,
     ) -> bool:
         return any(term.is_vf_expensive(t0, t1, y, args) for term in self.terms)
-
-
-class AbstractSTLATerm(AbstractTerm):
-
-    @abc.abstractmethod
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        """
-        Returns a tuple where
-        Args:
-            t0:
-            t1:
-        """
-        pass
-
-
-class STLAControlTerm(ControlTerm, AbstractSTLATerm):
-    control: AbstractBrownianPath
-
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        """
-        Args:
-            t0:
-            t1:
-
-        Returns:
-        (W_{t0, t1}, H_{t0, t1})
-        """
-        return self.control.evaluate(t0, t1, use_levy=True)
-
-
-class STLAMultiTerm(MultiTerm, AbstractSTLATerm):
-    terms: _Terms
-    non_stla_terms: AbstractTerm
-    stla_term: STLAControlTerm
-
-    def __init__(self, non_stla_term: AbstractTerm, stla_term: STLAControlTerm):
-        super().__init__(non_stla_term, stla_term)
-        self.non_stla_terms = non_stla_term
-        self.stla_term = stla_term
-
-        self.terms = (self.non_stla_terms, self.stla_term)
-
-    def stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
-        w, hh = self.stla_term.stla_contr(t0, t1)
-        contr_out = (self.non_stla_terms.contr(t0, t1), w)
-        return contr_out, hh
-
-    def only_stla_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
-        return self.stla_term.stla_contr(t0, t1)
 
 
 class WrapTerm(AbstractTerm):
