@@ -100,7 +100,7 @@ class ALIGN(AbstractItoSolver):
     def recompute_coeffs(self, h, args, taylor_coeffs):
         # jax.debug.print("recomputing coeffs for h = {h}", h=h)
         γ, _, _ = args
-        return lax.cond(h * γ < 0.05,
+        return lax.cond(h * γ < 0.1,
                         lambda h_: self.eval_taylor(h_, taylor_coeffs),
                         lambda h_: self.directly_compute_coeffs(h_, args),
                         h)
