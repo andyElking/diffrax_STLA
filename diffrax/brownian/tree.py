@@ -49,6 +49,13 @@ class _State(eqx.Module):
 
 @jax.jit
 def wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
+    """
+    Computes (W_{s,u}, H_{s,u}) from (W_s, J_s) and (W_u, J_u),
+    where J_u = \int_0^u W_t dt
+    Args:
+        x0: LevyVal(W_s, J_s)
+        x1: LevyVal(W_u, J_u)
+    """
     h = (x1.h - x0.h).astype(x0.W.dtype)
     inverse_h = jnp.nan_to_num(1 / h).astype(x0.W.dtype)
     w_01 = x1.W - x0.W
@@ -58,6 +65,12 @@ def wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
 
 @jax.jit
 def wj_to_wh_single(x: LevyVal) -> LevyVal:
+    """
+    Computes (W_s, H_s) from (W_s, J_s)
+    where J_u = \int_0^u W_t dt
+    Args:
+        x: LevyVal(W_s, J_s)
+    """
     inverse_h = jnp.nan_to_num(1 / x.h).astype(x.W.dtype)
     return LevyVal(h=x.h, W=x.W, H=x.J * inverse_h - 0.5 * x.W)
 
@@ -65,6 +78,11 @@ def wj_to_wh_single(x: LevyVal) -> LevyVal:
 class VirtualBrownianTree(AbstractBrownianPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
+
+    If the "compute_stla" flag is True, then it also computes space-time Levy area H.
+    This will impact the Brownian path, so even with the same key, the trajectory will
+    be different depending on the value of compute_stla.
+
 
     ??? cite "Reference"
 
@@ -121,10 +139,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
     @jax.jit
     def normalise_t(self, t: Scalar):
+        # Used for mapping the interval [t0, t1] onto [0, 1], as all computation
+        # is done on [0, 1] for numerical stability.
         return (t - self.t0) / self._interval_len
 
     @jax.jit
     def denormalise_bm_inc(self, x: LevyVal) -> LevyVal:
+        # Rescaling back from [0, 1] to the original interval [t0, t1].
         sqrt_len = jnp.sqrt(self._interval_len)
 
         def sqrt_mult(z):
@@ -143,7 +164,15 @@ class VirtualBrownianTree(AbstractBrownianPath):
     def evaluate(
             self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_levy: bool = False,
     ) -> LevyVal:
-        # TODO: add an option where only W is computed, not H.
+        """
+        Computes the Brownian increment.
+        Args:
+            t0: Start of interval
+            t1: End of interval
+            left: ignored since Brownian motion is continuaous
+            use_levy: If true, then the return type is LevyVal, which is designed for
+            representing the joint process of the Brownian motion and its Levy area.
+        """
 
         def is_levy_val(obj):
             return isinstance(obj, LevyVal)

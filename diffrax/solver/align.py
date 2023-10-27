@@ -22,8 +22,13 @@ _SolverState = dict[str, Array | float | Any]
 
 
 class ALIGN(AbstractItoSolver):
-    """Additive-Noise Stochastic Runge-Kutta method.
-    For description see StochasticButcherTableau.
+    """The Adaptive Langevin via Interpolated Gradients and Noise method
+    designed by James Foster. Only works for Underdamped Langevin Diffusion
+    of the form
+    d x_t &= v_t dt
+    d v_t &= - γ v_t dt - u ∇f(x_t) dt + (2γu)^(1/2) dW_t
+    where v is the velocity, f is the potential, γ is the friction, and
+    W is a Brownian motion.
     """
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
@@ -37,7 +42,11 @@ class ALIGN(AbstractItoSolver):
 
     @staticmethod
     def taylor_coeffs(args):
-        c, u, _ = args
+        # When the step-size h is small the coefficients (which depend on h) need
+        # to be computed via Taylor expansion to ensure numerical stability.
+        # This precomputes the Taylor coefficients (depending on γ and u), which
+        # are then multiplied by powers of h, to get the coefficients of ALIGN.
+        c, u, _ = args  # c is γ
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
@@ -64,14 +73,15 @@ class ALIGN(AbstractItoSolver):
                 'ch2': ch2}
 
     @staticmethod
-    def eval_taylor(h, coeffs):
+    def eval_taylor(h, taylor_coeffs):
+        # Multiplies the pre-computed Taylor coefficients by powers of h.
         # jax.debug.print("eval taylor for h = {h}", h=h)
         h_powers = jnp.power(h, jnp.arange(0, 6, dtype=jnp.dtype(h)))
-        return jtu.tree_map(lambda tay_coeffs: jnp.vdot(h_powers, tay_coeffs), coeffs)
+        return jtu.tree_map(lambda tay_coeffs: jnp.vdot(h_powers, tay_coeffs), taylor_coeffs)
 
     @staticmethod
     def directly_compute_coeffs(h, args):
-        # jax.debug.print("direct compute coeffs for h = {h}", h=h)
+        # compute the coefficients directly (as opposed to via Taylor expansion)
         γ, u, _ = args  # f is in fact grad(f)
         α = γ * h
         β = jnp.exp(-α)
@@ -98,8 +108,11 @@ class ALIGN(AbstractItoSolver):
                 'ch2': ch2}
 
     def recompute_coeffs(self, h, args, taylor_coeffs):
-        # jax.debug.print("recomputing coeffs for h = {h}", h=h)
+        # Used when the step-size h changes and coefficients need to be recomputed
         γ, _, _ = args
+
+        # Depending on the size of h*γ choose whether the Taylor expansion or
+        # direct computation is more accurate.
         return lax.cond(h * γ < 0.1,
                         lambda h_: self.eval_taylor(h_, taylor_coeffs),
                         lambda h_: self.directly_compute_coeffs(h_, args),
@@ -113,13 +126,14 @@ class ALIGN(AbstractItoSolver):
             y0: Array,
             args: PyTree,
     ) -> _SolverState:
+        """
+        Precompute _SolverState which carries the Taylor coefficients and the
+        ALIGN coefficients (which can be computed from h and the Taylor coeffs).
+        This method is FSAL, so _SolverState also carries the previous evaluation
+        of grad_f.
+        """
         γ, u, f = args  # f is in fact grad(f)
         h = t1 - t0
-
-        # jax.debug.print("beta: {beta} a1: {a1}, a2: {a2}, ch1: {ch1}, cw1: {cw1}",
-        #                 beta=β, a1=a1, a2=a2, ch1=ch1, cw1=cw1)
-        # jax.debug.print("a3: {a3}, a4: {a4}, ch2: {ch2}, cw2: {cw2}",
-        #                 a3=a3, a4=a4, ch2=ch2, cw2=cw2)
 
         taylor_coeffs = self.taylor_coeffs(args)
         coeffs = self.recompute_coeffs(h, args, taylor_coeffs)
