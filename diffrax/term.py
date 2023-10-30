@@ -8,11 +8,9 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jax import lax
 
 from .custom_types import Array, PyTree, Scalar, LevyVal
 from .path import AbstractPath
-from .brownian import AbstractBrownianPath
 
 
 class AbstractTerm(eqx.Module):
