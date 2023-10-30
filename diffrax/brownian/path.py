@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 
-from ..custom_types import Array, PyTree, Scalar
+from ..custom_types import Array, PyTree, Scalar, LevyVal
 from ..misc import force_bitcast_convert_type, is_tuple_of_ints, split_by_tree
 from .base import AbstractBrownianPath
 
@@ -63,7 +63,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         return None
 
     @eqx.filter_jit
-    def evaluate(self, t0: Scalar, t1: Scalar, left: bool = True) -> PyTree[Array]:
+    def evaluate(self, t0: Scalar, t1: Scalar, left: bool = True, compute_stla: bool = False) -> PyTree[Array]:
         del left
         t0 = eqxi.nondifferentiable(t0, name="t0")
         t1 = eqxi.nondifferentiable(t1, name="t1")
@@ -73,13 +73,15 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         key = jrandom.fold_in(key, t1_)
         key = split_by_tree(key, self.shape)
         return jtu.tree_map(
-            lambda key, shape: self._evaluate_leaf(t0, t1, key, shape), key, self.shape
+            lambda key, shape: self._evaluate_leaf(t0, t1, key, shape, compute_stla), key, self.shape
         )
 
-    def _evaluate_leaf(self, t0: Scalar, t1: Scalar, key, shape: jax.ShapeDtypeStruct):
-        return jrandom.normal(key, shape.shape, shape.dtype) * jnp.sqrt(t1 - t0).astype(
-            shape.dtype
-        )
+    def _evaluate_leaf(self, t0: Scalar, t1: Scalar, key, shape: jax.ShapeDtypeStruct, compute_stla: bool):
+        w = jrandom.normal(key, shape.shape, shape.dtype) * jnp.sqrt(t1 - t0).astype(shape.dtype)
+        if not compute_stla:
+            return w
+        hh = jrandom.normal(key, shape.shape, shape.dtype) * jnp.sqrt((t1 - t0)/12).astype(shape.dtype)
+        return LevyVal(h=t1-t0, W=w, H=hh)
 
 
 UnsafeBrownianPath.__init__.__doc__ = """
