@@ -93,9 +93,7 @@ from .step_size_controller import (
 from .term import (
     AbstractTerm,
     ControlTerm,
-    STLAControlTerm,
     MultiTerm,
-    STLAMultiTerm,
     ODETerm,
     WeaklyDiagonalControlTerm,
 )
