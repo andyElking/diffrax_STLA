@@ -84,6 +84,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
     be different depending on the value of compute_stla.
 
 
+
+
     ??? cite "Reference"
 
         ```bibtex
@@ -96,9 +98,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
         }
         ```
 
-        (The implementation here is a slight improvement on the reference
-        implementation, by being piecwise quadratic rather than piecewise linear. This
-        corrects a small bias in the generated samples.)
+        (The implementation here is a slight improvement on the reference implementation,
+        by using an interpolation method which ensures all the 2nd moments are correct.)
     """
 
     t0: Scalar = field(init=True)
@@ -231,7 +232,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             shape:
             dtype:
         """
-        # TODO: check for cancellation errors when applying Chen's relation
+
         h = (u - s).astype(w_s.dtype)
 
         if self.compute_stla:
@@ -292,18 +293,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
             # jnp.abs(τ - state.s) > self.tol
             # Here, because we use quadratic splines to get better samples, we always
             # iterate down to the level of the spline.
-            # return jnp.all(jnp.array([(_state.u - _state.s) > self.tol,
-            #                           r < _state.u - cancellation_err_tol,
-            #                           r > _state.s + cancellation_err_tol]))
             return (_state.u - _state.s) > self.tol
 
         def _body_fun(_state):
             """ Single-step of binary search for τ.
-            Args:
-                _state:
-
-            Returns:
-
             """
             _key1, _key2 = jrandom.split(_state.key, 2)
             _cond = r > _state.t
@@ -328,12 +321,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
 
-        # Now we check if r==s or r==u, in which case we just output the value at that endpoint.
-        # Otherwise we interpolate in between.
+        # Based on the values of (W, J) at s<t<u (where t = (s+u)/2), we interpolate
+        # to obtain approximate values of (W_r, J_r) for all r ∈ [s,u]. This is done
+        # in a way that gives (W_r, J_r) all the correct first and second moments
+        # conditional on (W_s, J_s), and (W_u, J_u), where (W_t, J_t) is treated as
+        # the source of randomness.
+        # NOTE: this gives a different result than the original implementation of the
+        # VirtualBrownianTree by Patrick Kidger.
 
         def _final_interpolation(_state: _State) -> LevyVal:
             s = _state.s
-            t = _state.t
             u = _state.u
             w_s = _state.w_s
             w_t = _state.w_t
@@ -342,7 +339,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
             J_t = _state.J_t
             J_u = _state.J_u
 
-            # This is different from original quadratic interpolation
             h = u - s
             w_su = w_u - w_s
             w_st = w_t - w_s
@@ -373,20 +369,3 @@ class VirtualBrownianTree(AbstractBrownianPath):
             return LevyVal(h=r, W=w_r, J=J_r, H=None)
 
         return _final_interpolation(final_state)
-
-        # def _equal_to_s_cond(_state: _State):
-        #     return r < (_state.s + cancellation_err_tol)
-        #
-        # def _return_s_value(_state: _State) -> LevyVal:
-        #     return LevyVal(h=r, W=_state.w_s, J=_state.J_s, H=None)
-        #
-        # def _equal_to_u_cond(_state: _State):
-        #     return r > (_state.u - cancellation_err_tol)
-        #
-        # def _return_u_value(_state: _State) -> LevyVal:
-        #     return LevyVal(h=r, W=_state.w_u, J=_state.J_u, H=None)
-        #
-        # def _not_equal_to_s_fun(_state: _State) -> LevyVal:
-        #     return jax.lax.cond(_equal_to_u_cond(_state), _return_u_value, _final_interpolation, _state)
-        #
-        # return jax.lax.cond(_equal_to_s_cond(final_state), _return_s_value, _not_equal_to_s_fun, final_state)
