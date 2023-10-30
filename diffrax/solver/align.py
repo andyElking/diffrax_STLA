@@ -94,7 +94,6 @@ class ALIGN(AbstractItoSolver):
         a3 = u * ((1 + α) * β - 1) / (jnp.square(γ) * h)
         a4 = a2 / h
         ρ2 = ρ * γ
-        # ch2 = -(6 * ρ2 / α) * (1 + β + 2 * (β-1) / α)
         ch2 = -γ * ch1
         cw2 = ρ2 * (1 - β) / α
         return {'beta': β,
