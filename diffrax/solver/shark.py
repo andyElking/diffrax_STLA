@@ -37,3 +37,9 @@ class ShARK(ANSR):
 
     def __init__(self):
         pass
+
+    def order(self, terms):
+        return 2
+
+    def strong_order(self, terms):
+        return 1.5
