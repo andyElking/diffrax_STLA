@@ -80,10 +80,10 @@ class ANSR(AbstractItoSolver):
     tableau: StochasticButcherTableau
 
     def order(self, terms):
-        return 2
+        return 1  # should be modified depending on tableau
 
     def strong_order(self, terms):
-        return 1.5
+        return 0.5  # should be modified depending on tableau
 
     def init(
             self,
