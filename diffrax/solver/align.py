@@ -9,7 +9,8 @@ from jax.numpy import sqrt
 import jax.lax as lax
 import equinox.internal as eqxi
 from equinox.internal import ω
-from jax import debug, Array
+import equinox as eqx
+from jax import debug, Array, vmap
 
 from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
 from ..local_interpolation import LocalLinearInterpolation
@@ -33,6 +34,10 @@ class ALIGN(AbstractItoSolver):
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
+    taylor_threshold: Scalar = eqx.field(static=True)
+
+    def __init__(self, taylor_threshold: Scalar = 0.0):
+        self.taylor_threshold = taylor_threshold
 
     def order(self, terms):
         return 2
@@ -41,48 +46,52 @@ class ALIGN(AbstractItoSolver):
         return 2
 
     @staticmethod
-    def taylor_coeffs(args):
+    def taylor_coeffs(γ, u):
         # When the step-size h is small the coefficients (which depend on h) need
         # to be computed via Taylor expansion to ensure numerical stability.
         # This precomputes the Taylor coefficients (depending on γ and u), which
         # are then multiplied by powers of h, to get the coefficients of ALIGN.
-        c, u, _ = args  # c is γ
-        c2 = jnp.square(c)
-        c3 = c2 * c
-        c4 = c3 * c
-        c5 = c4 * c
-        rcu = jnp.sqrt(u * c)
 
-        β = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5/120])
-        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4/120])
-        a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120])
-        a3 = jnp.array([0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30, -c4*u/144])
-        a4 = jnp.array([0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120, - c4*u/720])
-        cw1 = sqrt(2) * jnp.array([0, rcu/2, -c * rcu / 6, c2 * rcu / 24, -c3 * rcu / 120, c4*rcu/720])
-        ch1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30, c4 * rcu/168])
-        cw2 = sqrt(2) * jnp.array([rcu, -c * rcu / 2, c2 * rcu / 6, -c3 * rcu / 24, c4 * rcu / 120, -c5*rcu/720])
-        ch2 = -c * ch1
-        return {'beta': β,
-                'a1': a1,
-                'a2': a2,
-                'a3': a3,
-                'a4': a4,
-                'cw1': cw1,
-                'ch1': ch1,
-                'cw2': cw2,
-                'ch2': ch2}
+        def _tay_cfs_single(c):
+            # c is γ
+            c2 = jnp.square(c)
+            c3 = c2 * c
+            c4 = c3 * c
+            c5 = c4 * c
+            rcu = jnp.sqrt(u * c)
+
+            beta = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120])
+            a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120])
+            a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120])
+            a3 = jnp.array([0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30, -c4 * u / 144])
+            a4 = jnp.array([0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120, - c4 * u / 720])
+            cw1 = sqrt(2) * jnp.array([0, rcu / 2, -c * rcu / 6, c2 * rcu / 24, -c3 * rcu / 120, c4 * rcu / 720])
+            ch1 = sqrt(2) * jnp.array([0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30, c4 * rcu / 168])
+            cw2 = sqrt(2) * jnp.array(
+                [rcu, -c * rcu / 2, c2 * rcu / 6, -c3 * rcu / 24, c4 * rcu / 120, -c5 * rcu / 720])
+            ch2 = -c * ch1
+            return {'beta': beta,
+                    'a1': a1,
+                    'a2': a2,
+                    'a3': a3,
+                    'a4': a4,
+                    'cw1': cw1,
+                    'ch1': ch1,
+                    'cw2': cw2,
+                    'ch2': ch2}
+
+        return _tay_cfs_single(γ) if jnp.ndim(γ) == 0 else jax.vmap(_tay_cfs_single)(γ)
 
     @staticmethod
     def eval_taylor(h, taylor_coeffs):
         # Multiplies the pre-computed Taylor coefficients by powers of h.
         # jax.debug.print("eval taylor for h = {h}", h=h)
         h_powers = jnp.power(h, jnp.arange(0, 6, dtype=jnp.dtype(h)))
-        return jtu.tree_map(lambda tay_coeffs: jnp.vdot(h_powers, tay_coeffs), taylor_coeffs)
+        return jtu.tree_map(lambda tay_cfs: jnp.tensordot(tay_cfs, h_powers, axes=1), taylor_coeffs)
 
     @staticmethod
-    def directly_compute_coeffs(h, args):
+    def directly_compute_coeffs(h, γ, u):
         # compute the coefficients directly (as opposed to via Taylor expansion)
-        γ, u, _ = args  # f is in fact grad(f)
         α = γ * h
         β = jnp.exp(-α)
         a1 = (1 - β) / γ
@@ -106,16 +115,28 @@ class ALIGN(AbstractItoSolver):
                 'cw2': cw2,
                 'ch2': ch2}
 
-    def recompute_coeffs(self, h, args, taylor_coeffs):
+    def _recomp_cfs_single(self, h: Scalar, γ: Scalar, u: Scalar, taylor_coeffs):
         # Used when the step-size h changes and coefficients need to be recomputed
-        γ, _, _ = args
-
         # Depending on the size of h*γ choose whether the Taylor expansion or
         # direct computation is more accurate.
-        return lax.cond(h * γ < 0.1,
-                        lambda h_: self.eval_taylor(h_, taylor_coeffs),
-                        lambda h_: self.directly_compute_coeffs(h_, args),
-                        h)
+        return
+
+    def recompute_coeffs(self, h: Scalar, γ: Array | Scalar, u: Scalar, taylor_coeffs: PyTree):
+        # Used when the step-size h changes and coefficients need to be recomputed
+        # Depending on the size of h*γ choose whether the Taylor expansion or
+        # direct computation is more accurate.
+        cond = h * γ < self.taylor_threshold
+        if jnp.ndim(γ) == 0:
+            return lax.cond(cond,
+                            lambda h_: self.eval_taylor(h_, taylor_coeffs),
+                            lambda h_: self.directly_compute_coeffs(h_, γ, u),
+                            h)
+        else:
+            tay_out = self.eval_taylor(h, taylor_coeffs)
+            direct_out = vmap(lambda c: self.directly_compute_coeffs(h, c, u))(γ)
+            return jtu.tree_map(lambda tay_leaf, direct_leaf: jnp.where(cond, tay_leaf, direct_leaf),
+                                tay_out,
+                                direct_out)
 
     def init(
             self,
@@ -134,8 +155,8 @@ class ALIGN(AbstractItoSolver):
         γ, u, f = args  # f is in fact grad(f)
         h = t1 - t0
 
-        taylor_coeffs = self.taylor_coeffs(args)
-        coeffs = self.recompute_coeffs(h, args, taylor_coeffs)
+        taylor_coeffs = self.taylor_coeffs(γ, u)
+        coeffs = self.recompute_coeffs(h, γ, u, taylor_coeffs)
 
         assert y0.ndim == 1
         dim = int(y0.shape[0] / 2)
@@ -161,13 +182,14 @@ class ALIGN(AbstractItoSolver):
         st = solver_state
         h = t1 - t0
         γ, u, f = args
+
         h_state = st['h']
         tay = st['taylor_coeffs']
         cfs = st['coeffs']
 
         # If h changed recompute coefficients
         cond = jnp.isclose(h_state, h)
-        cfs = lax.cond(cond, lambda x: x, lambda _: self.recompute_coeffs(h, args, tay), cfs)
+        cfs = lax.cond(cond, lambda x: x, lambda _: self.recompute_coeffs(h, γ, u, tay), cfs)
         st['coeffs'] = cfs
         st['h'] = h
         # jax.debug.print("{h}", h=st['h'])
@@ -181,6 +203,8 @@ class ALIGN(AbstractItoSolver):
         dim = int(y0.shape[0] / 2)
         assert y0.shape[0] == 2 * dim
         x0, v0 = y0[:dim], y0[dim:]
+        assert jnp.shape(cfs['a1']) == jnp.shape(γ)
+        assert jnp.shape(γ) in [(), (dim,)]
 
         f0 = st['f(x)']
         x1 = x0 + cfs['a1'] * v0 + cfs['a2'] * f0 + cfs['cw1'] * w + cfs['ch1'] * hh
