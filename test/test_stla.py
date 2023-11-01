@@ -22,7 +22,9 @@ def _make_struct(shape, dtype):
     return jax.ShapeDtypeStruct(shape, dtype)
 
 
-@pytest.mark.parametrize("ctr", [diffrax.VirtualBrownianTree])
+@pytest.mark.parametrize(
+    "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
+)
 def test_shape_and_dtype(ctr, getkey):
     t0 = 0
     t1 = 2
@@ -66,7 +68,11 @@ def test_shape_and_dtype(ctr, getkey):
         if dtype is not None:
             shape = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
 
-        if ctr is diffrax.VirtualBrownianTree:
+        if ctr is diffrax.UnsafeBrownianPath:
+            path = ctr(shape, getkey(), compute_stla=True)
+            assert path.t0 is None
+            assert path.t1 is None
+        elif ctr is diffrax.VirtualBrownianTree:
             tol = 2**-5
             path = ctr(t0, t1, tol, shape, getkey(), compute_stla=True)
             assert path.t0 == 0
