@@ -1,14 +1,5 @@
-from typing import Tuple, Optional
-import jax.tree_util as jtu
-import jax.numpy as jnp
-from equinox.internal import ω
 import numpy as np
 
-from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
-from ..local_interpolation import LocalLinearInterpolation
-from ..solution import RESULTS
-from ..term import AbstractTerm, MultiTerm, ODETerm
-from .base import AbstractItoSolver
 from .ansr import ANSR, StochasticButcherTableau
 
 
@@ -19,7 +10,7 @@ tab = StochasticButcherTableau(
     cw=np.array([0.0, 5 / 6]),
     ch=np.array([1.0, 0.0]),
     cw_last=1.0,
-    ch_last=0.0
+    ch_last=0.0,
 )
 
 
@@ -33,6 +24,7 @@ class ShARK(ANSR):
     High order splitting methods for SDEs satisfying a commutativity condition.
     arXiv [Math.NA] http://arxiv.org/abs/2210.17543
     """
+
     tableau = tab
 
     def __init__(self):
