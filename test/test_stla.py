@@ -22,9 +22,7 @@ def _make_struct(shape, dtype):
     return jax.ShapeDtypeStruct(shape, dtype)
 
 
-@pytest.mark.parametrize(
-    "ctr", [diffrax.VirtualBrownianTree]
-)
+@pytest.mark.parametrize("ctr", [diffrax.VirtualBrownianTree])
 def test_shape_and_dtype(ctr, getkey):
     t0 = 0
     t1 = 2
@@ -98,7 +96,7 @@ def test_shape_and_dtype(ctr, getkey):
 
 
 @pytest.mark.parametrize(
-    "ctr", [diffrax.VirtualBrownianTree]
+    "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
 )
 def test_statistics(ctr):
     # Deterministic key for this test; not using getkey()
@@ -106,7 +104,9 @@ def test_statistics(ctr):
     keys = jrandom.split(key, 10000)
 
     def _eval(key):
-        if ctr is diffrax.VirtualBrownianTree:
+        if ctr is diffrax.UnsafeBrownianPath:
+            path = ctr(shape=(), key=key, compute_stla=True)
+        elif ctr is diffrax.VirtualBrownianTree:
             path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, compute_stla=True)
         else:
             assert False
@@ -118,7 +118,7 @@ def test_statistics(ctr):
     assert values_w.shape == (10000,) and values_h.shape == (10000,)
     ref_dist_w = stats.norm(loc=0, scale=math.sqrt(5))
     _, pval_w = stats.kstest(values_w, ref_dist_w.cdf)
-    ref_dist_h = stats.norm(loc=0, scale=math.sqrt(5/12))
+    ref_dist_h = stats.norm(loc=0, scale=math.sqrt(5 / 12))
     _, pval_h = stats.kstest(values_h, ref_dist_h.cdf)
     assert pval_w > 0.1
     assert pval_h > 0.1
@@ -185,8 +185,13 @@ def test_conditional_statistics():
         w_mean = w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / jnp.square(su)) * hh_su
         w_std = 2 * (a + b) / su
         normalised_w = (w_r - w_mean) / w_std
-        hh_mean = (s / r) * hh_s + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su + 0.5 * w_s - s / (2 * r) * w_mean
-        hh_var = jnp.square(c/r) + jnp.square((a*u + s*b) / (r*su))
+        hh_mean = (
+            (s / r) * hh_s
+            + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su
+            + 0.5 * w_s
+            - s / (2 * r) * w_mean
+        )
+        hh_var = jnp.square(c / r) + jnp.square((a * u + s * b) / (r * su))
         hh_std = jnp.sqrt(hh_var)
         normalised_hh = (hh_r - hh_mean) / hh_std
 
