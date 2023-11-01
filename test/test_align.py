@@ -1,10 +1,11 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
-from diffrax import (  # Euler,
+from diffrax import (
     ALIGN,
     ControlTerm,
     diffeqsolve,
+    Euler,
     MultiTerm,
     ODETerm,
     SaveAt,
@@ -104,14 +105,14 @@ harmonic_osc = (drift, diffusion, args_hosc, y0_hosc, t0, t1, w_dim_hosc)
 
 grad_f_bqp = lambda x: 4 * x * (jnp.square(x) - 1)
 args_bqp = (jnp.float32(0.8), jnp.float32(0.2), grad_f_bqp)
-y0_bqp = jnp.array([0, 0], dtype=jnp.float32)
+y0_bqp = jnp.zeros((2,), dtype=jnp.float32)
 w_dim_bqp = 1
 bqp = (drift, diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
 
 
 def test_shape():
     dtype = jnp.float32
-    saveat = SaveAt(ts=jnp.linspace(t0, t1, 1000))
+    saveat = SaveAt(ts=jnp.linspace(t0, t1, 1000, dtype=dtype))
     for dim in [1, 2, 5]:
         u = dtype(1.0)
         gam = dtype(1.0)
@@ -142,20 +143,20 @@ def test_shape():
             assert sol.ys.shape == (1000, 2 * dim)
 
 
-# def test_convergence():
-#     num_samples = 1000
-#     keys = jrandom.split(jrandom.PRNGKey(2), num=num_samples)
-#
-#     for sde in [harmonic_osc, bqp]:
-#         hs = 0.1 * jnp.power(jnp.float32(2.0), jnp.arange(0, 4))
-#         _, errs, order_vs_euler = solver_order(
-#             keys, sde, ALIGN(0.1), Euler(), 0.005, hs=hs
-#         )
-#         assert errs[0] < 0.3
-#         assert order_vs_euler > 1.0
-#
-#         hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5))
-#         _, _, order_vs_itself = solver_order(
-#             keys, sde, ALIGN(0.1), ALIGN(0.1), 0.005, hs=hs
-#         )
-#         assert order_vs_itself > 1.9
+def test_convergence():
+    num_samples = 1000
+    keys = jrandom.split(jrandom.PRNGKey(2), num=num_samples)
+
+    for sde in [harmonic_osc, bqp]:
+        hs = 0.1 * jnp.power(jnp.float32(2.0), jnp.arange(0, 4, dtype=jnp.float32))
+        _, errs, order_vs_euler = solver_order(
+            keys, sde, ALIGN(0.1), Euler(), 0.005, hs=hs
+        )
+        assert errs[0] < 0.3
+        assert order_vs_euler > 1.0
+
+        hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5, dtype=jnp.float32))
+        _, _, order_vs_itself = solver_order(
+            keys, sde, ALIGN(0.1), ALIGN(0.1), 0.005, hs=hs
+        )
+        assert order_vs_itself > 1.9
