@@ -57,22 +57,29 @@ def directly_compute_coeffs(h, γ, u):
 
 def _tay_cfs_single(c, u):
     # c is γ
+    dtype = jnp.dtype(c)
     c2 = jnp.square(c)
     c3 = c2 * c
     c4 = c3 * c
     c5 = c4 * c
     rcu = jnp.sqrt(u * c)
 
-    beta = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120])
-    a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120])
-    a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120])
-    a3 = jnp.array([0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30, -c4 * u / 144])
-    a4 = jnp.array([0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120, -c4 * u / 720])
+    beta = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], dtype=dtype)
+    a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120], dtype=dtype)
+    a2 = jnp.array([0, 0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120], dtype=dtype)
+    a3 = jnp.array(
+        [0, -u / 2, c * u / 3, -c2 * u / 8, c3 * u / 30, -c4 * u / 144], dtype=dtype
+    )
+    a4 = jnp.array(
+        [0, -u / 2, c * u / 6, -c2 * u / 24, c3 * u / 120, -c4 * u / 720], dtype=dtype
+    )
     cw1 = sqrt(2) * jnp.array(
-        [0, rcu / 2, -c * rcu / 6, c2 * rcu / 24, -c3 * rcu / 120, c4 * rcu / 720]
+        [0, rcu / 2, -c * rcu / 6, c2 * rcu / 24, -c3 * rcu / 120, c4 * rcu / 720],
+        dtype=dtype,
     )
     ch1 = sqrt(2) * jnp.array(
-        [0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30, c4 * rcu / 168]
+        [0, rcu, -c * rcu / 2, 3 * c2 * rcu / 20, -c3 * rcu / 30, c4 * rcu / 168],
+        dtype=dtype,
     )
     cw2 = sqrt(2) * jnp.array(
         [
@@ -82,7 +89,8 @@ def _tay_cfs_single(c, u):
             -c3 * rcu / 24,
             c4 * rcu / 120,
             -c5 * rcu / 720,
-        ]
+        ],
+        dtype=dtype,
     )
     ch2 = -c * ch1
     return {
@@ -145,7 +153,7 @@ class ALIGN(AbstractItoSolver):
         return 2
 
     def recompute_coeffs(
-        self, h: Scalar, γ: Array | Scalar, u: Scalar, tay_cfs: PyTree
+        self, h: Scalar, γ: Array | Scalar, u: Scalar, tay_cfs: dict[str, Array]
     ):
         # Used when the step-size h changes and coefficients need to be recomputed
         # Depending on the size of h*γ choose whether the Taylor expansion or
@@ -164,10 +172,8 @@ class ALIGN(AbstractItoSolver):
             γ, u = match_shape(γ, u)
 
             def select_tay_or_direct(dummy):
-                direct_out = vmap(lambda gam, _u: directly_compute_coeffs(h, gam, _u))(
-                    γ, u
-                )
-                # debug.print("direct_out = {du}", du=direct_out)
+                fun = lambda gam, _u: directly_compute_coeffs(h, gam, _u)
+                direct_out = vmap(fun)(γ, u)
                 return jtu.tree_map(
                     lambda tay_leaf, direct_leaf: jnp.where(
                         cond, tay_leaf, direct_leaf
@@ -265,6 +271,7 @@ class ALIGN(AbstractItoSolver):
         )
 
         y1 = jnp.concatenate((x1, v1))
+        assert y1.dtype == y0.dtype
 
         error_estimate = jnp.sqrt(jnp.sum(jnp.square(cfs["a4"] * (f1 - f0))))
 
