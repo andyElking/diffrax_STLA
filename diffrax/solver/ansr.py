@@ -1,20 +1,19 @@
-from dataclasses import dataclass, field
-from typing import Tuple, Optional
+from dataclasses import dataclass
+from typing import Tuple
 
 import jax
+import jax.lax as lax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-import jax.numpy as jnp
-import jax.lax as lax
-import equinox.internal as eqxi
 from equinox.internal import ω
-from jax import debug
 
-from ..custom_types import Bool, DenseInfo, PyTree, Scalar, LevyVal
+from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, MultiTerm, ODETerm, ControlTerm
+from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
 from .base import AbstractItoSolver
+
 
 _ErrorEstimate = None
 _SolverState = None
@@ -22,8 +21,7 @@ _SolverState = None
 
 @dataclass(frozen=True)
 class StochasticButcherTableau:
-    """A Butcher Tableau for Additive-noise SRK methods.
-    """
+    """A Butcher Tableau for Additive-noise SRK methods."""
 
     # Only supports explicit SRK so far
     c: np.ndarray
@@ -86,12 +84,12 @@ class ANSR(AbstractItoSolver):
         return 0.5  # should be modified depending on tableau
 
     def init(
-            self,
-            terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
-            t0: Scalar,
-            t1: Scalar,
-            y0: PyTree,
-            args: PyTree,
+        self,
+        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        t0: Scalar,
+        t1: Scalar,
+        y0: PyTree,
+        args: PyTree,
     ) -> _SolverState:
         return None
 
@@ -107,14 +105,14 @@ class ANSR(AbstractItoSolver):
         return jnp.asarray(tab_a)
 
     def step(
-            self,
-            terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
-            t0: Scalar,
-            t1: Scalar,
-            y0: PyTree,
-            args: PyTree,
-            solver_state: _SolverState,
-            made_jump: Bool,
+        self,
+        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        t0: Scalar,
+        t1: Scalar,
+        y0: PyTree,
+        args: PyTree,
+        solver_state: _SolverState,
+        made_jump: Bool,
     ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del solver_state, made_jump
 
@@ -127,9 +125,12 @@ class ANSR(AbstractItoSolver):
         hh = levy.H
         sigma = diffusion.vf(t0, y0, args)
 
-        def stage(carry: tuple[int, list[PyTree]], x: tuple[jax.Array, Scalar, Scalar, Scalar]):
+        def stage(
+            carry: tuple[int, list[PyTree]], x: tuple[jax.Array, Scalar, Scalar, Scalar]
+        ):
             # Represents the jth stage of the SRK.
-            # carry = (j, hks_{j-1}) where hks_{j-1} = [hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
+            # carry = (j, hks_{j-1}) where
+            # hks_{j-1} = [hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
             # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
             a_j, c_j, cw_j, ch_j = x
             j, hks_j = carry
@@ -138,23 +139,32 @@ class ANSR(AbstractItoSolver):
             # compute Σ_{i=1}^{j-1} a_j_i hk_i
             def lin_comb_a_j(hk_leaf):
                 return jnp.tensordot(a_j, hk_leaf, axes=1)
+
             a_j_mult_k = jtu.tree_map(lin_comb_a_j, hks_j)
 
             # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cw_j * ΔW + ch_j * ΔH)
-            z_j = (y0 ** ω + a_j_mult_k ** ω + (diffusion.prod(sigma, diffusion_control)) ** ω).ω
+            z_j = (
+                y0**ω
+                + a_j_mult_k**ω
+                + (diffusion.prod(sigma, diffusion_control)) ** ω
+            ).ω
 
             hk_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
-            hks_j = jtu.tree_map(lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), hks_j, hk_j)
-            # note that carry will already contain the whole stack of k_js, so no need for second return value
-            carry = (j + 1, hks_j)
-            return carry, None
+            hks_j = jtu.tree_map(
+                lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), hks_j, hk_j
+            )
+            # note that carry will already contain the whole stack of
+            # k_js, so no need for second return value
+            return (j + 1, hks_j), None
 
         a = self.embed_a_lower()
         c = jnp.insert(self.tableau.c, 0, 0.0)
         b, cw, ch = self.tableau.b, self.tableau.cw, self.tableau.ch
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
         # an additional batch dimension of size len(b) (i.e. num stages)
-        hks = jtu.tree_map(lambda leaf: jnp.zeros(shape=(len(b),) + leaf.shape, dtype=leaf.dtype), y0)
+        hks = jtu.tree_map(
+            lambda leaf: jnp.zeros(shape=(len(b),) + leaf.shape, dtype=leaf.dtype), y0
+        )
         carry = (0, hks)
 
         # output of lax.scan is ((num_stages, hks), [None, None, ... , None])
@@ -163,18 +173,19 @@ class ANSR(AbstractItoSolver):
         # compute Σ_{j=1}^s b_j k_j
         def lin_comb_b(k_leaf):
             return jnp.tensordot(b, k_leaf, axes=1)
+
         b_mult_k = jtu.tree_map(lin_comb_b, hks)
 
         diffusion_contr = self.tableau.cw_last * w + self.tableau.ch_last * hh
-        y1 = (y0 ** ω + b_mult_k ** ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
+        y1 = (y0**ω + b_mult_k**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, None, dense_info, None, RESULTS.successful
 
     def func(
-            self,
-            terms: AbstractTerm,
-            t0: Scalar,
-            y0: PyTree,
-            args: PyTree,
+        self,
+        terms: AbstractTerm,
+        t0: Scalar,
+        y0: PyTree,
+        args: PyTree,
     ) -> PyTree:
         return terms.vf(t0, y0, args)
