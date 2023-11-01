@@ -23,11 +23,13 @@ def l2_dist(ys1: jax.Array, ys2: jax.Array):
 
 def solutions(keys, sde, dt0, solver, stepsize_controller=None):
     _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
+    dtype = y0.dtype
     _saveat = SaveAt(ts=[_t1])
 
     def end_value(key):
+        shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=dtype)
         path = VirtualBrownianTree(
-            t0=_t0, t1=_t1, shape=(w_dim,), tol=2**-9, key=key, compute_stla=True
+            t0=_t0, t1=_t1, shape=shp_dtype, tol=2**-9, key=key, compute_stla=True
         )
         terms = get_terms(path)
         if stepsize_controller is None:
@@ -60,7 +62,9 @@ def solver_distance(keys, sde, solver1, dt1, solver2, dt2):
 def solver_order(keys, sde, solver, correct_solver, dt_precise, hs_num=5, hs=None):
     correct_sols = solutions(keys, sde, dt0=dt_precise, solver=correct_solver)
     if hs is None:
-        hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, hs_num))
+        hs = 0.025 * jnp.power(
+            jnp.float32(2.0), jnp.arange(0, hs_num, dtype=jnp.float32)
+        )
 
     def get_single_err(h):
         sols = solutions(keys, sde, dt0=h, solver=solver)

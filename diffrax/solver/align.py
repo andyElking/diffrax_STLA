@@ -203,6 +203,7 @@ class ALIGN(AbstractItoSolver):
         This method is FSAL, so _SolverState also carries the previous evaluation
         of grad_f.
         """
+        jax.debug.print("y0 type = {a}", a=y0.dtype)
         γ, u, f = args  # f is in fact grad(f)
         h = t1 - t0
 
