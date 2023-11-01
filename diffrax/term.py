@@ -1,6 +1,6 @@
 import abc
 import operator
-from typing import Callable, Generic, Tuple, TypeVar, Any
+from typing import Callable, Generic, Tuple, TypeVar
 
 import equinox as eqx
 import jax
@@ -9,7 +9,7 @@ import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
 
-from .custom_types import Array, PyTree, Scalar, LevyVal
+from .custom_types import Array, LevyVal, PyTree, Scalar
 from .path import AbstractPath
 
 
@@ -68,8 +68,7 @@ class AbstractTerm(eqx.Module):
         pass
 
     def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        r""" Same as contr, except if it is a Brownian path it outputs LevyVal.
-        """
+        r"""Same as contr, except if it is a Brownian path it outputs LevyVal."""
         pass
 
     @abc.abstractmethod
@@ -143,11 +142,11 @@ class AbstractTerm(eqx.Module):
         return self.prod(self.vf(t, y, args), control)
 
     def is_vf_expensive(
-            self,
-            t0: Scalar,
-            t1: Scalar,
-            y: Tuple[PyTree, PyTree, PyTree, PyTree],
-            args: PyTree,
+        self,
+        t0: Scalar,
+        t1: Scalar,
+        y: Tuple[PyTree, PyTree, PyTree, PyTree],
+        args: PyTree,
     ) -> bool:
         """Specifies whether evaluating the vector field is "expensive", in the
         specific sense that it is cheaper to evaluate `vf_prod` twice than `vf` once.
@@ -202,7 +201,7 @@ ODETerm.__init__.__doc__ = """**Arguments:**
 
 
 def _prod(
-        vf: Array["state":..., "control":...], control: Array["control":...]  # noqa: F821
+    vf: Array["state":..., "control":...], control: Array["control":...]  # noqa: F821
 ) -> Array["state":...]:  # noqa: F821
     return jnp.tensordot(vf, control, axes=jnp.ndim(control))
 
@@ -372,13 +371,13 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
 
     def prod(self, vf: Tuple[PyTree, ...], control: Tuple[PyTree, ...]) -> PyTree:
         out = [
-            term.prod(vf, control_)
+            term.prod(vf_, control_)
             for term, vf_, control_ in zip(self.terms, vf, control)
         ]
         return jtu.tree_map(_sum, *out)
 
     def vf_prod(
-            self, t: Scalar, y: PyTree, args: PyTree, control: Tuple[PyTree, ...]
+        self, t: Scalar, y: PyTree, args: PyTree, control: Tuple[PyTree, ...]
     ) -> PyTree:
         out = [
             term.vf_prod(t, y, args, control_)
@@ -387,11 +386,11 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
         return jtu.tree_map(_sum, *out)
 
     def is_vf_expensive(
-            self,
-            t0: Scalar,
-            t1: Scalar,
-            y: Tuple[PyTree, PyTree, PyTree, PyTree],
-            args: PyTree,
+        self,
+        t0: Scalar,
+        t1: Scalar,
+        y: Tuple[PyTree, PyTree, PyTree, PyTree],
+        args: PyTree,
     ) -> bool:
         return any(term.is_vf_expensive(t0, t1, y, args) for term in self.terms)
 
@@ -417,11 +416,11 @@ class WrapTerm(AbstractTerm):
         return self.term.vf_prod(t, y, args, control)
 
     def is_vf_expensive(
-            self,
-            t0: Scalar,
-            t1: Scalar,
-            y: Tuple[PyTree, PyTree, PyTree, PyTree],
-            args: PyTree,
+        self,
+        t0: Scalar,
+        t1: Scalar,
+        y: Tuple[PyTree, PyTree, PyTree, PyTree],
+        args: PyTree,
     ) -> bool:
         _t0 = jnp.where(self.direction == 1, t0, -t1)
         _t1 = jnp.where(self.direction == 1, t1, -t0)
@@ -436,11 +435,11 @@ class AdjointTerm(AbstractTerm):
     term: AbstractTerm
 
     def is_vf_expensive(
-            self,
-            t0: Scalar,
-            t1: Scalar,
-            y: Tuple[PyTree, PyTree, PyTree, PyTree],
-            args: PyTree,
+        self,
+        t0: Scalar,
+        t1: Scalar,
+        y: Tuple[PyTree, PyTree, PyTree, PyTree],
+        args: PyTree,
     ) -> bool:
         control_struct = jax.eval_shape(self.contr, t0, t1)
         if sum(c.size for c in jtu.tree_leaves(control_struct)) in (0, 1):
@@ -449,7 +448,7 @@ class AdjointTerm(AbstractTerm):
             return True
 
     def vf(
-            self, t: Scalar, y: Tuple[PyTree, PyTree, PyTree, PyTree], args: PyTree
+        self, t: Scalar, y: Tuple[PyTree, PyTree, PyTree, PyTree], args: PyTree
     ) -> PyTree:
         # We compute the vector field via `self.vf_prod`. We could also do it manually,
         # but this is relatively painless.
@@ -507,7 +506,7 @@ class AdjointTerm(AbstractTerm):
         return self.term.contr(t0, t1)
 
     def prod(
-            self, vf: PyTree, control: PyTree
+        self, vf: PyTree, control: PyTree
     ) -> Tuple[PyTree, PyTree, PyTree, PyTree]:
         # As per what is returned from `self.vf`, then `vf` has a PyTree structure of
         # (control_tree, vf_prod_tree)
@@ -541,11 +540,11 @@ class AdjointTerm(AbstractTerm):
         return jtu.tree_map(_contract, example_vf_prod, vf)
 
     def vf_prod(
-            self,
-            t: Scalar,
-            y: Tuple[PyTree, PyTree, PyTree, PyTree],
-            args: PyTree,
-            control: PyTree,
+        self,
+        t: Scalar,
+        y: Tuple[PyTree, PyTree, PyTree, PyTree],
+        args: PyTree,
+        control: PyTree,
     ) -> Tuple[PyTree, PyTree, PyTree, PyTree]:
         # Note the inclusion of "implicit" parameters (as `term` might be a callable
         # PyTree a la Equinox) and "explicit" parameters (`args`)
@@ -559,5 +558,5 @@ class AdjointTerm(AbstractTerm):
             return _term.vf_prod(t, _y, _args, control)
 
         dy, vjp = jax.vjp(_to_vjp, y, diff_args, diff_term)
-        da_y, da_diff_args, da_diff_term = vjp((-(a_y ** ω)).ω)
+        da_y, da_diff_args, da_diff_term = vjp((-(a_y**ω)).ω)
         return dy, da_y, da_diff_args, da_diff_term
