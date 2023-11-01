@@ -75,6 +75,17 @@ def wj_to_wh_single(x: LevyVal) -> LevyVal:
     return LevyVal(h=x.h, W=x.W, H=x.J * inverse_h - 0.5 * x.W)
 
 
+def levy_tree_transpose(tree_shape, compute_stla, wh):
+    hh_default_val = 0.0 if compute_stla else None
+    return jtu.tree_transpose(
+        outer_treedef=jax.tree_structure(tree_shape),
+        inner_treedef=jax.tree_structure(
+            LevyVal(h=0.0, W=0.0, J=None, H=hh_default_val)
+        ),
+        pytree_to_transpose=wh,
+    )
+
+
 class VirtualBrownianTree(AbstractBrownianPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
@@ -201,11 +212,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 else levy_0
             )
 
-        levy_out: LevyVal = jtu.tree_transpose(
-            outer_treedef=jax.tree_structure(self.shape),
-            inner_treedef=jax.tree_structure(LevyVal(h=0.0, W=0.0, J=None, H=0.0)),
-            pytree_to_transpose=wh,
-        )
+        levy_out = levy_tree_transpose(self.shape, self.compute_stla, wh)
         levy_out = self.denormalise_bm_inc(levy_out)
         return levy_out if use_levy else levy_out.W
 
