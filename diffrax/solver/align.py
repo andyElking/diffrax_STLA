@@ -29,6 +29,7 @@ def match_shape(c, u):
 
 def directly_compute_coeffs(h, γ, u):
     # compute the coefficients directly (as opposed to via Taylor expansion)
+    dtype = jnp.dtype(γ)
     α = γ * h
     β = jnp.exp(-α)
     a1 = (1 - β) / γ
@@ -42,7 +43,8 @@ def directly_compute_coeffs(h, γ, u):
     ρ2 = ρ * γ
     ch2 = -γ * ch1
     cw2 = ρ2 * (1 - β) / α
-    return {
+
+    out = {
         "beta": β,
         "a1": a1,
         "a2": a2,
@@ -53,6 +55,8 @@ def directly_compute_coeffs(h, γ, u):
         "cw2": cw2,
         "ch2": ch2,
     }
+
+    return jtu.tree_map(lambda leaf: jnp.asarray(leaf, dtype=dtype), out)
 
 
 def _tay_cfs_single(c, u):
@@ -203,7 +207,8 @@ class ALIGN(AbstractItoSolver):
         This method is FSAL, so _SolverState also carries the previous evaluation
         of grad_f.
         """
-        jax.debug.print("y0 type = {a}", a=y0.dtype)
+        # print(y0.dtype)
+        # jax.debug.print("y0 {a}", a=y0.dtype)
         γ, u, f = args  # f is in fact grad(f)
         h = t1 - t0
 
@@ -215,7 +220,10 @@ class ALIGN(AbstractItoSolver):
         assert y0.shape[0] == 2 * dim
         x0 = y0[:dim]
 
-        return {"h": h, "taylor_coeffs": tay_cfs, "coeffs": coeffs, "f(x)": f(x0)}
+        state_out = {"h": h, "taylor_coeffs": tay_cfs, "coeffs": coeffs, "f(x)": f(x0)}
+        jax.debug.print("state {s}", s=state_out)
+
+        return state_out
 
     def step(
         self,
