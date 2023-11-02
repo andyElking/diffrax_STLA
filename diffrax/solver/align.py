@@ -221,7 +221,6 @@ class ALIGN(AbstractItoSolver):
         x0 = y0[:dim]
 
         state_out = {"h": h, "taylor_coeffs": tay_cfs, "coeffs": coeffs, "f(x)": f(x0)}
-        jax.debug.print("state {s}", s=state_out)
 
         return state_out
 
