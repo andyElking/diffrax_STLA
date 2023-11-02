@@ -23,14 +23,10 @@ def l2_dist(ys1: jax.Array, ys2: jax.Array):
 
 def solutions(keys, sde, dt0, solver, stepsize_controller=None):
     _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
-    dtype = y0.dtype
     _saveat = SaveAt(ts=[_t1])
 
     def end_value(key):
-        shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=dtype)
-        path = VirtualBrownianTree(
-            t0=_t0, t1=_t1, shape=shp_dtype, tol=2**-9, key=key, compute_stla=True
-        )
+        path = get_bm(sde, key)
         terms = get_terms(path)
         if stepsize_controller is None:
             sol = diffeqsolve(
@@ -94,6 +90,14 @@ def diffusion(t, y, args):
     return d_y
 
 
+def get_bm(sde, key):
+    _, _, _, y0, _t0, _t1, w_dim = sde
+    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
+    return VirtualBrownianTree(
+        t0=_t0, t1=_t1, shape=shp_dtype, tol=2**-9, key=key, compute_stla=True
+    )
+
+
 def get_terms(bm: VirtualBrownianTree):
     return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
 
@@ -154,13 +158,13 @@ def test_convergence():
     for sde in [harmonic_osc, bqp]:
         hs = 0.1 * jnp.power(jnp.float32(2.0), jnp.arange(0, 4, dtype=jnp.float32))
         _, errs, order_vs_euler = solver_order(
-            keys, sde, ALIGN(0.1), Euler(), 0.005, hs=hs
+            keys, sde, ALIGN(0.1), Euler(), jnp.float32(0.005), hs=hs
         )
         assert errs[0] < 0.3
         assert order_vs_euler > 1.0
 
         hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5, dtype=jnp.float32))
         _, _, order_vs_itself = solver_order(
-            keys, sde, ALIGN(0.1), ALIGN(0.1), 0.005, hs=hs
+            keys, sde, ALIGN(0.1), ALIGN(0.1), jnp.float32(0.005), hs=hs
         )
         assert order_vs_itself > 1.9
