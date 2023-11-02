@@ -127,7 +127,8 @@ def comp_taylor_coeffs(γ, u):
 def eval_taylor(h, tay_cfs):
     # Multiplies the pre-computed Taylor coefficients by powers of h.
     # jax.debug.print("eval taylor for h = {h}", h=h)
-    h_powers = jnp.power(h, jnp.arange(0, 6, dtype=jnp.dtype(h)))
+    dtype = jnp.dtype(tay_cfs["a1"])
+    h_powers = jnp.power(h, jnp.arange(0, 6, dtype=dtype))
     return jtu.tree_map(
         lambda tay_leaf: jnp.tensordot(tay_leaf, h_powers, axes=1), tay_cfs
     )
