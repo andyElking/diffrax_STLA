@@ -79,6 +79,7 @@ from .solver import (
     SemiImplicitEuler,
     ShARK,
     Sil3,
+    StochasticButcherTableau,
     StratonovichMilstein,
     Tsit5,
 )
