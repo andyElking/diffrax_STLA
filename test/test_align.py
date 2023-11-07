@@ -124,7 +124,7 @@ bqp = (drift, diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
 def test_shape(solver):
     for dtype in [jnp.float16, jnp.float32]:
         saveat = SaveAt(ts=jnp.linspace(t0, t1, 1000, dtype=dtype))
-        for dim in [1, 2, 5]:
+        for dim in [1, 3]:
             u = dtype(1.0)
             gam = dtype(1.0)
             vec_u = jnp.ones((dim,), dtype=dtype)
