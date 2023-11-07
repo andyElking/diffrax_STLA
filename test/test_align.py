@@ -122,8 +122,9 @@ bqp = (drift, diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
 
 @pytest.mark.parametrize("solver", [ALIGN(0.1), ShARK()])
 def test_shape(solver):
+    t0, t1 = 0.3, 1.0
     for dtype in [jnp.float16, jnp.float32]:
-        saveat = SaveAt(ts=jnp.linspace(t0, t1, 1000, dtype=dtype))
+        saveat = SaveAt(ts=jnp.linspace(t0, t1, 10, dtype=dtype))
         for dim in [1, 3]:
             u = dtype(1.0)
             gam = dtype(1.0)
@@ -151,7 +152,7 @@ def test_shape(solver):
                 sol = diffeqsolve(
                     terms, solver, t0, t1, dt0=0.3, y0=y0, args=args, saveat=saveat
                 )
-                assert sol.ys.shape == (1000, 2 * dim)
+                assert sol.ys.shape == (10, 2 * dim)
                 assert sol.ys.dtype == dtype
 
 
@@ -163,13 +164,13 @@ def test_convergence(solver):
     for sde in [harmonic_osc, bqp]:
         hs = 0.1 * jnp.power(jnp.float32(2.0), jnp.arange(0, 4, dtype=jnp.float32))
         _, errs, order_vs_euler = solver_order(
-            keys, sde, ALIGN(0.1), Euler(), jnp.float32(0.005), hs=hs
+            keys, sde, solver, Euler(), jnp.float32(0.005), hs=hs
         )
-        assert errs[0] < 0.3 if isinstance(solver, ALIGN) else 0.5
-        assert order_vs_euler > 1.2 if isinstance(solver, ALIGN) else 0.6
+        assert errs[0] < (0.1 if isinstance(solver, ALIGN) else 0.3)
+        assert order_vs_euler > 1.3
 
         hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5, dtype=jnp.float32))
         _, _, order_vs_itself = solver_order(
-            keys, sde, ALIGN(0.1), ALIGN(0.1), jnp.float32(0.005), hs=hs
+            keys, sde, solver, solver, jnp.float32(0.005), hs=hs
         )
-        assert order_vs_itself > 1.9 if isinstance(solver, ALIGN) else 1.4
+        assert order_vs_itself > (1.9 if isinstance(solver, ALIGN) else 1.0)
