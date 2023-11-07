@@ -93,7 +93,7 @@ class ANSR(AbstractItoSolver):
     ) -> _SolverState:
         return None
 
-    def embed_a_lower(self):
+    def embed_a_lower(self, dtype):
         """
         Takes the lower-triangular (a_j_i) and embeds it in an n*n array.
         """
@@ -102,7 +102,7 @@ class ANSR(AbstractItoSolver):
         tab_a = np.zeros((num_stages, num_stages))
         for i, a_i in enumerate(a):
             tab_a[i + 1, : i + 1] = a_i
-        return jnp.asarray(tab_a)
+        return jnp.asarray(tab_a, dtype=dtype)
 
     def step(
         self,
@@ -157,9 +157,11 @@ class ANSR(AbstractItoSolver):
             # k_js, so no need for second return value
             return (j + 1, hks_j), None
 
-        a = self.embed_a_lower()
-        c = jnp.insert(self.tableau.c, 0, 0.0)
-        b, cw, ch = self.tableau.b, self.tableau.cw, self.tableau.ch
+        a = self.embed_a_lower(jnp.dtype(y0))
+        c = jnp.insert(jnp.asarray(self.tableau.c, dtype=jnp.dtype(y0)), 0, 0.0)
+        b = jnp.asarray(self.tableau.b, dtype=jnp.dtype(y0))
+        cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))
+        ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
         # an additional batch dimension of size len(b) (i.e. num stages)
         hks = jtu.tree_map(
