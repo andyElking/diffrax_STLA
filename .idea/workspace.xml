@@ -6,8 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="14f04cc7-7857-4a3e-8787-78e632edfd0f" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diffrax/solver/ansr.py" beforeDir="false" afterPath="$PROJECT_DIR$/diffrax/solver/ansr.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test/test_align.py" beforeDir="false" afterPath="$PROJECT_DIR$/test/test_align.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/diffrax/brownian/tree.py" beforeDir="false" afterPath="$PROJECT_DIR$/diffrax/brownian/tree.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -242,7 +241,7 @@
       <workItem from="1699093251958" duration="505000" />
       <workItem from="1699372345481" duration="3956000" />
       <workItem from="1699376754915" duration="1209000" />
-      <workItem from="1699378969053" duration="2242000" />
+      <workItem from="1699378969053" duration="5205000" />
     </task>
     <servers />
   </component>
