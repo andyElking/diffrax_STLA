@@ -12,6 +12,7 @@ from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
 from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
+from .ansr import check_diffusion_has_stla
 from .base import AbstractItoSolver
 
 
@@ -254,6 +255,8 @@ class ALIGN(AbstractItoSolver):
         # jax.debug.print("{h}", h=st['h'])
 
         drift, diffusion = terms.terms
+        check_diffusion_has_stla(diffusion)
+
         levy: LevyVal = diffusion.levy_contr(t0, t1)
         w = levy.W
         hh = levy.H
