@@ -10,7 +10,11 @@ class AbstractBrownianPath(AbstractPath):
 
     @abc.abstractmethod
     def evaluate(
-            self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True, use_levy: bool =False
+        self,
+        t0: Scalar,
+        t1: Optional[Scalar] = None,
+        left: bool = True,
+        use_levy: bool = False,
     ) -> PyTree[Array]:
         r"""Samples a Brownian increment $w(t_1) - w(t_0)$.
 
