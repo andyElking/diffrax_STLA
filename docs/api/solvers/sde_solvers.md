@@ -44,6 +44,27 @@ See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochast
 
 ---
 
+### Additive-Noise Stochastic Runge--Kutta (ANSR)
+
+::: diffrax.ANSR
+    selection:
+        members: false
+
+::: diffrax.StochasticButcherTableau
+    selection:
+        members:
+            - __init__
+
+::: diffrax.ShARK
+    selection:
+        members: false
+
+::: diffrax.SEA
+    selection:
+        members: false
+
+---
+
 ### Reversible methods
 
 These are reversible in the same way as when applied to ODEs. [See here.](./ode_solvers.md#reversible-methods)
@@ -70,6 +91,10 @@ These are reversible in the same way as when applied to ODEs. [See here.](./ode_
         members: false
 
 ::: diffrax.StratonovichMilstein
+    selection:
+        members: false
+
+::: diffrax.ALIGN
     selection:
         members: false
 

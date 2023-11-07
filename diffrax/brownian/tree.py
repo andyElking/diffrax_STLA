@@ -187,8 +187,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             t0: Start of interval
             t1: End of interval
             left: ignored since Brownian motion is continuous
-            use_levy: If true, then the return type is LevyVal, which is designed for
-            representing the joint process of the Brownian motion and its Levy area.
+            use_levy: If true, then the return type is LevyVal
         """
 
         def is_levy_val(obj):
@@ -396,9 +395,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 w_r = w_s + w_sr
                 J_r = J_s + sr * H_sr + (sr / 2) * (w_s + w_r)
             else:
-                b_t = w_t - 0.5 * (
-                    w_u + w_s
-                )  # the brownian bridge is our access to randomness
+                # the brownian bridge b_t is our access to randomness
+                b_t = w_t - 0.5 * (w_u + w_s)
                 w_r = w_s + (2 * jnp.sqrt(sr * ru) / h) * b_t + (sr / h) * w_su
                 J_r = None
             return LevyVal(h=r, W=w_r, J=J_r, H=None)
