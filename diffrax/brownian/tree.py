@@ -196,7 +196,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         t0 = eqxi.nondifferentiable(t0, name="t0")
         levy_0 = self._evaluate(t0)
-        if t1 is not None:
+        if t1 is None:
+            levy_out = (
+                jtu.tree_map(wj_to_wh_single, levy_0, is_leaf=is_levy_val)
+                if self.compute_stla
+                else levy_0
+            )
+        else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
             levy_1 = self._evaluate(t1)
             levy_diff = (
@@ -204,15 +210,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 if self.compute_stla
                 else lambda x, y: LevyVal(h=y.h - x.h, W=y.W - x.W)
             )
-            wh = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=is_levy_val)
-        else:
-            wh = (
-                jtu.tree_map(wj_to_wh_single, levy_0, is_leaf=is_levy_val)
-                if self.compute_stla
-                else levy_0
-            )
+            levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=is_levy_val)
 
-        levy_out = levy_tree_transpose(self.shape, self.compute_stla, wh)
+        levy_out = levy_tree_transpose(self.shape, self.compute_stla, levy_out)
         levy_out = self.denormalise_bm_inc(levy_out)
         return levy_out if use_levy else levy_out.W
 
