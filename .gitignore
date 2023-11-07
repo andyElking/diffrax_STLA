@@ -6,8 +6,8 @@ dist/
 site/
 .all_objects.cache
 .pymon
-#STLA_statistical_tests.ipynb
-pyTree_experiments.ipynb
+.idea/
+STLA_statistical_tests.ipynb
 ALIGN_Taylor_coeffs
 taylor_experiments.ipynb
-scratch.ipynb
+Langevin_test.ipynb

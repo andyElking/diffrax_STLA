@@ -5,10 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="14f04cc7-7857-4a3e-8787-78e632edfd0f" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Langevin_test.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/Langevin_test.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diffrax/solver/align.py" beforeDir="false" afterPath="$PROJECT_DIR$/diffrax/solver/align.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diffrax/solver/ansr.py" beforeDir="false" afterPath="$PROJECT_DIR$/diffrax/solver/ansr.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L2_Langevin_test.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/L2_Langevin_test.ipynb" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -244,6 +243,8 @@
       <workItem from="1699372345481" duration="3956000" />
       <workItem from="1699376754915" duration="1209000" />
       <workItem from="1699378969053" duration="5205000" />
+      <workItem from="1699390710068" duration="51000" />
+      <workItem from="1699390850909" duration="1123000" />
     </task>
     <servers />
   </component>
