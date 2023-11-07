@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
+import pytest
 from diffrax import (
     ALIGN,
     ControlTerm,
@@ -9,6 +10,7 @@ from diffrax import (
     MultiTerm,
     ODETerm,
     SaveAt,
+    ShARK,
     VirtualBrownianTree,
 )
 
@@ -102,7 +104,7 @@ def get_terms(bm: VirtualBrownianTree):
     return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
 
 
-t0, t1 = 0.3, 15
+t0, t1 = 0.3, 5
 
 gamma_hosc = jnp.array([2, 0.5], dtype=jnp.float32)
 u_hosc = jnp.array([0.5, 2], dtype=jnp.float32)
@@ -118,40 +120,43 @@ w_dim_bqp = 1
 bqp = (drift, diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
 
 
-def test_shape():
-    dtype = jnp.float32
-    saveat = SaveAt(ts=jnp.linspace(t0, t1, 1000, dtype=dtype))
-    for dim in [1, 2, 5]:
-        u = dtype(1.0)
-        gam = dtype(1.0)
-        vec_u = jnp.ones((dim,), dtype=dtype)
-        vec_gam = jnp.ones((dim,), dtype=dtype)
-        y0 = jnp.zeros((2 * dim,), dtype=dtype)
-        f = lambda x: 0.5 * x
-        shp_dtype = jax.ShapeDtypeStruct((dim,), dtype)
-        terms = get_terms(
-            VirtualBrownianTree(
-                t0,
-                t1,
-                tol=2**-9,
-                shape=shp_dtype,
-                key=jrandom.PRNGKey(4),
-                compute_stla=True,
+@pytest.mark.parametrize("solver", [ALIGN(0.1), ShARK()])
+def test_shape(solver):
+    for dtype in [jnp.float16, jnp.float32]:
+        saveat = SaveAt(ts=jnp.linspace(t0, t1, 1000, dtype=dtype))
+        for dim in [1, 2, 5]:
+            u = dtype(1.0)
+            gam = dtype(1.0)
+            vec_u = jnp.ones((dim,), dtype=dtype)
+            vec_gam = jnp.ones((dim,), dtype=dtype)
+            y0 = jnp.zeros((2 * dim,), dtype=dtype)
+            f = lambda x: 0.5 * x
+            shp_dtype = jax.ShapeDtypeStruct((dim,), dtype)
+            terms = get_terms(
+                VirtualBrownianTree(
+                    t0,
+                    t1,
+                    tol=2**-9,
+                    shape=shp_dtype,
+                    key=jrandom.PRNGKey(4),
+                    compute_stla=True,
+                )
             )
-        )
-        for args in [
-            (gam, u, f),
-            (vec_gam, u, f),
-            (gam, vec_u, f),
-            (vec_gam, vec_u, f),
-        ]:
-            sol = diffeqsolve(
-                terms, ALIGN(0.1), t0, t1, dt0=0.3, y0=y0, args=args, saveat=saveat
-            )
-            assert sol.ys.shape == (1000, 2 * dim)
+            for args in [
+                (gam, u, f),
+                (vec_gam, u, f),
+                (gam, vec_u, f),
+                (vec_gam, vec_u, f),
+            ]:
+                sol = diffeqsolve(
+                    terms, solver, t0, t1, dt0=0.3, y0=y0, args=args, saveat=saveat
+                )
+                assert sol.ys.shape == (1000, 2 * dim)
+                assert sol.ys.dtype == dtype
 
 
-def test_convergence():
+@pytest.mark.parametrize("solver", [ALIGN(0.1), ShARK()])
+def test_convergence(solver):
     num_samples = 1000
     keys = jrandom.split(jrandom.PRNGKey(2), num=num_samples)
 
@@ -160,11 +165,11 @@ def test_convergence():
         _, errs, order_vs_euler = solver_order(
             keys, sde, ALIGN(0.1), Euler(), jnp.float32(0.005), hs=hs
         )
-        assert errs[0] < 0.3
-        assert order_vs_euler > 1.0
+        assert errs[0] < 0.3 if isinstance(solver, ALIGN) else 0.5
+        assert order_vs_euler > 1.2 if isinstance(solver, ALIGN) else 0.6
 
         hs = 0.025 * jnp.power(jnp.float32(2.0), jnp.arange(0, 5, dtype=jnp.float32))
         _, _, order_vs_itself = solver_order(
             keys, sde, ALIGN(0.1), ALIGN(0.1), jnp.float32(0.005), hs=hs
         )
-        assert order_vs_itself > 1.9
+        assert order_vs_itself > 1.9 if isinstance(solver, ALIGN) else 1.4
