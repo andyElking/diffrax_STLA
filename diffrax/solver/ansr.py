@@ -80,17 +80,14 @@ class ANSR(AbstractItoSolver):
     makes use of space-time Levy area.
 
     Given the SDE
-    dX_t = f(t, X_t) dt + σ dW_t
+    $dX_t = f(t, X_t) dt + σ dW_t$
 
     We construct the SRK as follows:
-    y_1 = y_0 + h (Σ_{j=1}^s b_j k_j) + σ * (cw_last * ΔW + ch_last * ΔH)
-    k_j = f(t_0 + c_j h, z_j)
-    z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cw_j * ΔW + ch_j * ΔH)
 
-    where ΔW := W_{t0, t1} is the increment of the Brownian motion and
-    ΔH := H_{t0, t1} is its corresponding space-time Levy Area.
+    where $ΔW := W_{t_0, t_1}$ is the increment of the Brownian motion and
+    $ΔH := H_{t_0, t_1}$ is its corresponding space-time Levy Area.
 
-    The values a_j_i, b_j, c_j, cw_j, ch_j, cw_last, ch_last are provided
+    The values $( a_{i,j} ) , b_j, c_j, c^W_j, c^H_j$ are provided
     in the StochasticButcherTableau.
     """
 
