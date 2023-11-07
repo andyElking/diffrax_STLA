@@ -9,7 +9,6 @@ from .base import (
     AbstractWrappedSolver,
     HalfSolver,
 )
-from .shark import ShARK
 from .bosh3 import Bosh3
 from .dopri5 import Dopri5
 from .dopri8 import Dopri8
@@ -38,7 +37,8 @@ from .runge_kutta import (
     CalculateJacobian,
     MultiButcherTableau,
 )
-from .semi_implicit_euler import SemiImplicitEuler
 from .sea import SEA
+from .semi_implicit_euler import SemiImplicitEuler
+from .shark import ShARK
 from .sil3 import Sil3
 from .tsit5 import Tsit5
