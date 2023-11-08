@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 
 import equinox as eqx
 import jax
@@ -17,7 +17,7 @@ from .base import AbstractItoSolver
 
 
 _ErrorEstimate = Array
-_SolverState = dict[str, Array | float | Any]
+_SolverState = dict[str, Union[Array, float, Any]]
 
 
 def match_shape(c, u):
@@ -159,7 +159,7 @@ class ALIGN(AbstractItoSolver):
         return 2
 
     def recompute_coeffs(
-        self, h: Scalar, γ: Array | Scalar, u: Scalar, tay_cfs: dict[str, Array]
+        self, h: Scalar, γ: Union[Array, Scalar], u: Scalar, tay_cfs: dict[str, Array]
     ):
         # Used when the step-size h changes and coefficients need to be recomputed
         # Depending on the size of h*γ choose whether the Taylor expansion or
