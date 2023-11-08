@@ -11,3 +11,5 @@ STLA_statistical_tests.ipynb
 ALIGN_Taylor_coeffs
 taylor_experiments.ipynb
 Langevin_test.ipynb
+order_experiments.ipynb
+L2_Langevin_test.ipynb
