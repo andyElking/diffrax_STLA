@@ -10,4 +10,6 @@ site/
 pyTree_experiments.ipynb
 ALIGN_Taylor_coeffs
 taylor_experiments.ipynb
-scratch.ipynb
+Langevin_test.ipynb
+order_experiments.ipynb
+L2_Langevin_test.ipynb
