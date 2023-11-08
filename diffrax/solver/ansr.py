@@ -73,7 +73,7 @@ class StochasticButcherTableau:
 
 
 class ANSR(AbstractItoSolver):
-    """Additive-Noise Stochastic Runge-Kutta method.
+    r"""Additive-Noise Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a Control term with
     control=VirtualBrownianTree(compute_stla=True), since this method
@@ -83,6 +83,12 @@ class ANSR(AbstractItoSolver):
     $dX_t = f(t, X_t) dt + σ dW_t$
 
     We construct the SRK as follows:
+
+    $y_1 = y_0 + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (c^W_{s+1} ΔW + c^H_{s+1} ΔH)$
+
+    $k_j = f(t_0 + c_j h , z_j)$
+
+    $z_j = y_0 + h \Big(\sum_{i=1}^{j-1} a_{j,i} k_i \Big) + σ \, (c^W_j ΔW + c^H_j ΔH)$
 
     where $ΔW := W_{t_0, t_1}$ is the increment of the Brownian motion and
     $ΔH := H_{t_0, t_1}$ is its corresponding space-time Levy Area.
