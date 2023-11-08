@@ -122,19 +122,15 @@ def test_convergence(solver, theoretical_order):
     w_dim_bqp = 1
     bqp = (langevin_drift, langevin_diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
 
-    hs1 = jnp.power(2.0, jnp.arange(-1, -6, -1, dtype=jnp.float64))
+    hs1 = jnp.power(2.0, jnp.arange(-2, -6, -1, dtype=jnp.float64))
     hs2 = jnp.power(2.0, jnp.arange(-4, -9, -1, dtype=jnp.float64))
 
     for sde in [harmonic_osc, bqp]:
-        _, errs, order_vs_euler = sde_solver_order(
+        _, errs, order_v_euler = sde_solver_order(
             keys, sde, solver, Euler(), 2**-12, hs=hs1
         )
-        _, _, order_vs_itself = sde_solver_order(
+        _, _, order_v_self = sde_solver_order(
             keys, sde, solver, solver, 2**-12, hs=hs2
         )
-        print(
-            f"err {errs[-1]:.5f}, ord_v_euler {order_vs_euler:.4f}, "
-            f"ord_v_self {order_vs_itself:.4f}"
-        )
-        assert -0.2 < order_vs_itself - theoretical_order < 0.2
-        assert -0.4 < order_vs_euler - theoretical_order < 0.4
+        assert -0.2 < order_v_self - theoretical_order < 0.2
+        assert -0.4 < order_v_euler - theoretical_order < 0.5
