@@ -17,6 +17,7 @@ from .helpers import (
     all_split_solvers,
     implicit_tol,
     random_pytree,
+    sde_solver_order,
     shaped_allclose,
     treedefs,
 )
@@ -200,6 +201,8 @@ def _solvers():
 def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     key = jrandom.PRNGKey(5678)
     driftkey, diffusionkey, ykey, bmkey = jrandom.split(key, 4)
+    num_samples = 20
+    bmkeys = jrandom.split(bmkey, num=num_samples)
 
     if commutative:
         noise_dim = 1
@@ -232,15 +235,8 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     t0 = 0
     t1 = 2
     y0 = jrandom.normal(ykey, (3,), dtype=jnp.float64)
-    bm = diffrax.VirtualBrownianTree(
-        t0=t0, t1=t1, shape=(noise_dim,), tol=2**-15, key=bmkey
-    )
-    if solver_ctr.term_structure == diffrax.AbstractTerm:
-        terms = diffrax.MultiTerm(
-            diffrax.ODETerm(drift), diffrax.ControlTerm(diffusion, bm)
-        )
-    else:
-        terms = (diffrax.ODETerm(drift), diffrax.ControlTerm(diffusion, bm))
+
+    sde = (drift, diffusion, None, y0, t0, t1, noise_dim)
 
     # Reference solver is always an ODE-viable solver, so its implementation has been
     # verified by the ODE tests like test_ode_order.
@@ -250,27 +246,10 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
         ref_solver = diffrax.Heun()
     else:
         assert False
-    ref_terms = diffrax.MultiTerm(
-        diffrax.ODETerm(drift), diffrax.ControlTerm(diffusion, bm)
-    )
-    true_sol = diffrax.diffeqsolve(
-        ref_terms, ref_solver, t0, t1, dt0=2**-14, y0=y0, max_steps=None
-    )
-    true_yT = true_sol.ys[-1]
 
-    exponents = []
-    errors = []
-    for exponent in [-5, -6, -7, -8, -9, -10]:
-        dt0 = 2**exponent
-        sol = diffrax.diffeqsolve(terms, solver_ctr(), t0, t1, dt0, y0, max_steps=None)
-        yT = sol.ys[-1]
-        error = jnp.sum(jnp.abs(yT - true_yT))
-        if error < 2**-28:
-            break
-        exponents.append(exponent)
-        errors.append(jnp.log2(error))
-
-    order = scipy.stats.linregress(exponents, errors).slope
+    hs, errors, order = sde_solver_order(
+        bmkeys, sde, solver_ctr(), ref_solver, 2**-14, hs_num=7
+    )
     assert -0.2 < order - theoretical_order < 0.2
 
 

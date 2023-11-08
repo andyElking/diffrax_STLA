@@ -133,6 +133,7 @@ def batch_sde_solve(
             args=args,
             saveat=_saveat,
             stepsize_controller=stepsize_controller,
+            max_steps=None,
         )
         return sol.ys[0]
 

@@ -187,6 +187,8 @@ class ANSR(AbstractItoSolver):
         b = jnp.asarray(self.tableau.b, dtype=jnp.dtype(y0))
         cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))
         ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
+        cw_last = jnp.asarray(self.tableau.cw_last, dtype=jnp.dtype(y0))
+        ch_last = jnp.asarray(self.tableau.ch_last, dtype=jnp.dtype(y0))
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
         # an additional batch dimension of size len(b) (i.e. num stages)
         hks = jtu.tree_map(
@@ -203,7 +205,7 @@ class ANSR(AbstractItoSolver):
 
         b_mult_k = jtu.tree_map(lin_comb_b, hks)
 
-        diffusion_contr = self.tableau.cw_last * w + self.tableau.ch_last * hh
+        diffusion_contr = cw_last * w + ch_last * hh
         y1 = (y0**ω + b_mult_k**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, None, dense_info, None, RESULTS.successful
