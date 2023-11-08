@@ -12,6 +12,7 @@ from diffrax import (
     SaveAt,
     SEA,
     ShARK,
+    SRA1,
     VirtualBrownianTree,
 )
 
@@ -88,8 +89,9 @@ def test_shape(solver):
 def _solvers():
     # solver, order
     yield ALIGN(0.1), 2.0
-    yield ShARK(), 1.0
+    yield ShARK(), 2.0
     yield SEA(), 0.5
+    yield SRA1(), 2.0
 
 
 @pytest.mark.parametrize("solver,theoretical_order", _solvers())
@@ -120,7 +122,7 @@ def test_convergence(solver, theoretical_order):
     w_dim_bqp = 1
     bqp = (langevin_drift, langevin_diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
 
-    hs1 = jnp.power(2.0, jnp.arange(-2, -7, -1, dtype=jnp.float64))
+    hs1 = jnp.power(2.0, jnp.arange(-1, -6, -1, dtype=jnp.float64))
     hs2 = jnp.power(2.0, jnp.arange(-3, -9, -1, dtype=jnp.float64))
 
     for sde in [harmonic_osc, bqp]:
@@ -135,4 +137,4 @@ def test_convergence(solver, theoretical_order):
             f"ord_v_self {order_vs_itself:.4f}"
         )
         assert -0.2 < order_vs_itself - theoretical_order < 0.2
-        assert -0.4 < order_vs_euler - theoretical_order < 0.6
+        assert -0.4 < order_vs_euler - theoretical_order < 0.4
