@@ -41,4 +41,5 @@ from .sea import SEA
 from .semi_implicit_euler import SemiImplicitEuler
 from .shark import ShARK
 from .sil3 import Sil3
+from .sra1 import SRA1
 from .tsit5 import Tsit5
