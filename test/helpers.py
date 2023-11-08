@@ -3,9 +3,21 @@ import operator
 
 import diffrax
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
+from diffrax import (
+    ALIGN,
+    ANSR,
+    ConstantStepSize,
+    ControlTerm,
+    diffeqsolve,
+    MultiTerm,
+    ODETerm,
+    SaveAt,
+    VirtualBrownianTree,
+)
 
 
 all_ode_solvers = (
@@ -80,3 +92,70 @@ def shaped_allclose(x, y, **kwargs):
     return same_structure and jtu.tree_reduce(
         operator.and_, jtu.tree_map(allclose, x, y), True
     )
+
+
+def l2_dist(ys1: jax.Array, ys2: jax.Array):
+    assert ys1.shape == ys2.shape
+    n = ys1.shape[0]
+    square_dist = jnp.square(ys1 - ys2)
+    avg = 1 / n * jnp.sum(square_dist)
+    return jnp.sqrt(avg)
+
+
+def batch_sde_solve(
+    keys, sde, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
+):
+    _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
+    _saveat = SaveAt(ts=[_t1])
+    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
+
+    need_stla = need_stla or isinstance(solver, (ALIGN, ANSR))
+
+    def end_value(key):
+        path = VirtualBrownianTree(
+            t0=_t0,
+            t1=_t1,
+            shape=shp_dtype,
+            tol=2**-15,
+            key=key,
+            compute_stla=need_stla,
+        )
+
+        terms = MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, path))
+
+        sol = diffeqsolve(
+            terms,
+            solver,
+            _t0,
+            _t1,
+            dt0=dt0,
+            y0=y0,
+            args=args,
+            saveat=_saveat,
+            stepsize_controller=stepsize_controller,
+        )
+        return sol.ys[0]
+
+    return jax.vmap(end_value)(keys)
+
+
+def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
+    y0 = sde[3]
+    dtype = y0.dtype
+    need_stla = isinstance(solver, (ALIGN, ANSR)) or isinstance(
+        ref_solver, (ALIGN, ANSR)
+    )
+
+    correct_sols = batch_sde_solve(
+        keys, sde, dt_precise, ref_solver, need_stla=need_stla
+    )
+    if hs is None:
+        hs = jnp.power(2.0, jnp.arange(-3, -3 - hs_num, -1, dtype=dtype))
+
+    def get_single_err(h):
+        sols = batch_sde_solve(keys, sde, h, solver, need_stla=need_stla)
+        return l2_dist(sols, correct_sols)
+
+    errs = jax.vmap(get_single_err)(hs)
+    order, _ = jnp.polyfit(jnp.log(hs), jnp.log(errs), 1)
+    return hs, errs, order
