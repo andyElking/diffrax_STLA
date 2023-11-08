@@ -8,7 +8,7 @@ tab = StochasticButcherTableau(
     b=np.array([0.4, 0.6]),
     a=[np.array([5 / 6])],
     cw=np.array([0.0, 5 / 6]),
-    ch=np.array([1.0, 0.0]),
+    ch=np.array([1.0, 1.0]),
     cw_last=1.0,
     ch_last=0.0,
 )
