@@ -15,14 +15,10 @@ tab = StochasticButcherTableau(
 
 
 class SRA1(ANSR):
-    """Shifted Additive-noise Runge-Kutta method for SDEs.
-    When applied to SDEs with additive noise, it converges
-    strongly with order 1.5.
-
-    Based on equation (6.1) in
-    Foster, J., dos Reis, G., & Strange, C. (2023).
-    High order splitting methods for SDEs satisfying a commutativity condition.
-    arXiv [Math.NA] http://arxiv.org/abs/2210.17543
+    """Based on the SRA1 method from
+    A. Rößler, Runge–Kutta methods for the strong approximation
+    of solutions of stochastic differential equations,
+    SIAM Journal on Numerical Analysis, 8 (2010), pp. 922–952.
     """
 
     tableau = tab
