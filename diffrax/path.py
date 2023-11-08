@@ -1,6 +1,6 @@
 import abc
 from dataclasses import field
-from typing import Optional
+from typing import Optional, Union
 
 import equinox as eqx
 import jax
@@ -51,7 +51,7 @@ class AbstractPath(eqx.Module):
         t1: Optional[Scalar] = None,
         left: bool = True,
         use_levy: bool = False,
-    ) -> PyTree | LevyVal:
+    ) -> Union[PyTree, LevyVal]:
         r"""Evaluate the path at any point in the interval $[t_0, t_1]$.
 
         **Arguments:**
