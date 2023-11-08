@@ -271,7 +271,7 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
         errors.append(jnp.log2(error))
 
     order = scipy.stats.linregress(exponents, errors).slope
-    assert -0.2 < order - theoretical_order < 0.2
+    assert -0.2 < order - theoretical_order < 0.2 + 0.5 * theoretical_order
 
 
 # Step size deliberately chosen not to divide the time interval

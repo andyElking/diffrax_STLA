@@ -4,6 +4,7 @@ import jax.random as jrandom
 import pytest
 from diffrax import (
     ALIGN,
+    ANSR,
     ControlTerm,
     diffeqsolve,
     Euler,
@@ -27,9 +28,11 @@ def solutions(keys, sde, dt0, solver, stepsize_controller=None):
     _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
     _saveat = SaveAt(ts=[_t1])
 
+    compute_stla = isinstance(solver, ALIGN) or isinstance(solver, ANSR)
+
     def end_value(key):
-        path = get_bm(sde, key)
-        terms = get_terms(path)
+        path = get_bm(sde, key, compute_stla=compute_stla)
+        terms = get_terms(path, _drift, _diffusion)
         if stepsize_controller is None:
             sol = diffeqsolve(
                 terms, solver, _t0, _t1, dt0=dt0, y0=y0, args=args, saveat=_saveat
@@ -57,12 +60,12 @@ def solver_distance(keys, sde, solver1, dt1, solver2, dt2):
     return l2_dist(sols1, sols2)
 
 
-def solver_order(keys, sde, solver, correct_solver, dt_precise, hs_num=5, hs=None):
-    correct_sols = solutions(keys, sde, dt0=dt_precise, solver=correct_solver)
+def solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
+    y0 = sde[3]
+    dtype = y0.dtype
+    correct_sols = solutions(keys, sde, dt0=dt_precise, solver=ref_solver)
     if hs is None:
-        hs = 0.025 * jnp.power(
-            jnp.float32(2.0), jnp.arange(0, hs_num, dtype=jnp.float32)
-        )
+        hs = jnp.power(2.0, jnp.arange(-3, -3 - hs_num, -1, dtype=dtype))
 
     def get_single_err(h):
         sols = solutions(keys, sde, dt0=h, solver=solver)
@@ -92,16 +95,16 @@ def diffusion(t, y, args):
     return d_y
 
 
-def get_bm(sde, key):
+def get_bm(sde, key, tol=2**-15, compute_stla=True):
     _, _, _, y0, _t0, _t1, w_dim = sde
     shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
     return VirtualBrownianTree(
-        t0=_t0, t1=_t1, shape=shp_dtype, tol=2**-9, key=key, compute_stla=True
+        t0=_t0, t1=_t1, shape=shp_dtype, tol=tol, key=key, compute_stla=compute_stla
     )
 
 
-def get_terms(bm: VirtualBrownianTree):
-    return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
+def get_terms(bm: VirtualBrownianTree, _drift, _diffusion):
+    return MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, bm))
 
 
 t0, t1 = 0.3, 5
