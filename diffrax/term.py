@@ -9,7 +9,7 @@ import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
 
-from .custom_types import Array, LevyVal, PyTree, Scalar
+from .custom_types import Array, PyTree, Scalar
 from .path import AbstractPath
 
 
@@ -43,7 +43,7 @@ class AbstractTerm(eqx.Module):
         pass
 
     @abc.abstractmethod
-    def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
+    def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> PyTree:
         r"""The control.
 
         Represents the $\mathrm{d}t$ in an ODE, or the $\mathrm{d}w(t)$ in an SDE, etc.
@@ -65,10 +65,6 @@ class AbstractTerm(eqx.Module):
         A PyTree of structure $U$. For a control $x$ then the result should
         represent $x(t_1) - x(t_0)$.
         """
-        pass
-
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        r"""Same as contr, except if it is a Brownian path it outputs LevyVal."""
         pass
 
     @abc.abstractmethod
@@ -213,17 +209,8 @@ class _ControlTerm(AbstractTerm):
     def vf(self, t: Scalar, y: PyTree, args: PyTree) -> PyTree:
         return self.vector_field(t, y, args)
 
-    def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
-        return self.control.evaluate(t0, t1)
-
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        """
-        Same as contr, except that it returns a LevyVal.
-        Intended for use with VirtualBrownianTree when computing
-        Levy area (use the compute_stla flag when initialising the
-        Virtual Brownian Tree).
-        """
-        return self.control.eval_levy(t0, t1)
+    def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> PyTree:
+        return self.control.evaluate(t0, t1, **kwargs)
 
     def to_ode(self) -> ODETerm:
         r"""If the control is differentiable then $f(t, y(t), args) \mathrm{d}x(t)$
@@ -366,8 +353,8 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
     def vf(self, t: Scalar, y: PyTree, args: PyTree) -> Tuple[PyTree, ...]:
         return tuple(term.vf(t, y, args) for term in self.terms)
 
-    def contr(self, t0: Scalar, t1: Scalar) -> Tuple[PyTree, ...]:
-        return tuple(term.contr(t0, t1) for term in self.terms)
+    def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> Tuple[PyTree, ...]:
+        return tuple(term.contr(t0, t1, **kwargs) for term in self.terms)
 
     def prod(self, vf: Tuple[PyTree, ...], control: Tuple[PyTree, ...]) -> PyTree:
         out = [
@@ -403,10 +390,10 @@ class WrapTerm(AbstractTerm):
         t = t * self.direction
         return self.term.vf(t, y, args)
 
-    def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
+    def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> PyTree:
         _t0 = jnp.where(self.direction == 1, t0, -t1)
         _t1 = jnp.where(self.direction == 1, t1, -t0)
-        return (self.direction * self.term.contr(_t0, _t1) ** ω).ω
+        return (self.direction * self.term.contr(_t0, _t1, **kwargs) ** ω).ω
 
     def prod(self, vf: PyTree, control: PyTree) -> PyTree:
         return self.term.prod(vf, control)
@@ -425,10 +412,6 @@ class WrapTerm(AbstractTerm):
         _t0 = jnp.where(self.direction == 1, t0, -t1)
         _t1 = jnp.where(self.direction == 1, t1, -t0)
         return self.term.is_vf_expensive(_t0, _t1, y, args)
-
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
-        assert isinstance(self.term, _ControlTerm)
-        return self.term.levy_contr(t0, t1)
 
 
 class AdjointTerm(AbstractTerm):
@@ -502,8 +485,8 @@ class AdjointTerm(AbstractTerm):
             )
         return jtu.tree_transpose(vf_prod_tree, control_tree, jac)
 
-    def contr(self, t0: Scalar, t1: Scalar) -> PyTree:
-        return self.term.contr(t0, t1)
+    def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> PyTree:
+        return self.term.contr(t0, t1, **kwargs)
 
     def prod(
         self, vf: PyTree, control: PyTree

@@ -12,7 +12,6 @@ from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
 from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
-from .ansr import check_diffusion_has_stla
 from .base import AbstractItoSolver
 
 
@@ -255,9 +254,13 @@ class ALIGN(AbstractItoSolver):
         # jax.debug.print("{h}", h=st['h'])
 
         drift, diffusion = terms.terms
-        check_diffusion_has_stla(diffusion)
-
-        levy: LevyVal = diffusion.levy_contr(t0, t1)
+        # compute the Brownian increment and space-time Levy area
+        levy = diffusion.contr(t0, t1, use_levy=True)
+        assert isinstance(levy, LevyVal) and (levy.H is not None), (
+            "The diffusion should be a ControlTerm controlled by either a"
+            "VirtualBrownianTree or an UnsafeBrownianPath with"
+            "`spacetime_levyarea` set to True."
+        )
         w = levy.W
         hh = levy.H
 

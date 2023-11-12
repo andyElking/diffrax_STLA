@@ -1,12 +1,12 @@
 import abc
 from dataclasses import field
-from typing import Optional, Union
+from typing import Optional
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from .custom_types import LevyVal, PyTree, Scalar
+from .custom_types import PyTree, Scalar
 
 
 class AbstractPath(eqx.Module):
@@ -39,19 +39,13 @@ class AbstractPath(eqx.Module):
     t0: Scalar = field(init=False, repr=False)
     t1: Scalar = field(init=False, repr=False)
 
-    def eval_levy(
-        self, t0: Scalar, t1: Optional[Scalar] = None, left: bool = True
-    ) -> LevyVal:
-        return self.evaluate(t0, t1, left, use_levy=True)
-
     @abc.abstractmethod
     def evaluate(
         self,
         t0: Scalar,
         t1: Optional[Scalar] = None,
         left: bool = True,
-        use_levy: bool = False,
-    ) -> Union[PyTree, LevyVal]:
+    ) -> PyTree:
         r"""Evaluate the path at any point in the interval $[t_0, t_1]$.
 
         **Arguments:**

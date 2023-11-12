@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Tuple
 
-import diffrax
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -12,32 +11,12 @@ from equinox.internal import ω
 from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm, WrapTerm
+from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
 from .base import AbstractItoSolver
 
 
 _ErrorEstimate = None
 _SolverState = None
-
-
-def check_diffusion_has_stla(diffusion):
-    # ensure that STLA will be computed
-    if isinstance(diffusion, WrapTerm):
-        if isinstance(diffusion.term, ControlTerm):
-            control = diffusion.term.control
-        else:
-            raise TypeError("diffusion should be a ControlTerm")
-    else:
-        control = diffusion.control
-    if not isinstance(control, diffrax.VirtualBrownianTree):
-        raise TypeError(
-            "A VirtualBrownianTree should be used " "to control the diffusion term."
-        )
-    elif not control.compute_stla:
-        raise ValueError(
-            "The VirtualBrownianTree controlling the diffusion"
-            ' should be initialised with "compute_stla=True"'
-        )
 
 
 @dataclass(frozen=True)
@@ -142,10 +121,14 @@ class ANSR(AbstractItoSolver):
 
         h = t1 - t0
         drift, diffusion = terms.terms
-        check_diffusion_has_stla(diffusion)
 
         # compute the Brownian increment and space-time Levy area
-        levy: LevyVal = diffusion.levy_contr(t0, t1)
+        levy = diffusion.contr(t0, t1, use_levy=True)
+        assert isinstance(levy, LevyVal) and (levy.H is not None), (
+            "The diffusion should be a ControlTerm controlled by either a"
+            "VirtualBrownianTree or an UnsafeBrownianPath with"
+            "`spacetime_levyarea` set to True."
+        )
         w = levy.W
         hh = levy.H
         sigma = diffusion.vf(t0, y0, args)
