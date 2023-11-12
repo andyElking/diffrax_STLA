@@ -51,7 +51,7 @@ class StochasticButcherTableau:
         # TODO: add checks for whether the method is FSAL
 
 
-class ANSR(AbstractItoSolver):
+class AbstractANSR(AbstractItoSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a Control term with
@@ -79,12 +79,6 @@ class ANSR(AbstractItoSolver):
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
-
-    def order(self, terms):
-        return 1  # should be modified depending on tableau
-
-    def strong_order(self, terms):
-        return 0.5  # should be modified depending on tableau
 
     def init(
         self,

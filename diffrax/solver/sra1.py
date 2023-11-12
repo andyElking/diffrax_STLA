@@ -1,6 +1,6 @@
 import numpy as np
 
-from .ansr import ANSR, StochasticButcherTableau
+from .ansr import AbstractANSR, StochasticButcherTableau
 
 
 tab = StochasticButcherTableau(
@@ -14,7 +14,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class SRA1(ANSR):
+class SRA1(AbstractANSR):
     """Based on the SRA1 method from
     A. Rößler, Runge–Kutta methods for the strong approximation
     of solutions of stochastic differential equations,

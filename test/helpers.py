@@ -8,8 +8,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 from diffrax import (
+    AbstractANSR,
     ALIGN,
-    ANSR,
     ConstantStepSize,
     ControlTerm,
     diffeqsolve,
@@ -109,7 +109,7 @@ def batch_sde_solve(
     _saveat = SaveAt(ts=[_t1])
     shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
 
-    need_stla = need_stla or isinstance(solver, (ALIGN, ANSR))
+    need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
 
     def end_value(key):
         path = VirtualBrownianTree(
@@ -143,8 +143,8 @@ def batch_sde_solve(
 def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
     y0 = sde[3]
     dtype = y0.dtype
-    need_stla = isinstance(solver, (ALIGN, ANSR)) or isinstance(
-        ref_solver, (ALIGN, ANSR)
+    need_stla = isinstance(solver, (ALIGN, AbstractANSR)) or isinstance(
+        ref_solver, (ALIGN, AbstractANSR)
     )
 
     correct_sols = batch_sde_solve(

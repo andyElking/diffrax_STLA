@@ -19,7 +19,7 @@ _ErrorEstimate = Array
 _SolverState = dict[str, Union[Array, float, Any]]
 
 
-def match_shape(c, u):
+def _match_shape(c, u):
     if jnp.ndim(c) != 0 and jnp.ndim(u) == 0:
         u = u * jnp.ones_like(c)
     if jnp.ndim(u) != 0 and jnp.ndim(c) == 0:
@@ -27,7 +27,7 @@ def match_shape(c, u):
     return c, u
 
 
-def directly_compute_coeffs(h, γ, u):
+def _directly_compute_coeffs(h, γ, u):
     # compute the coefficients directly (as opposed to via Taylor expansion)
     dtype = jnp.dtype(γ)
     α = γ * h
@@ -110,7 +110,7 @@ def _tay_cfs_single(c, u):
     }
 
 
-def comp_taylor_coeffs(γ, u):
+def _comp_taylor_coeffs(γ, u):
     # When the step-size h is small the coefficients (which depend on h) need
     # to be computed via Taylor expansion to ensure numerical stability.
     # This precomputes the Taylor coefficients (depending on γ and u), which
@@ -119,12 +119,12 @@ def comp_taylor_coeffs(γ, u):
     if jnp.ndim(γ) == 0 and jnp.ndim(u) == 0:
         return _tay_cfs_single(γ, u)
 
-    γ, u = match_shape(γ, u)
+    γ, u = _match_shape(γ, u)
 
     return jax.vmap(_tay_cfs_single)(γ, u)
 
 
-def eval_taylor(h, tay_cfs):
+def _eval_taylor(h, tay_cfs):
     # Multiplies the pre-computed Taylor coefficients by powers of h.
     # jax.debug.print("eval taylor for h = {h}", h=h)
     dtype = jnp.dtype(tay_cfs["a1"])
@@ -138,8 +138,8 @@ class ALIGN(AbstractItoSolver):
     """The Adaptive Langevin via Interpolated Gradients and Noise method
     designed by James Foster. Only works for Underdamped Langevin Diffusion
     of the form
-    d x_t &= v_t dt
-    d v_t &= - γ v_t dt - u ∇f(x_t) dt + (2γu)^(1/2) dW_t
+    $d x_t = v_t dt$
+    $d v_t = - γ v_t dt - u ∇f(x_t) dt + (2γu)^(1/2) dW_t$
     where v is the velocity, f is the potential, γ is the friction, and
     W is a Brownian motion.
     """
@@ -167,17 +167,17 @@ class ALIGN(AbstractItoSolver):
         if jnp.ndim(γ) == 0 and jnp.ndim(u) == 0:
             return lax.cond(
                 cond,
-                lambda h_: eval_taylor(h_, tay_cfs),
-                lambda h_: directly_compute_coeffs(h_, γ, u),
+                lambda h_: _eval_taylor(h_, tay_cfs),
+                lambda h_: _directly_compute_coeffs(h_, γ, u),
                 h,
             )
         else:
-            tay_out = eval_taylor(h, tay_cfs)
+            tay_out = _eval_taylor(h, tay_cfs)
 
-            γ, u = match_shape(γ, u)
+            γ, u = _match_shape(γ, u)
 
             def select_tay_or_direct(dummy):
-                fun = lambda gam, _u: directly_compute_coeffs(h, gam, _u)
+                fun = lambda gam, _u: _directly_compute_coeffs(h, gam, _u)
                 direct_out = vmap(fun)(γ, u)
                 return jtu.tree_map(
                     lambda tay_leaf, direct_leaf: jnp.where(
@@ -221,7 +221,7 @@ class ALIGN(AbstractItoSolver):
         γ, u, f = args  # f is in fact grad(f)
         h = t1 - t0
 
-        tay_cfs = comp_taylor_coeffs(γ, u)
+        tay_cfs = _comp_taylor_coeffs(γ, u)
         coeffs = self.recompute_coeffs(h, γ, u, tay_cfs)
 
         assert y0.ndim == 1
