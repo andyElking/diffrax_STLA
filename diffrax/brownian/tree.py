@@ -207,6 +207,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         levy_out = _levy_tree_transpose(self.shape, self.spacetime_levyarea, levy_out)
         # now map [0,1] back onto [self.t0, self.t1]
         levy_out = self._denormalise_bm_inc(levy_out)
+        assert isinstance(levy_out, LevyVal)
         return levy_out if use_levy else levy_out.W
 
     def _evaluate(self, r: Scalar) -> PyTree[LevyVal]:
