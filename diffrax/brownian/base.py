@@ -1,12 +1,38 @@
 import abc
 from typing import Optional
 
+import jax
+from jax import tree_util as jtu
+
+from .. import LevyVal
 from ..custom_types import Array, PyTree, Scalar
 from ..path import AbstractPath
 
 
+def _levy_tree_transpose(tree_shape, compute_stla, tree):
+    """Helper that takes a PyTree of LevyVals and transposes
+    into a LevyVal of PyTrees.
+
+    Args:
+        tree_shape:
+        compute_stla:
+        tree:
+
+    Returns:
+
+    """
+    hh_default_val = 0.0 if compute_stla else None
+    return jtu.tree_transpose(
+        outer_treedef=jax.tree_structure(tree_shape),
+        inner_treedef=jax.tree_structure(
+            LevyVal(h=0.0, W=0.0, J=None, H=hh_default_val)
+        ),
+        pytree_to_transpose=tree,
+    )
+
+
 class AbstractBrownianPath(AbstractPath):
-    "Abstract base class for all Brownian paths."
+    """Abstract base class for all Brownian paths."""
 
     @abc.abstractmethod
     def evaluate(
