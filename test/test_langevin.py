@@ -19,11 +19,16 @@ from diffrax import (
 from .helpers import sde_solver_order
 
 
-def get_bm(sde, key, tol=2**-15, compute_stla=True):
+def get_bm(sde, key, tol=2**-15, spacetime_levyarea=True):
     _, _, _, y0, _t0, _t1, w_dim = sde
     shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
     return VirtualBrownianTree(
-        t0=_t0, t1=_t1, shape=shp_dtype, tol=tol, key=key, compute_stla=compute_stla
+        t0=_t0,
+        t1=_t1,
+        shape=shp_dtype,
+        tol=tol,
+        key=key,
+        spacetime_levyarea=spacetime_levyarea,
     )
 
 
@@ -70,7 +75,7 @@ def test_shape(solver):
                     tol=2**-9,
                     shape=shp_dtype,
                     key=jrandom.PRNGKey(4),
-                    compute_stla=True,
+                    spacetime_levyarea=True,
                 )
             )
             for args in [

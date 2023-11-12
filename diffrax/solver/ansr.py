@@ -55,7 +55,7 @@ class ANSR(AbstractItoSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a Control term with
-    control=VirtualBrownianTree(compute_stla=True), since this method
+    control=VirtualBrownianTree(spacetime_levyarea=True), since this method
     makes use of space-time Levy area.
 
     Given the SDE
@@ -96,10 +96,7 @@ class ANSR(AbstractItoSolver):
     ) -> _SolverState:
         return None
 
-    def embed_a_lower(self, dtype):
-        """
-        Takes the lower-triangular (a_j_i) and embeds it in an n*n array.
-        """
+    def _embed_a_lower(self, dtype):
         num_stages = len(self.tableau.b)
         a = self.tableau.a
         tab_a = np.zeros((num_stages, num_stages))
@@ -165,7 +162,7 @@ class ANSR(AbstractItoSolver):
             # k_js, so no need for second return value
             return (j + 1, hks_j), None
 
-        a = self.embed_a_lower(jnp.dtype(y0))
+        a = self._embed_a_lower(jnp.dtype(y0))
         c = jnp.insert(jnp.asarray(self.tableau.c, dtype=jnp.dtype(y0)), 0, 0.0)
         b = jnp.asarray(self.tableau.b, dtype=jnp.dtype(y0))
         cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))

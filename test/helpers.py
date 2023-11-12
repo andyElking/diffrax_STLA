@@ -118,7 +118,7 @@ def batch_sde_solve(
             shape=shp_dtype,
             tol=2**-15,
             key=key,
-            compute_stla=need_stla,
+            spacetime_levyarea=need_stla,
         )
 
         terms = MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, path))

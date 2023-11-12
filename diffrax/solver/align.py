@@ -207,9 +207,17 @@ class ALIGN(AbstractItoSolver):
         ALIGN coefficients (which can be computed from h and the Taylor coeffs).
         This method is FSAL, so _SolverState also carries the previous evaluation
         of grad_f.
+
+        Args:
+            terms:
+            t0:
+            t1:
+            y0:
+            args:
+
+        Returns:
+            solver_state:
         """
-        # print(y0.dtype)
-        # jax.debug.print("y0 {a}", a=y0.dtype)
         γ, u, f = args  # f is in fact grad(f)
         h = t1 - t0
 

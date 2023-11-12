@@ -100,12 +100,12 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         t1: Scalar,
         key,
         shape: jax.ShapeDtypeStruct,
-        compute_stla: bool,
+        spacetime_levyarea: bool,
         use_levy: bool,
     ):
         w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
 
-        if compute_stla:
+        if spacetime_levyarea:
             key_w, key_hh = jrandom.split(key, 2)
             w = jrandom.normal(key_w, shape.shape, shape.dtype) * w_std
             hh_std = jnp.sqrt((t1 - t0) / 12).astype(shape.dtype)

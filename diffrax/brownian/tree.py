@@ -58,9 +58,10 @@ def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     Returns:
 
     """
-    h = x1.h - x0.h
+    h = (x1.h - x0.h).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
     inverse_h = 1 / h
+    # inverse_h = jnp.nan_to_num(1 / h).astype(x0.W.dtype)
     w_01 = x1.W - x0.W
     hh_01 = (x1.J - x0.J) * inverse_h - 0.5 * x1.W - 0.5 * x0.W
     return LevyVal(h=h, W=w_01, H=hh_01)
@@ -107,7 +108,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
     t0: Scalar = field(init=True)
     t1: Scalar = field(init=True)  # override init=False in AbstractPath
-    _interval_len: Scalar
     tol: Scalar = field(init=True)
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
     spacetime_levyarea: bool = eqx.field(static=True)
@@ -251,7 +251,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
 
             w_t = (3 / (2 * h)) * (J_u - J_s) - 0.25 * w_u - 0.25 * w_s + z
-            J_t = J_u + 0.5 * (J_u - J_s) + (h / 8) * (w_s - w_u) + (h / 4) * n
+            J_t = J_u + 0.5 * (J_s - J_u) + (h / 8) * (w_s - w_u) + (h / 4) * n
         else:
             assert J_u is None
             assert J_s is None
