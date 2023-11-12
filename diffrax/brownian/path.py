@@ -9,8 +9,7 @@ import jax.tree_util as jtu
 
 from ..custom_types import Array, LevyVal, PyTree, Scalar
 from ..misc import force_bitcast_convert_type, is_tuple_of_ints, split_by_tree
-from .base import AbstractBrownianPath
-from .tree import levy_tree_transpose
+from .base import _levy_tree_transpose, AbstractBrownianPath
 
 
 class UnsafeBrownianPath(AbstractBrownianPath):
@@ -87,7 +86,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
             self.shape,
         )
         if use_levy:
-            out = levy_tree_transpose(self.shape, self.compute_stla, out)
+            out = _levy_tree_transpose(self.shape, self.compute_stla, out)
         return out
 
     @staticmethod
