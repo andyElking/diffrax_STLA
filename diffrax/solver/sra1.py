@@ -5,7 +5,7 @@ from .ansr import AbstractANSR, StochasticButcherTableau
 
 tab = StochasticButcherTableau(
     c=np.array([3 / 4]),
-    b=np.array([1 / 3, 2 / 3]),
+    b_sol=np.array([1 / 3, 2 / 3]),
     a=[np.array([3 / 4])],
     cw=np.array([0.0, 3 / 4]),
     ch=np.array([0.0, 1.5]),

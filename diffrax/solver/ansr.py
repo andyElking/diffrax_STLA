@@ -10,6 +10,7 @@ from equinox.internal import ω
 
 from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
+from ..misc import rms_norm
 from ..solution import RESULTS
 from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
 from .base import AbstractItoSolver
@@ -25,7 +26,8 @@ class StochasticButcherTableau:
 
     # Only supports explicit SRK so far
     c: np.ndarray
-    b: np.ndarray
+    b_sol: np.ndarray
+    b_error: np.ndarray
     a: list[np.ndarray]
 
     # coefficients for W and H (of shape (len(c)+1,)
@@ -38,25 +40,55 @@ class StochasticButcherTableau:
         assert self.c.ndim == 1
         for a_i in self.a:
             assert a_i.ndim == 1
-        assert self.b.ndim == 1
+        assert self.b_sol.ndim == 1
+        assert self.b_error.ndim == 1
         assert self.c.shape[0] == len(self.a)
         assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.a))
-        assert self.c.shape[0] + 1 == self.b.shape[0]
-        assert self.cw.shape[0] == self.b.shape[0]
-        assert self.ch.shape[0] == self.b.shape[0]
+        assert self.b_error.shape[0] == self.b_sol.shape[0]
+        assert self.c.shape[0] + 1 == self.b_sol.shape[0]
+        assert self.cw.shape[0] == self.b_sol.shape[0]
+        assert self.ch.shape[0] == self.b_sol.shape[0]
         for i, (a_i, c_i) in enumerate(zip(self.a, self.c)):
             assert np.allclose(sum(a_i), c_i)
-        assert np.allclose(sum(self.b), 1.0)
+        assert np.allclose(sum(self.b_sol), 1.0)
 
         # TODO: add checks for whether the method is FSAL
+
+
+StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
+
+Let `k` denote the number of stages of the solver.
+
+- `a`: the lower triangle (without the diagonal) of the Butcher tableau. Should
+    be a tuple of NumPy arrays, corresponding to the rows of this lower triangle. The
+    first array represents the should be of shape `(1,)`. Each subsequent array should
+    be of shape `(2,)`, `(3,)` etc. The final array should have shape `(k - 1,)`.
+- `b_sol`: the linear combination of stages to take to produce the output at each step.
+    Should be a NumPy array of shape `(k,)`.
+- `b_error`: the linear combination of stages to take to produce the error estimate at
+    each step. Should be a NumPy array of shape `(k,)`. Note that this is *not*
+    differenced against `b_sol` prior to evaluation. (i.e. `b_error` gives the linear
+    combination for producing the error estimate directly, not for producing some
+    alternate solution that is compared against the main solution).
+- `c`: the time increments used in the Butcher tableau.
+    Should be a NumPy array of shape `(k-1,)`, as the first stage has time increment 0
+- `cw`: The coefficients in front of the Brownian increment at each stage.
+    Should be a NumPy array of shape `(k,)`.
+- `ch`: The coefficients in front of the space-time Lévy area at each stage.
+    Should be a NumPy array of shape `(k,)`.
+- `cw_last`: The coefficient in front of the Brownian increment when computing the
+    output ($y_{n+1}$) of the step. Should be a `Scalar`.
+- `ch_last`: The coefficient in front of the space-time Lévy area when computing the
+    output ($y_{n+1}$) of the step. Should be a `Scalar`.
+"""
 
 
 class AbstractANSR(AbstractItoSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
-    The second term in the MultiTerm must be a Control term with
-    control=VirtualBrownianTree(spacetime_levyarea=True), since this method
-    makes use of space-time Levy area.
+    The second term in the MultiTerm must be a `ControlTerm` with
+    `control=VirtualBrownianTree(spacetime_levyarea=True)`, since this method
+    makes use of space-time Lévy area.
 
     Given the SDE
     $dX_t = f(t, X_t) dt + σ dW_t$
@@ -70,10 +102,10 @@ class AbstractANSR(AbstractItoSolver):
     $z_j = y_0 + h \Big(\sum_{i=1}^{j-1} a_{j,i} k_i \Big) + σ \, (c^W_j ΔW + c^H_j ΔH)$
 
     where $ΔW := W_{t_0, t_1}$ is the increment of the Brownian motion and
-    $ΔH := H_{t_0, t_1}$ is its corresponding space-time Levy Area.
+    $ΔH := H_{t_0, t_1}$ is its corresponding space-time Lévy Area.
 
     The values $( a_{i,j} ) , b_j, c_j, c^W_j, c^H_j$ are provided
-    in the StochasticButcherTableau.
+    in the `StochasticButcherTableau`.
     """
 
     term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
@@ -91,7 +123,7 @@ class AbstractANSR(AbstractItoSolver):
         return None
 
     def _embed_a_lower(self, dtype):
-        num_stages = len(self.tableau.b)
+        num_stages = len(self.tableau.b_sol)
         a = self.tableau.a
         tab_a = np.zeros((num_stages, num_stages))
         for i, a_i in enumerate(a):
@@ -113,7 +145,7 @@ class AbstractANSR(AbstractItoSolver):
         h = t1 - t0
         drift, diffusion = terms.terms
 
-        # compute the Brownian increment and space-time Levy area
+        # compute the Brownian increment and space-time Lévy area
         levy = diffusion.contr(t0, t1, use_levy=True)
         assert isinstance(levy, LevyVal) and (levy.H is not None), (
             "The diffusion should be a ControlTerm controlled by either a"
@@ -158,31 +190,38 @@ class AbstractANSR(AbstractItoSolver):
 
         a = self._embed_a_lower(jnp.dtype(y0))
         c = jnp.insert(jnp.asarray(self.tableau.c, dtype=jnp.dtype(y0)), 0, 0.0)
-        b = jnp.asarray(self.tableau.b, dtype=jnp.dtype(y0))
+        b_sol = jnp.asarray(self.tableau.b_sol, dtype=jnp.dtype(y0))
+        b_err = jnp.asarray(self.tableau.b_error, dtype=jnp.dtype(y0))
         cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))
         ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
         cw_last = jnp.asarray(self.tableau.cw_last, dtype=jnp.dtype(y0))
         ch_last = jnp.asarray(self.tableau.ch_last, dtype=jnp.dtype(y0))
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
-        # an additional batch dimension of size len(b) (i.e. num stages)
+        # an additional batch dimension of size len(b_sol) (i.e. num stages)
         hks = jtu.tree_map(
-            lambda leaf: jnp.zeros(shape=(len(b),) + leaf.shape, dtype=leaf.dtype), y0
+            lambda leaf: jnp.zeros(shape=(len(b_sol),) + leaf.shape, dtype=leaf.dtype),
+            y0,
         )
         carry = (0, hks)
 
-        # output of lax.scan is ((num_stages, hks), [None, None, ... , None])
-        (_, hks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b))
+        # output of lax.scan is ((num_stages, hks), None)
+        (_, hks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b_sol))
 
         # compute Σ_{j=1}^s b_j k_j
-        def lin_comb_b(k_leaf):
-            return jnp.tensordot(b, k_leaf, axes=1)
+        def lin_comb(coeffs):
+            def lin_comb_aux(k_leaf):
+                return jnp.tensordot(coeffs, k_leaf, axes=1)
 
-        b_mult_k = jtu.tree_map(lin_comb_b, hks)
+            return lin_comb_aux
+
+        b_mult_k = jtu.tree_map(lin_comb(b_sol), hks)
+
+        error = rms_norm(jtu.tree_map(lin_comb(b_err), hks))
 
         diffusion_contr = cw_last * w + ch_last * hh
         y1 = (y0**ω + b_mult_k**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
-        return y1, None, dense_info, None, RESULTS.successful
+        return y1, error, dense_info, None, RESULTS.successful
 
     def func(
         self,
