@@ -12,7 +12,7 @@ from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..misc import rms_norm
 from ..solution import RESULTS
-from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
+from ..term import _ControlTerm, AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractItoSolver
 
 
@@ -108,13 +108,13 @@ class AbstractANSR(AbstractItoSolver):
     in the `StochasticButcherTableau`.
     """
 
-    term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
+    term_structure = MultiTerm[Tuple[ODETerm, _ControlTerm]]
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
 
     def init(
         self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        terms: MultiTerm[Tuple[ODETerm, _ControlTerm]],
         t0: Scalar,
         t1: Scalar,
         y0: PyTree,
@@ -132,7 +132,7 @@ class AbstractANSR(AbstractItoSolver):
 
     def step(
         self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        terms: MultiTerm[Tuple[ODETerm, _ControlTerm]],
         t0: Scalar,
         t1: Scalar,
         y0: PyTree,

@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
+import jax.tree_util as jtu
 import pytest
 from diffrax import (
     ALIGN,
@@ -21,7 +22,8 @@ from .helpers import sde_solver_order
 
 def get_bm(sde, key, tol=2**-15, spacetime_levyarea=True):
     _, _, _, y0, _t0, _t1, w_dim = sde
-    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
+    dtype = jtu.tree_leaves(y0)[0].dtype
+    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=dtype)
     return VirtualBrownianTree(
         t0=_t0,
         t1=_t1,
@@ -34,20 +36,24 @@ def get_bm(sde, key, tol=2**-15, spacetime_levyarea=True):
 
 def langevin_drift(t, y, args):
     gamma, u, grad_f = args
-    dim = int(y.shape[0] / 2)
-    x, v = y[:dim], y[dim:]
+    x, v = y
     d_x = v
     d_v = -gamma * v - u * grad_f(x)
-    d_y = jnp.array([d_x, d_v], dtype=y.dtype).flatten()
+    d_y = (d_x, d_v)
     return d_y
 
 
 def langevin_diffusion(t, y, args):
     gamma, u, _ = args
-    dim = int(y.shape[0] / 2)
-    assert y.shape[0] == 2 * dim
-    d_v = jnp.sqrt(2 * gamma * u) * jnp.ones((dim,), dtype=y.dtype)
-    d_y = jnp.concatenate((jnp.zeros((dim, dim), dtype=y.dtype), jnp.diag(d_v)), axis=0)
+    dtype = y[0].dtype
+    if y[0].ndim == 0:
+        zeros = jnp.zeros((), dtype=dtype)
+    else:
+        assert y[0].ndim == 1
+        dim = y[0].shape[0]
+        zeros = jnp.zeros((dim, dim), dtype=dtype)
+    d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[0].shape, dtype=dtype)
+    d_y = (zeros, jnp.diag(d_v))
     return d_y
 
 
@@ -65,7 +71,9 @@ def test_shape(solver):
             gam = dtype(1.0)
             vec_u = jnp.ones((dim,), dtype=dtype)
             vec_gam = jnp.ones((dim,), dtype=dtype)
-            y0 = jnp.zeros((2 * dim,), dtype=dtype)
+            x0 = jnp.zeros((dim,), dtype=dtype)
+            v0 = jnp.zeros((dim,), dtype=dtype)
+            y0 = (x0, v0)
             f = lambda x: 0.5 * x
             shp_dtype = jax.ShapeDtypeStruct((dim,), dtype)
             terms = get_terms(

@@ -18,6 +18,7 @@ from diffrax import (
     SaveAt,
     VirtualBrownianTree,
 )
+from diffrax.custom_types import PyTree
 
 
 all_ode_solvers = (
@@ -94,25 +95,35 @@ def shaped_allclose(x, y, **kwargs):
     )
 
 
-def l2_dist(ys1: jax.Array, ys2: jax.Array):
-    assert ys1.shape == ys2.shape
-    n = ys1.shape[0]
-    # len = ys1.shape[1]
-    square_dist = jnp.square(ys1 - ys2)
-    avg = 1 / n * jnp.sum(square_dist)
-    return jnp.sqrt(avg)
+def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
+    # first compute the square of the difference and sum over
+    # all but the first two axes (which represent the number of samples
+    # and the length of saveat). Also sum all the PyTree leaves
+    def sum_square_diff(y1, y2):
+        square_diff = jnp.square(y1 - y2)
+        # sum all but the first two axes
+        axes = range(2, square_diff.ndim)
+        out = jnp.sum(square_diff, axis=axes)
+        return out
+
+    dist = jtu.tree_map(sum_square_diff, ys1, ys2)
+    dist = sum(jtu.tree_leaves(dist))  # shape=(num_samples, len(saveat))
+    dist = jnp.max(dist, axis=1)  # take sup along the length of integration
+    dist = jnp.sqrt(jnp.mean(dist))
+    return dist
 
 
 def batch_sde_solve(
     keys, sde, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
 ):
     _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
-    _saveat = SaveAt(ts=[_t1])
-    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
+    dtype = jtu.tree_leaves(y0)[0].dtype
+    _saveat = SaveAt(ts=jnp.linspace(_t0, _t1, 3, dtype=dtype))
+    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=dtype)
 
     need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
 
-    def single_path(key):
+    def end_value(key):
         path = VirtualBrownianTree(
             t0=_t0,
             t1=_t1,
@@ -136,14 +147,14 @@ def batch_sde_solve(
             stepsize_controller=stepsize_controller,
             max_steps=None,
         )
-        return sol.ys[0]
+        return sol.ys
 
-    return jax.vmap(single_path)(keys)
+    return jax.vmap(end_value)(keys)
 
 
 def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
     y0 = sde[3]
-    dtype = y0.dtype
+    dtype = jtu.tree_leaves(y0)[0].dtype
     need_stla = isinstance(solver, (ALIGN, AbstractANSR)) or isinstance(
         ref_solver, (ALIGN, AbstractANSR)
     )
@@ -156,7 +167,7 @@ def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=Non
 
     def get_single_err(h):
         sols = batch_sde_solve(keys, sde, h, solver, need_stla=need_stla)
-        return l2_dist(sols, correct_sols)
+        return path_l2_dist(sols, correct_sols)
 
     errs = jax.vmap(get_single_err)(hs)
     order, _ = jnp.polyfit(jnp.log(hs), jnp.log(errs), 1)

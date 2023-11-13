@@ -224,10 +224,9 @@ class ALIGN(AbstractItoSolver):
         tay_cfs = _comp_taylor_coeffs(γ, u)
         coeffs = self.recompute_coeffs(h, γ, u, tay_cfs)
 
-        assert y0.ndim == 1
-        dim = int(y0.shape[0] / 2)
-        assert y0.shape[0] == 2 * dim
-        x0 = y0[:dim]
+        x0, v0 = y0
+        assert x0.shape == v0.shape
+        assert x0.ndim in [0, 1]
 
         state_out = {"h": h, "taylor_coeffs": tay_cfs, "coeffs": coeffs, "f(x)": f(x0)}
 
@@ -238,11 +237,11 @@ class ALIGN(AbstractItoSolver):
         terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
         t0: Scalar,
         t1: Scalar,
-        y0: Array,
+        y0: Tuple[Array, Array],
         args: PyTree,
         solver_state: _SolverState,
         made_jump: Bool,
-    ) -> Tuple[Array, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+    ) -> Tuple[Tuple[Array, Array], _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del made_jump
         st = solver_state
         h = t1 - t0
@@ -272,14 +271,14 @@ class ALIGN(AbstractItoSolver):
         w = levy.W
         hh = levy.H
 
-        assert y0.ndim == 1
-        dim = int(y0.shape[0] / 2)
-        assert y0.shape[0] == 2 * dim
-        x0, v0 = y0[:dim], y0[dim:]
+        x0, v0 = y0
+        assert x0.shape == v0.shape
+        assert x0.ndim in [0, 1]
+
         assert jnp.shape(cfs["a1"]) == jnp.shape(γ) or jnp.shape(
             cfs["a1"]
         ) == jnp.shape(u)
-        assert jnp.shape(γ) in [(), (dim,)]
+        assert jnp.shape(γ) in [(), x0.shape]
 
         f0 = st["f(x)"]
         x1 = x0 + cfs["a1"] * v0 + cfs["a2"] * f0 + cfs["cw1"] * w + cfs["ch1"] * hh
@@ -293,8 +292,8 @@ class ALIGN(AbstractItoSolver):
             + cfs["ch2"] * hh
         )
 
-        y1 = jnp.concatenate((x1, v1))
-        assert y1.dtype == y0.dtype
+        y1 = (x1, v1)
+        assert v1.dtype == x1.dtype == x0.dtype
 
         error_estimate = jnp.sqrt(jnp.sum(jnp.square(cfs["a4"] * (f1 - f0))))
 
