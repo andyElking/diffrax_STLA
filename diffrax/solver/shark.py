@@ -6,6 +6,7 @@ from .ansr import AbstractANSR, StochasticButcherTableau
 tab = StochasticButcherTableau(
     c=np.array([5 / 6]),
     b_sol=np.array([0.4, 0.6]),
+    b_error=None,
     a=[np.array([5 / 6])],
     cw=np.array([0.0, 5 / 6]),
     ch=np.array([1.0, 1.0]),

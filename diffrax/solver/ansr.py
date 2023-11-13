@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import jax
 import jax.lax as lax
@@ -27,7 +27,7 @@ class StochasticButcherTableau:
     # Only supports explicit SRK so far
     c: np.ndarray
     b_sol: np.ndarray
-    b_error: np.ndarray
+    b_error: Optional[np.ndarray]
     a: list[np.ndarray]
 
     # coefficients for W and H (of shape (len(c)+1,)
@@ -41,10 +41,10 @@ class StochasticButcherTableau:
         for a_i in self.a:
             assert a_i.ndim == 1
         assert self.b_sol.ndim == 1
-        assert self.b_error.ndim == 1
+        assert (self.b_error is None) or self.b_error.ndim == 1
         assert self.c.shape[0] == len(self.a)
         assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.a))
-        assert self.b_error.shape[0] == self.b_sol.shape[0]
+        assert (self.b_error is None) or self.b_error.shape[0] == self.b_sol.shape[0]
         assert self.c.shape[0] + 1 == self.b_sol.shape[0]
         assert self.cw.shape[0] == self.b_sol.shape[0]
         assert self.ch.shape[0] == self.b_sol.shape[0]
@@ -150,7 +150,7 @@ class AbstractANSR(AbstractItoSolver):
         assert isinstance(levy, LevyVal) and (levy.H is not None), (
             "The diffusion should be a ControlTerm controlled by either a"
             "VirtualBrownianTree or an UnsafeBrownianPath with"
-            "`spacetime_levyarea` set to True."
+            "`spacetime_levyarea=True`"
         )
         w = levy.W
         hh = levy.H
@@ -168,10 +168,8 @@ class AbstractANSR(AbstractItoSolver):
             diffusion_control = cw_j * w + ch_j * hh
 
             # compute Σ_{i=1}^{j-1} a_j_i hk_i
-            def lin_comb_a_j(hk_leaf):
-                return jnp.tensordot(a_j, hk_leaf, axes=1)
 
-            a_j_mult_k = jtu.tree_map(lin_comb_a_j, hks_j)
+            a_j_mult_k = jtu.tree_map(lambda lf: jnp.tensordot(a_j, lf, axes=1), hks_j)
 
             # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cw_j * ΔW + ch_j * ΔH)
             z_j = (
@@ -191,7 +189,6 @@ class AbstractANSR(AbstractItoSolver):
         a = self._embed_a_lower(jnp.dtype(y0))
         c = jnp.insert(jnp.asarray(self.tableau.c, dtype=jnp.dtype(y0)), 0, 0.0)
         b_sol = jnp.asarray(self.tableau.b_sol, dtype=jnp.dtype(y0))
-        b_err = jnp.asarray(self.tableau.b_error, dtype=jnp.dtype(y0))
         cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))
         ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
         cw_last = jnp.asarray(self.tableau.cw_last, dtype=jnp.dtype(y0))
@@ -208,18 +205,17 @@ class AbstractANSR(AbstractItoSolver):
         (_, hks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b_sol))
 
         # compute Σ_{j=1}^s b_j k_j
-        def lin_comb(coeffs):
-            def lin_comb_aux(k_leaf):
-                return jnp.tensordot(coeffs, k_leaf, axes=1)
+        if self.tableau.b_error is None:
+            error = None
+        else:
+            b_err = jnp.asarray(self.tableau.b_error, dtype=jnp.dtype(y0))
+            error = jtu.tree_map(lambda lf: jnp.tensordot(b_err, lf, axes=1), hks)
+            error = rms_norm(error)
 
-            return lin_comb_aux
-
-        b_mult_k = jtu.tree_map(lin_comb(b_sol), hks)
-
-        error = rms_norm(jtu.tree_map(lin_comb(b_err), hks))
+        stages = jtu.tree_map(lambda lf: jnp.tensordot(b_sol, lf, axes=1), hks)
 
         diffusion_contr = cw_last * w + ch_last * hh
-        y1 = (y0**ω + b_mult_k**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
+        y1 = (y0**ω + stages**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, error, dense_info, None, RESULTS.successful
 

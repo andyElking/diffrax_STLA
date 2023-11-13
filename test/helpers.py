@@ -97,6 +97,7 @@ def shaped_allclose(x, y, **kwargs):
 def l2_dist(ys1: jax.Array, ys2: jax.Array):
     assert ys1.shape == ys2.shape
     n = ys1.shape[0]
+    # len = ys1.shape[1]
     square_dist = jnp.square(ys1 - ys2)
     avg = 1 / n * jnp.sum(square_dist)
     return jnp.sqrt(avg)
@@ -111,7 +112,7 @@ def batch_sde_solve(
 
     need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
 
-    def end_value(key):
+    def single_path(key):
         path = VirtualBrownianTree(
             t0=_t0,
             t1=_t1,
@@ -137,7 +138,7 @@ def batch_sde_solve(
         )
         return sol.ys[0]
 
-    return jax.vmap(end_value)(keys)
+    return jax.vmap(single_path)(keys)
 
 
 def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
