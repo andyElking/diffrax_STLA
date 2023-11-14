@@ -1,6 +1,7 @@
 import abc
 from typing import Optional, Union
 
+import equinox as eqx
 import jax
 from jax import tree_util as jtu
 
@@ -32,6 +33,8 @@ def _levy_tree_transpose(tree_shape, spacetime_levyarea, tree):
 
 class AbstractBrownianPath(AbstractPath):
     """Abstract base class for all Brownian paths."""
+
+    spacetime_levyarea: bool = eqx.field(static=True)
 
     @abc.abstractmethod
     def evaluate(

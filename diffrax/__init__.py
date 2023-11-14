@@ -94,6 +94,8 @@ from .step_size_controller import (
 from .term import (
     AbstractTerm,
     ControlTerm,
+    LangevinDiffusionTerm,
+    LangevinTerm,
     MultiTerm,
     ODETerm,
     WeaklyDiagonalControlTerm,

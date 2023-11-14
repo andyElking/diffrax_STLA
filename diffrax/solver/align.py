@@ -11,7 +11,7 @@ from jax.numpy import sqrt
 from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
+from ..term import AbstractTerm, LangevinTerm
 from .base import AbstractItoSolver
 
 
@@ -144,7 +144,7 @@ class ALIGN(AbstractItoSolver):
     W is a Brownian motion.
     """
 
-    term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
+    term_structure = LangevinTerm
     interpolation_cls = LocalLinearInterpolation
     taylor_threshold: Scalar = eqx.field(static=True)
 
@@ -196,7 +196,7 @@ class ALIGN(AbstractItoSolver):
 
     def init(
         self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        terms: LangevinTerm,
         t0: Scalar,
         t1: Scalar,
         y0: Array,
@@ -218,7 +218,7 @@ class ALIGN(AbstractItoSolver):
         Returns:
             solver_state:
         """
-        γ, u, f = args  # f is in fact grad(f)
+        γ, u, f = terms.args  # f is in fact grad(f)
         h = t1 - t0
 
         tay_cfs = _comp_taylor_coeffs(γ, u)
@@ -234,7 +234,7 @@ class ALIGN(AbstractItoSolver):
 
     def step(
         self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        terms: LangevinTerm,
         t0: Scalar,
         t1: Scalar,
         y0: Tuple[Array, Array],
@@ -245,7 +245,7 @@ class ALIGN(AbstractItoSolver):
         del made_jump
         st = solver_state
         h = t1 - t0
-        γ, u, f = args
+        γ, u, f = terms.args
 
         h_state = st["h"]
         tay = st["taylor_coeffs"]
@@ -262,8 +262,9 @@ class ALIGN(AbstractItoSolver):
 
         drift, diffusion = terms.terms
         # compute the Brownian increment and space-time Levy area
-        levy = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(levy, LevyVal) and (levy.H is not None), (
+        _, levy = diffusion.contr(t0, t1, use_levy=True)
+        assert isinstance(levy, LevyVal)
+        assert levy.H is not None, (
             "The diffusion should be a ControlTerm controlled by either a"
             "VirtualBrownianTree or an UnsafeBrownianPath with"
             "`spacetime_levyarea` set to True."

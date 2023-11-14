@@ -1,15 +1,16 @@
 import abc
 import operator
-from typing import Callable, Generic, Tuple, TypeVar
+from typing import Callable, Generic, Tuple, TypeVar, Union
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
+from jax import numpy as jnp
 
-from .custom_types import Array, PyTree, Scalar
+from .brownian.base import AbstractBrownianPath
+from .custom_types import Array, LevyVal, PyTree, Scalar
 from .path import AbstractPath
 
 
@@ -543,3 +544,61 @@ class AdjointTerm(AbstractTerm):
         dy, vjp = jax.vjp(_to_vjp, y, diff_args, diff_term)
         da_y, da_diff_args, da_diff_term = vjp((-(a_y**ω)).ω)
         return dy, da_y, da_diff_args, da_diff_term
+
+
+def langevin_drift(t, y, args):
+    gamma, u, grad_f = args
+    x, v = y
+    d_x = v
+    d_v = -gamma * v - u * grad_f(x)
+    d_y = (d_x, d_v)
+    return d_y
+
+
+def langevin_diffusion(t, y, args):
+    gamma, u, _ = args
+    dtype = y[0].dtype
+    if y[0].ndim == 0:
+        zeros = jnp.zeros((), dtype=dtype)
+    else:
+        assert y[0].ndim == 1
+        dim = y[0].shape[0]
+        zeros = jnp.zeros((dim, dim), dtype=dtype)
+    d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[0].shape, dtype=dtype)
+    d_y = (zeros, jnp.diag(d_v))
+    return d_y
+
+
+class LangevinDiffusionTerm(ControlTerm):
+    gamma: Union[Array, Scalar]
+    u: Union[Array, Scalar]
+    control: AbstractBrownianPath
+
+    def __init__(self, gamma, u, control: AbstractBrownianPath):
+        self.gamma, self.u, self.control = gamma, u, control
+
+        def vector_field(_, y: tuple, __):
+            dtype = y[1].dtype
+            d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[1].shape, dtype=dtype)
+            d_y = (0, jnp.diag(d_v))
+            return d_y
+
+        super().__init__(vector_field, control)
+
+    def contr(
+        self, t0: Scalar, t1: Scalar, **kwargs
+    ) -> tuple[float, Union[PyTree[Array], LevyVal]]:
+        return 0, self.control.evaluate(t0, t1, **kwargs)
+
+
+class LangevinTerm(MultiTerm[Tuple[ODETerm, ControlTerm]]):
+    args: Tuple[
+        Union[Array, Scalar], Union[Array, Scalar], Callable[[Array], Array]
+    ] = eqx.field(static=True)
+
+    def __init__(self, args, bm: AbstractBrownianPath):
+        self.args = args
+        gamma, u, grad_f = args
+        drift = ODETerm(lambda t, y, _: langevin_drift(t, y, self.args))
+        diffusion = LangevinDiffusionTerm(gamma, u, bm)
+        super().__init__(drift, diffusion)

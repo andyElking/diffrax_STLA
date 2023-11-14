@@ -1,5 +1,7 @@
+import dataclasses
 import functools as ft
 import operator
+from typing import Callable
 
 import diffrax
 import equinox as eqx
@@ -9,16 +11,16 @@ import jax.random as jrandom
 import jax.tree_util as jtu
 from diffrax import (
     AbstractANSR,
+    AbstractBrownianPath,
+    AbstractTerm,
     ALIGN,
     ConstantStepSize,
-    ControlTerm,
     diffeqsolve,
-    MultiTerm,
-    ODETerm,
     SaveAt,
+    UnsafeBrownianPath,
     VirtualBrownianTree,
 )
-from diffrax.custom_types import PyTree
+from diffrax.custom_types import PyTree, Scalar
 
 
 all_ode_solvers = (
@@ -113,36 +115,55 @@ def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
     return dist
 
 
+@dataclasses.dataclass
+class SDE:
+    get_terms: Callable[[AbstractBrownianPath], AbstractTerm]
+    args: PyTree
+    y0: PyTree
+    t0: Scalar
+    t1: Scalar
+    w_dim: int
+
+    def get_dtype(self):
+        return jnp.dtype(jtu.tree_leaves(self.y0)[0])
+
+    def get_bm(self, key, need_stla=True, use_tree=True, tol=2**-14):
+        shp_dtype = jax.ShapeDtypeStruct((self.w_dim,), dtype=self.get_dtype())
+        if use_tree:
+            return VirtualBrownianTree(
+                t0=self.t0,
+                t1=self.t1,
+                shape=shp_dtype,
+                tol=tol,
+                key=key,
+                spacetime_levyarea=need_stla,
+            )
+        else:
+            return UnsafeBrownianPath(
+                shape=shp_dtype, key=key, spacetime_levyarea=need_stla
+            )
+
+
 def batch_sde_solve(
-    keys, sde, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
+    keys, sde: SDE, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
 ):
-    _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
-    dtype = jtu.tree_leaves(y0)[0].dtype
-    _saveat = SaveAt(ts=jnp.linspace(_t0, _t1, 3, dtype=dtype))
-    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=dtype)
+    dtype = sde.get_dtype()
+    _saveat = SaveAt(ts=jnp.linspace(sde.t0, sde.t1, 3, dtype=dtype))
 
     need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
 
     def end_value(key):
-        path = VirtualBrownianTree(
-            t0=_t0,
-            t1=_t1,
-            shape=shp_dtype,
-            tol=2**-15,
-            key=key,
-            spacetime_levyarea=need_stla,
-        )
-
-        terms = MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, path))
+        path = sde.get_bm(key, need_stla=need_stla, use_tree=True)
+        terms = sde.get_terms(path)
 
         sol = diffeqsolve(
             terms,
             solver,
-            _t0,
-            _t1,
+            sde.t0,
+            sde.t1,
             dt0=dt0,
-            y0=y0,
-            args=args,
+            y0=sde.y0,
+            args=sde.args,
             saveat=_saveat,
             stepsize_controller=stepsize_controller,
             max_steps=None,
@@ -152,9 +173,8 @@ def batch_sde_solve(
     return jax.vmap(end_value)(keys)
 
 
-def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
-    y0 = sde[3]
-    dtype = jtu.tree_leaves(y0)[0].dtype
+def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, hs_num=5, hs=None):
+    dtype = sde.get_dtype()
     need_stla = isinstance(solver, (ALIGN, AbstractANSR)) or isinstance(
         ref_solver, (ALIGN, AbstractANSR)
     )

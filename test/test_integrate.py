@@ -10,6 +10,7 @@ import jax.random as jrandom
 import jax.tree_util as jtu
 import pytest
 import scipy.stats
+from diffrax import ControlTerm, MultiTerm, ODETerm
 from equinox.internal import ω
 
 from .helpers import (
@@ -17,6 +18,7 @@ from .helpers import (
     all_split_solvers,
     implicit_tol,
     random_pytree,
+    SDE,
     sde_solver_order,
     shaped_allclose,
     treedefs,
@@ -236,7 +238,10 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     t1 = 2
     y0 = jrandom.normal(ykey, (3,), dtype=jnp.float64)
 
-    sde = (drift, diffusion, None, y0, t0, t1, noise_dim)
+    def get_terms(bm):
+        return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
+
+    sde = SDE(get_terms, None, y0, t0, t1, noise_dim)
 
     # Reference solver is always an ODE-viable solver, so its implementation has been
     # verified by the ODE tests like test_ode_order.

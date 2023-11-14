@@ -110,7 +110,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: Scalar = field(init=True)  # override init=False in AbstractPath
     tol: Scalar = field(init=True)
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    spacetime_levyarea: bool = eqx.field(static=True)
     key: "jax.random.PRNGKey"  # noqa: F821
 
     def __init__(
