@@ -148,8 +148,7 @@ class SDE:
 def batch_sde_solve(
     keys, sde: SDE, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
 ):
-    dtype = sde.get_dtype()
-    _saveat = SaveAt(ts=jnp.linspace(sde.t0, sde.t1, 3, dtype=dtype))
+    _saveat = SaveAt(ts=[sde.t1])
 
     need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
 
