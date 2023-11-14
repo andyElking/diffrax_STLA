@@ -14,7 +14,7 @@ from diffrax import (
     VirtualBrownianTree,
 )
 
-from .helpers import SDE, sde_solver_order
+from .helpers import get_bqp, get_harmonic_oscillator, sde_solver_order
 
 
 @pytest.mark.parametrize("solver", [ALIGN(0.1), ShARK()])
@@ -60,33 +60,6 @@ def _solvers():
     yield ShARK(), 2.0
     yield SRA1(), 2.0
     yield SEA(), 1.0
-
-
-def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
-    gamma_hosc = jnp.array([2, 0.5], dtype=dtype)
-    u_hosc = jnp.array([0.5, 2], dtype=dtype)
-    args_hosc = (gamma_hosc, u_hosc, lambda x: 2 * x)
-    x0 = jnp.zeros((2,), dtype=dtype)
-    v0 = jnp.zeros((2,), dtype=dtype)
-    y0_hosc = (x0, v0)
-    w_dim_hosc = 2
-
-    def get_terms_hosc(bm):
-        return LangevinTerm(args_hosc, bm)
-
-    return SDE(get_terms_hosc, None, y0_hosc, t0, t1, w_dim_hosc)
-
-
-def get_bqp(t0=0.3, t1=15.0, dtype=jnp.float32):
-    grad_f_bqp = lambda x: 4 * x * (jnp.square(x) - 1)
-    args_bqp = (dtype(0.8), dtype(0.2), grad_f_bqp)
-    y0_bqp = jnp.zeros((2,), dtype=dtype)
-    w_dim_bqp = 1
-
-    def get_terms_bqp(bm):
-        return LangevinTerm(args_bqp, bm)
-
-    return SDE(get_terms_bqp, None, y0_bqp, t0, t1, w_dim_bqp)
 
 
 @pytest.mark.parametrize("solver,theoretical_order", _solvers())

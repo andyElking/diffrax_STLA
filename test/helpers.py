@@ -1,12 +1,11 @@
 import dataclasses
 import functools as ft
 import operator
-from typing import Callable
+from typing import Callable, Tuple
 
 import diffrax
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 from diffrax import (
@@ -16,11 +15,13 @@ from diffrax import (
     ALIGN,
     ConstantStepSize,
     diffeqsolve,
+    LangevinTerm,
     SaveAt,
     UnsafeBrownianPath,
     VirtualBrownianTree,
 )
 from diffrax.custom_types import PyTree, Scalar
+from jax import numpy as jnp
 
 
 all_ode_solvers = (
@@ -122,13 +123,13 @@ class SDE:
     y0: PyTree
     t0: Scalar
     t1: Scalar
-    w_dim: int
+    w_shape: Tuple[int]
 
     def get_dtype(self):
         return jnp.dtype(jtu.tree_leaves(self.y0)[0])
 
     def get_bm(self, key, need_stla=True, use_tree=True, tol=2**-14):
-        shp_dtype = jax.ShapeDtypeStruct((self.w_dim,), dtype=self.get_dtype())
+        shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())
         if use_tree:
             return VirtualBrownianTree(
                 t0=self.t0,
@@ -192,3 +193,30 @@ def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, hs_num=5, h
     errs = jax.vmap(get_single_err)(hs)
     order, _ = jnp.polyfit(jnp.log(hs), jnp.log(errs), 1)
     return hs, errs, order
+
+
+def get_bqp(t0=0.3, t1=15.0, dtype=jnp.float32):
+    grad_f_bqp = lambda x: 4 * x * (jnp.square(x) - 1)
+    args_bqp = (dtype(0.8), dtype(0.2), grad_f_bqp)
+    y0_bqp = (dtype(0), dtype(0))
+    w_shape_bqp = ()
+
+    def get_terms_bqp(bm):
+        return LangevinTerm(args_bqp, bm)
+
+    return SDE(get_terms_bqp, None, y0_bqp, t0, t1, w_shape_bqp)
+
+
+def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
+    gamma_hosc = jnp.array([2, 0.5], dtype=dtype)
+    u_hosc = jnp.array([0.5, 2], dtype=dtype)
+    args_hosc = (gamma_hosc, u_hosc, lambda x: 2 * x)
+    x0 = jnp.zeros((2,), dtype=dtype)
+    v0 = jnp.zeros((2,), dtype=dtype)
+    y0_hosc = (x0, v0)
+    w_shape_hosc = (2,)
+
+    def get_terms_hosc(bm):
+        return LangevinTerm(args_hosc, bm)
+
+    return SDE(get_terms_hosc, None, y0_hosc, t0, t1, w_shape_hosc)

@@ -15,7 +15,7 @@ from ..term import AbstractTerm, LangevinTerm
 from .base import AbstractItoSolver
 
 
-_ErrorEstimate = Array
+_ErrorEstimate = Tuple[Array, Array]
 _SolverState = dict[str, Union[Array, float, Any]]
 
 
@@ -284,6 +284,7 @@ class ALIGN(AbstractItoSolver):
         f0 = st["f(x)"]
         x1 = x0 + cfs["a1"] * v0 + cfs["a2"] * f0 + cfs["cw1"] * w + cfs["ch1"] * hh
         f1 = f(x1)
+        assert f1.shape == f0.shape, f"f0: {f0.shape}, f1: {f1.shape}"
         st["f(x)"] = f1
         v1 = (
             cfs["beta"] * v0
@@ -295,8 +296,12 @@ class ALIGN(AbstractItoSolver):
 
         y1 = (x1, v1)
         assert v1.dtype == x1.dtype == x0.dtype
+        assert x1.shape == v1.shape == x0.shape
 
-        error_estimate = jnp.sqrt(jnp.sum(jnp.square(cfs["a4"] * (f1 - f0))))
+        error_estimate = (
+            jnp.zeros_like(x0),
+            jnp.sqrt(jnp.sum(jnp.square(cfs["a4"] * (f1 - f0)))),
+        )
 
         dense_info = dict(y0=y0, y1=y1)
         return y1, error_estimate, dense_info, st, RESULTS.successful

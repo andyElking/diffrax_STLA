@@ -8,9 +8,8 @@ import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
 
-from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
+from ..custom_types import Array, Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
-from ..misc import rms_norm
 from ..solution import RESULTS
 from ..term import _ControlTerm, AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractItoSolver
@@ -83,6 +82,26 @@ Let `k` denote the number of stages of the solver.
 """
 
 
+def _get_w(contr: PyTree):
+    def extract(leaf):
+        if isinstance(leaf, LevyVal):
+            return leaf.W
+        else:
+            return leaf
+
+    return jtu.tree_map(extract, contr, is_leaf=lambda lf: isinstance(lf, LevyVal))
+
+
+def _get_hh(contr: PyTree):
+    def extract(leaf):
+        if isinstance(leaf, LevyVal):
+            return leaf.H
+        else:
+            return jnp.zeros_like(leaf)
+
+    return jtu.tree_map(extract, contr, is_leaf=lambda lf: isinstance(lf, LevyVal))
+
+
 class AbstractANSR(AbstractItoSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
@@ -146,18 +165,19 @@ class AbstractANSR(AbstractItoSolver):
         drift, diffusion = terms.terms
 
         # compute the Brownian increment and space-time Lévy area
-        levy = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(levy, LevyVal) and (levy.H is not None), (
-            "The diffusion should be a ControlTerm controlled by either a"
-            "VirtualBrownianTree or an UnsafeBrownianPath with"
-            "`spacetime_levyarea=True`"
-        )
-        w = levy.W
-        hh = levy.H
+        bm_inc = diffusion.contr(t0, t1, use_levy=True)
+        # assert isinstance(bm_inc, LevyVal) and (bm_inc.H is not None), (
+        #     "The diffusion should be a ControlTerm controlled by either a"
+        #     "VirtualBrownianTree or an UnsafeBrownianPath with"
+        #     "`spacetime_levyarea=True`"
+        # )
+        w = _get_w(bm_inc)
+        hh = _get_hh(bm_inc)
         sigma = diffusion.vf(t0, y0, args)
 
         def stage(
-            carry: tuple[int, list[PyTree]], x: tuple[jax.Array, Scalar, Scalar, Scalar]
+            carry: tuple[int, PyTree[Array]],
+            x: tuple[jax.Array, Scalar, Scalar, Scalar],
         ):
             # Represents the jth stage of the SRK.
             # carry = (j, hks_{j-1}) where
@@ -165,7 +185,7 @@ class AbstractANSR(AbstractItoSolver):
             # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
             a_j, c_j, cw_j, ch_j = x
             j, hks_j = carry
-            diffusion_control = cw_j * w + ch_j * hh
+            diffusion_control = (cw_j * w**ω + ch_j * hh**ω).ω
 
             # compute Σ_{i=1}^{j-1} a_j_i hk_i
 
@@ -209,12 +229,16 @@ class AbstractANSR(AbstractItoSolver):
             error = None
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=jnp.dtype(y0))
-            error = jtu.tree_map(lambda lf: jnp.tensordot(b_err, lf, axes=1), hks)
-            error = rms_norm(error)
+
+            def weighted_rms(leaf):
+                weighted_sum = jnp.tensordot(b_err, leaf, axes=1)
+                return jnp.sqrt(jnp.mean(jnp.square(weighted_sum)))
+
+            error = jtu.tree_map(weighted_rms, hks)
 
         stages = jtu.tree_map(lambda lf: jnp.tensordot(b_sol, lf, axes=1), hks)
 
-        diffusion_contr = cw_last * w + ch_last * hh
+        diffusion_contr = (cw_last * w**ω + ch_last * hh**ω).ω
         y1 = (y0**ω + stages**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, error, dense_info, None, RESULTS.successful
