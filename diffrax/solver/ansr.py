@@ -232,13 +232,14 @@ class AbstractANSR(AbstractItoSolver):
             # k_js, so no need for second return value
             return (j + 1, hks_j), None
 
-        a = self._embed_a_lower(jnp.dtype(y0))
-        c = jnp.insert(jnp.asarray(self.tableau.c, dtype=jnp.dtype(y0)), 0, 0.0)
-        b_sol = jnp.asarray(self.tableau.b_sol, dtype=jnp.dtype(y0))
-        cw = jnp.asarray(self.tableau.cw, dtype=jnp.dtype(y0))
-        ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
-        cw_last = jnp.asarray(self.tableau.cw_last, dtype=jnp.dtype(y0))
-        ch_last = jnp.asarray(self.tableau.ch_last, dtype=jnp.dtype(y0))
+        dtype = jnp.dtype(jtu.tree_leaves(y0)[0])
+        a = self._embed_a_lower(dtype)
+        c = jnp.asarray(np.insert(self.tableau.c, 0, 0.0), dtype=dtype)
+        b_sol = jnp.asarray(self.tableau.b_sol, dtype=dtype)
+        cw = jnp.asarray(self.tableau.cw, dtype=dtype)
+        ch = jnp.asarray(self.tableau.ch, dtype=dtype)
+        cw_last = jnp.asarray(self.tableau.cw_last, dtype=dtype)
+        ch_last = jnp.asarray(self.tableau.ch_last, dtype=dtype)
 
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
         # an additional batch dimension of size len(b_sol) (i.e. num stages)
@@ -255,7 +256,7 @@ class AbstractANSR(AbstractItoSolver):
         if self.tableau.b_error is None:
             error = None
         else:
-            b_err = jnp.asarray(self.tableau.b_error, dtype=jnp.dtype(y0))
+            b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
 
             def weighted_rms(leaf):
                 weighted_sum = jnp.tensordot(b_err, leaf, axes=1)

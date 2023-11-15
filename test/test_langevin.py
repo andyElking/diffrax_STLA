@@ -35,7 +35,7 @@ def test_shape(solver):
             bm = VirtualBrownianTree(
                 t0,
                 t1,
-                tol=2**-9,
+                tol=2**-8,
                 shape=shp_dtype,
                 key=jrandom.PRNGKey(4),
                 spacetime_levyarea=True,
@@ -50,8 +50,9 @@ def test_shape(solver):
                 sol = diffeqsolve(
                     terms, solver, t0, t1, dt0=0.3, y0=y0, args=None, saveat=saveat
                 )
-                assert sol.ys.shape == (10, 2 * dim)
-                assert sol.ys.dtype == dtype
+                for entry in sol.ys:
+                    assert entry.shape == (10, dim)
+                    assert jnp.dtype(entry) == dtype
 
 
 def _solvers():
