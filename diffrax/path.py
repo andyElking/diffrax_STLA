@@ -51,7 +51,9 @@ class AbstractPath(eqx.Module):
         **Arguments:**
 
         - `t0`: Any point in $[t_0, t_1]$ to evaluate the path at.
+
         - `t1`: If passed, then the increment from `t1` to `t0` is evaluated instead.
+
         - `left`: Across jump points: whether to treat the path as left-continuous
             or right-continuous.
 

@@ -16,10 +16,24 @@ tab = StochasticButcherTableau(
 
 
 class SRA1(AbstractANSR):
-    """Based on the SRA1 method from
-    A. Rößler, Runge–Kutta methods for the strong approximation
-    of solutions of stochastic differential equations,
-    SIAM Journal on Numerical Analysis, 8 (2010), pp. 922–952.
+    r"""Based on the SRA1 method by Andreas Rößler.
+
+    ??? cite "Reference"
+
+        ```bibtex
+        @article{doi:10.1137/09076636X,
+            author = {R\"{o}\ss{}ler, Andreas},
+            title = {Runge–Kutta Methods for the Strong Approximation of
+                Solutions of Stochastic Differential Equations},
+            journal = {SIAM Journal on Numerical Analysis},
+            volume = {48},
+            number = {3},
+            pages = {922-952},
+            year = {2010},
+            doi = {10.1137/09076636X},
+            URL = {https://doi.org/10.1137/09076636X},
+            eprint = {https://doi.org/10.1137/09076636X}
+        ```
     """
 
     tableau = tab

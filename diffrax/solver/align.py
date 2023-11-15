@@ -149,7 +149,7 @@ def _eval_taylor(h, tay_cfs):
 
 
 class ALIGN(AbstractItoSolver):
-    """The Adaptive Langevin via Interpolated Gradients and Noise method
+    r"""The Adaptive Langevin via Interpolated Gradients and Noise method
     designed by James Foster. Only works for Underdamped Langevin Diffusion
     of the form
 
@@ -166,6 +166,13 @@ class ALIGN(AbstractItoSolver):
     taylor_threshold: Scalar = eqx.field(static=True)
 
     def __init__(self, taylor_threshold: Scalar = 0.0):
+        r"""**Arguments:**
+
+        - `taylor_threshold`: If the product `h*γ` is less than this, then
+        the Taylor expansion will be used to compute the coefficients.
+        Otherwise they will be computed directly. When using float32, the
+        empirically optimal value is 0.1, and for float64 about 0.01.
+        """
         self.taylor_threshold = taylor_threshold
 
     def order(self, terms):

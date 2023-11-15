@@ -16,14 +16,24 @@ tab = StochasticButcherTableau(
 
 
 class ShARK(AbstractANSR):
-    """Shifted Additive-noise Runge-Kutta method for SDEs.
-    When applied to SDEs with additive noise, it converges
-    strongly with order 1.5.
+    r"""Shifted Additive-noise Runge-Kutta method for SDEs by James Foster.
+    Applied to SDEs with additive noise, it converges strongly with order 1.5.
 
-    Based on equation (6.1) in
-    Foster, J., dos Reis, G., & Strange, C. (2023).
-    High order splitting methods for SDEs satisfying a commutativity condition.
-    arXiv [Math.NA] http://arxiv.org/abs/2210.17543
+    Based on equation $(6.1)$ in
+
+    ??? cite "Reference"
+
+        ```bibtex
+        @misc{foster2023high,
+          title={High order splitting methods for SDEs satisfying
+            a commutativity condition},
+          author={James Foster and Goncalo dos Reis and Calum Strange},
+          year={2023},
+          eprint={2210.17543},
+          archivePrefix={arXiv},
+          primaryClass={math.NA}
+        ```
+
     """
 
     tableau = tab

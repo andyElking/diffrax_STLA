@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+import equinox as eqx
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -8,6 +9,7 @@ import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
 
+from ..brownian.base import AbstractBrownianPath
 from ..custom_types import Array, Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
@@ -112,14 +114,14 @@ class AbstractANSR(AbstractItoSolver):
     Given the SDE
     $dX_t = f(t, X_t) dt + σ dW_t$
 
-    We construct the SRK as follows:
+    We construct the SRK with $s$ stages as follows:
 
-    $y_1 = y_0 + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (c^W_{\text{last}}
+    $y_{n+1} = y_n + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (c^W_{\text{last}}
     \, W_{t_0, t_1} + c^H_{\text{last}} \, H_{t_0, t_1})$
 
     $k_j = f(t_0 + c_j h , z_j)$
 
-    $z_j = y_0 + h \Big(\sum_{i=1}^{j-1} a_{j,i} k_i \Big) + σ
+    $z_j = y_n + h \Big(\sum_{i=1}^{j-1} a_{j,i} k_i \Big) + σ
     \, (c^W_j W_{t_0, t_1} + c^H_j H_{t_0, t_1})$
 
     where $W_{t_0, t_1}$ is the increment of the Brownian motion and
@@ -141,6 +143,28 @@ class AbstractANSR(AbstractItoSolver):
         y0: PyTree,
         args: PyTree,
     ) -> _SolverState:
+        # Check that the diffusion has spacetime_levyarea enabled
+        _, diffusion = terms.terms
+        is_bm = lambda x: isinstance(x, AbstractBrownianPath)
+        leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
+        paths = [x for x in leaves if is_bm(x)]
+        for path in paths:
+            if not path.spacetime_levyarea:
+                raise ValueError(
+                    "The Brownian path controlling the diffusion "
+                    "should be initialised with `compute_stla=True`"
+                )
+
+        # check that the vector field of the diffusion term is constant
+        sigma, (t_sigma, y_sigma) = eqx.filter_jvp(
+            lambda t, y: diffusion.vf(t, y, args), (t0, y0), (t0, y0)
+        )
+        if (t_sigma is not None) or (y_sigma is not None):
+            raise ValueError(
+                "Vector field of the diffusion term should be constant, "
+                "independent of t and y."
+            )
+
         return None
 
     def _embed_a_lower(self, dtype):
@@ -215,6 +239,7 @@ class AbstractANSR(AbstractItoSolver):
         ch = jnp.asarray(self.tableau.ch, dtype=jnp.dtype(y0))
         cw_last = jnp.asarray(self.tableau.cw_last, dtype=jnp.dtype(y0))
         ch_last = jnp.asarray(self.tableau.ch_last, dtype=jnp.dtype(y0))
+
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
         # an additional batch dimension of size len(b_sol) (i.e. num stages)
         hks = jtu.tree_map(
@@ -238,8 +263,9 @@ class AbstractANSR(AbstractItoSolver):
 
             error = jtu.tree_map(weighted_rms, hks)
 
-        stages = jtu.tree_map(lambda lf: jnp.tensordot(b_sol, lf, axes=1), hks)
+        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (cw_last * ΔW + ch_last * ΔH)
 
+        stages = jtu.tree_map(lambda lf: jnp.tensordot(b_sol, lf, axes=1), hks)
         diffusion_contr = (cw_last * w**ω + ch_last * hh**ω).ω
         y1 = (y0**ω + stages**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)

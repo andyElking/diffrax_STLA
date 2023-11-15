@@ -571,9 +571,9 @@ class LangevinDiffusionTerm(ControlTerm):
     def __init__(self, gamma, u, control: AbstractBrownianPath):
         self.gamma, self.u, self.control = gamma, u, control
 
-        def vector_field(_, y: tuple, __):
-            dtype = y[1].dtype
-            d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[1].shape, dtype=dtype)
+        def vector_field(_, __, ___):
+            # dtype = y[1].dtype
+            d_v = jnp.sqrt(2 * gamma * u)  # * jnp.ones(y[1].shape, dtype=dtype)
             if d_v.ndim > 0:
                 assert d_v.ndim == 1
                 d_v = jnp.diag(d_v)
