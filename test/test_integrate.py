@@ -241,7 +241,7 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     def get_terms(bm):
         return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
 
-    sde = SDE(get_terms, None, y0, t0, t1, noise_dim)
+    sde = SDE(get_terms, None, y0, t0, t1, (noise_dim,))
 
     # Reference solver is always an ODE-viable solver, so its implementation has been
     # verified by the ODE tests like test_ode_order.
