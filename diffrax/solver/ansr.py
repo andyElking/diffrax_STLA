@@ -75,10 +75,10 @@ Let `k` denote the number of stages of the solver.
     Should be a NumPy array of shape `(k,)`.
 - `ch`: The coefficients in front of the space-time Lévy area at each stage.
     Should be a NumPy array of shape `(k,)`.
-- `cw_last`: The coefficient in front of the Brownian increment when computing the
-    output ($y_{n+1}$) of the step. Should be a `Scalar`.
-- `ch_last`: The coefficient in front of the space-time Lévy area when computing the
-    output ($y_{n+1}$) of the step. Should be a `Scalar`.
+- `cw_last`: Coefficient for the Brownian increment when computing the
+    output $y_{n+1}$. Should be a `Scalar`.
+- `ch_last`: Coefficient for the space-time Lévy area when computing the
+    output $y_{n+1}$. Should be a `Scalar`.
 """
 
 
@@ -114,14 +114,16 @@ class AbstractANSR(AbstractItoSolver):
 
     We construct the SRK as follows:
 
-    $y_1 = y_0 + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (c^W_{s+1} ΔW + c^H_{s+1} ΔH)$
+    $y_1 = y_0 + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (c^W_{\text{last}}
+    \, W_{t_0, t_1} + c^H_{\text{last}} \, H_{t_0, t_1})$
 
     $k_j = f(t_0 + c_j h , z_j)$
 
-    $z_j = y_0 + h \Big(\sum_{i=1}^{j-1} a_{j,i} k_i \Big) + σ \, (c^W_j ΔW + c^H_j ΔH)$
+    $z_j = y_0 + h \Big(\sum_{i=1}^{j-1} a_{j,i} k_i \Big) + σ
+    \, (c^W_j W_{t_0, t_1} + c^H_j H_{t_0, t_1})$
 
-    where $ΔW := W_{t_0, t_1}$ is the increment of the Brownian motion and
-    $ΔH := H_{t_0, t_1}$ is its corresponding space-time Lévy Area.
+    where $W_{t_0, t_1}$ is the increment of the Brownian motion and
+    $H_{t_0, t_1}$ is its corresponding space-time Lévy Area.
 
     The values $( a_{i,j} ) , b_j, c_j, c^W_j, c^H_j$ are provided
     in the `StochasticButcherTableau`.

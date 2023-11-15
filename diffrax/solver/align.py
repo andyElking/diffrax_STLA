@@ -27,6 +27,20 @@ def _match_shape(c, u):
     return c, u
 
 
+# CONCERNING COEFFICIENTS:
+# The coefficients used in a step of ALIGN depend on
+# the time increment h, and the parameters γ and u.
+# Assuming the modelled SDE stays the same (i.e. γ and u are fixed),
+# then these coefficients must be recomputed each time h changes.
+# Furthermore, for very small h, directly computing the coefficients
+# via the function below can cause large floating point errors.
+# Hence, we pre-compute the Taylor expansion of the ALIGN coefficients
+# around h=0. Then we can compute the ALIGN coefficients either via
+# the Taylor expansion, or via direct computation.
+# In short the Taylor coefficients give a Taylor expansion with which
+# one can compute the ALIGN coefficients more precisely for a small h.
+
+
 def _directly_compute_coeffs(h, γ, u):
     # compute the coefficients directly (as opposed to via Taylor expansion)
     dtype = jnp.dtype(γ)
@@ -138,8 +152,11 @@ class ALIGN(AbstractItoSolver):
     """The Adaptive Langevin via Interpolated Gradients and Noise method
     designed by James Foster. Only works for Underdamped Langevin Diffusion
     of the form
+
     $d x_t = v_t dt$
+
     $d v_t = - γ v_t dt - u ∇f(x_t) dt + (2γu)^(1/2) dW_t$
+
     where v is the velocity, f is the potential, γ is the friction, and
     W is a Brownian motion.
     """
@@ -202,21 +219,10 @@ class ALIGN(AbstractItoSolver):
         y0: Array,
         args: PyTree,
     ) -> _SolverState:
-        """
-        Precompute _SolverState which carries the Taylor coefficients and the
+        """Precompute _SolverState which carries the Taylor coefficients and the
         ALIGN coefficients (which can be computed from h and the Taylor coeffs).
         This method is FSAL, so _SolverState also carries the previous evaluation
         of grad_f.
-
-        Args:
-            terms:
-            t0:
-            t1:
-            y0:
-            args:
-
-        Returns:
-            solver_state:
         """
         γ, u, f = terms.args  # f is in fact grad(f)
         h = t1 - t0
@@ -264,11 +270,7 @@ class ALIGN(AbstractItoSolver):
         # compute the Brownian increment and space-time Levy area
         _, levy = diffusion.contr(t0, t1, use_levy=True)
         assert isinstance(levy, LevyVal)
-        assert levy.H is not None, (
-            "The diffusion should be a ControlTerm controlled by either a"
-            "VirtualBrownianTree or an UnsafeBrownianPath with"
-            "`spacetime_levyarea` set to True."
-        )
+        assert levy.H is not None, "The diffusion should be a LangevinDiffusionTerm"
         w = levy.W
         hh = levy.H
 

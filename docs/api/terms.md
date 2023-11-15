@@ -67,3 +67,12 @@ Each solver is capable of handling certain classes of problems, as described by 
     selection:
         members:
             - __init__
+
+::: diffrax.LangevinDiffusionTerm
+    selection:
+        members: false
+
+::: diffrax.LangevinTerm
+    selection:
+        members:
+            - __init__

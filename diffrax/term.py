@@ -546,7 +546,7 @@ class AdjointTerm(AbstractTerm):
         return dy, da_y, da_diff_args, da_diff_term
 
 
-def langevin_drift(t, y, args):
+def _langevin_drift(t, y, args):
     gamma, u, grad_f = args
     x, v = y
     d_x = v
@@ -555,21 +555,15 @@ def langevin_drift(t, y, args):
     return d_y
 
 
-def langevin_diffusion(t, y, args):
-    gamma, u, _ = args
-    dtype = y[0].dtype
-    if y[0].ndim == 0:
-        zeros = jnp.zeros((), dtype=dtype)
-    else:
-        assert y[0].ndim == 1
-        dim = y[0].shape[0]
-        zeros = jnp.zeros((dim, dim), dtype=dtype)
-    d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[0].shape, dtype=dtype)
-    d_y = (zeros, jnp.diag(d_v))
-    return d_y
-
-
 class LangevinDiffusionTerm(ControlTerm):
+    r"""Represents the diffusion term in the Langevin SDE:
+
+    $d \mathbf{x}_t = \mathbf{v}_t \, dt$
+
+    $d \mathbf{v}_t = - \gamma \, \mathbf{v}_t \, dt - u \,
+    \nabla \! f( \mathbf{x}_t ) \, dt + \sqrt{2 \gamma u} \, d W_t.$
+    """
+
     gamma: Union[Array, Scalar]
     u: Union[Array, Scalar]
     control: AbstractBrownianPath
@@ -591,17 +585,39 @@ class LangevinDiffusionTerm(ControlTerm):
     def contr(
         self, t0: Scalar, t1: Scalar, **kwargs
     ) -> tuple[float, Union[PyTree[Array], LevyVal]]:
+        # Since the vector field is of the form (dx, dv) and since x is
+        # not influenced by the Brownian motion, the PyTree structure of
+        # the control must also be a tuple, with an arbitrary first entry.
+        # Hence this returns (0, BM_increment).
         return 0, self.control.evaluate(t0, t1, **kwargs)
 
 
 class LangevinTerm(MultiTerm[Tuple[ODETerm, ControlTerm]]):
+    r"""Used to represent the Langevin SDE, given by:
+
+    $d \mathbf{x}_t = \mathbf{v}_t \, dt$
+
+    $d \mathbf{v}_t = - \gamma \, \mathbf{v}_t \, dt - u \,
+    \nabla \! f( \mathbf{x}_t ) \, dt + \sqrt{2 \gamma u} \, d W_t.$
+
+    where $\mathbf{x}_t, \mathbf{v}_t \in \mathbb{R}^d$ represent the position
+    and velocity, $W$ is a Brownian motion in $\mathbb{R}^d$,
+    $f: \mathbb{R}^d \rightarrow \mathbb{R}$ is a potential function, and
+    $ \gamma,\, u\in\mathbb{R}^{d\times d}$ are diagonal matrices representing
+    friction and a dampening parameter.
+    """
+
     args: Tuple[
         Union[Array, Scalar], Union[Array, Scalar], Callable[[Array], Array]
     ] = eqx.field(static=True)
 
     def __init__(self, args, bm: AbstractBrownianPath):
+        r"""**Arguments:**
+
+        - `args`: a tuple of the form $(\gamma, \, u, \, \nabla \! f)$
+        """
         self.args = args
         gamma, u, grad_f = args
-        drift = ODETerm(lambda t, y, _: langevin_drift(t, y, self.args))
+        drift = ODETerm(lambda t, y, _: _langevin_drift(t, y, self.args))
         diffusion = LangevinDiffusionTerm(gamma, u, bm)
         super().__init__(drift, diffusion)

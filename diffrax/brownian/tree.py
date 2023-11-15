@@ -48,15 +48,17 @@ class _State(eqx.Module):
 
 
 def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
-    """Computes (W_{s,u}, H_{s,u}) from (W_s, J_s) and
-    (W_u, J_u), where J_u = ∫_0^u W_t dt
+    r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, J_s)$ and
+    $(W_u, J_u)$, where $J_u = \int_0^u W_t dt$
 
-    Args:
-        x0: LevyVal(W_s, J_s)
-        x1: LevyVal(W_u, J_u)
+    **Arguments:**
 
-    Returns:
+        - `x0`: LevyVal$(W_s, J_s)$
+        - `x1`: LevyVal$(W_u, J_u)$
 
+    **Returns:**
+
+    LevyVal$(W_{s,u}, H_{s,u})$
     """
     h = (x1.h - x0.h).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
@@ -68,14 +70,16 @@ def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
 
 
 def _wj_to_wh_single(x: LevyVal) -> LevyVal:
-    """Computes (W_s, H_s) from (W_s, J_s)
-    where J_u = ∫_0^u W_t dt
+    r"""Computes $(W_s, H_s)$ from $(W_s, J_s)$
+    where $J_u = \int_0^u W_t dt$
 
-    Args:
-        x: LevyVal(W_s, J_s)
+    **Arguments:**
 
-    Returns:
+        - `x`: LevyVal$(W_s, J_s)$
 
+    **Returns:**
+
+    LevyVal$(W_s, H_s)$
     """
     h = jnp.where(jnp.abs(x.h) < jnp.finfo(x.h).eps, jnp.inf, x.h)
     inverse_h = 1 / h
@@ -86,7 +90,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
 
-    If the `spacetime_levyarea` is True, then it also computes space-time Levy area `H`.
+    If the `spacetime_levyarea` is True, then it also computes space-time Lévy area `H`.
     This will impact the Brownian path, so even with the same key, the trajectory will
     be different depending on the value of `spacetime_levyarea`.
 
@@ -168,13 +172,17 @@ class VirtualBrownianTree(AbstractBrownianPath):
         left: bool = True,
         use_levy: bool = False,
     ) -> LevyVal:
-        """
-        Computes the Brownian increment.
-        Args:
-            t0: Start of interval
-            t1: End of interval
-            left: ignored since Brownian motion is continuous
-            use_levy: If true, then the return type is LevyVal
+        """Computes the Brownian increment between times `t0` and `t1`.
+
+        **Arguments:**
+            - `t0`: Start of interval
+
+            - `t1`: End of interval
+
+            - `left`: ignored since Brownian motion is continuous
+
+            - `use_levy`: If true, then the return type is a LevyVal encapsulating
+            the Brownian increment and the corresponding Lévy area if it was computed.
         """
 
         def _is_levy_val(obj):
@@ -227,17 +235,18 @@ class VirtualBrownianTree(AbstractBrownianPath):
         return jtu.tree_map(map_func, self.key, self.shape)
 
     def _brownian_arch(self, s, u, w_s, w_u, key, shape, dtype, J_s, J_u):
-        """For t = (s+u)/2 evaluates w_t and J_t conditional on w_s, w_u, J_s, and J_u
-        Args:
-            s: start time
-            u: end time
-            w_s: value of BM at s
-            w_u: value of BM at u
-            J_s: space-time Levy integral at s
-            J_u: space-time Levy integral at u
-            key:
-            shape:
-            dtype:
+        """For `t = (s+u)/2` evaluates `w_t` and `J_t` conditioned
+         on `w_s`, `w_u`, `J_s`, and `J_u`.
+        **Arguments:**
+            - `s`: start time
+            - `u`: end time
+            - `w_s`: value of BM at s
+            - `w_u`: value of BM at u
+            - `key`:
+            - `shape`:
+            - `dtype`:
+            - `J_s`: space-time Lévy integral at s
+            - `J_u`: space-time Lévy integral at u
         """
 
         h = (u - s).astype(w_s.dtype)
