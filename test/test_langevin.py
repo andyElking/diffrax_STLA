@@ -4,11 +4,9 @@ import jax.random as jrandom
 import pytest
 from diffrax import (
     ALIGN,
-    ControlTerm,
     diffeqsolve,
     Euler,
-    MultiTerm,
-    ODETerm,
+    LangevinTerm,
     SaveAt,
     SEA,
     ShARK,
@@ -16,38 +14,7 @@ from diffrax import (
     VirtualBrownianTree,
 )
 
-from .helpers import sde_solver_order
-
-
-def get_bm(sde, key, tol=2**-15, compute_stla=True):
-    _, _, _, y0, _t0, _t1, w_dim = sde
-    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
-    return VirtualBrownianTree(
-        t0=_t0, t1=_t1, shape=shp_dtype, tol=tol, key=key, compute_stla=compute_stla
-    )
-
-
-def langevin_drift(t, y, args):
-    gamma, u, grad_f = args
-    dim = int(y.shape[0] / 2)
-    x, v = y[:dim], y[dim:]
-    d_x = v
-    d_v = -gamma * v - u * grad_f(x)
-    d_y = jnp.array([d_x, d_v], dtype=y.dtype).flatten()
-    return d_y
-
-
-def langevin_diffusion(t, y, args):
-    gamma, u, _ = args
-    dim = int(y.shape[0] / 2)
-    assert y.shape[0] == 2 * dim
-    d_v = jnp.sqrt(2 * gamma * u) * jnp.ones((dim,), dtype=y.dtype)
-    d_y = jnp.concatenate((jnp.zeros((dim, dim), dtype=y.dtype), jnp.diag(d_v)), axis=0)
-    return d_y
-
-
-def get_terms(bm):
-    return MultiTerm(ODETerm(langevin_drift), ControlTerm(langevin_diffusion, bm))
+from .helpers import get_bqp, get_harmonic_oscillator, sde_solver_order
 
 
 @pytest.mark.parametrize("solver", [ALIGN(0.1), ShARK()])
@@ -60,18 +27,18 @@ def test_shape(solver):
             gam = dtype(1.0)
             vec_u = jnp.ones((dim,), dtype=dtype)
             vec_gam = jnp.ones((dim,), dtype=dtype)
-            y0 = jnp.zeros((2 * dim,), dtype=dtype)
+            x0 = jnp.zeros((dim,), dtype=dtype)
+            v0 = jnp.zeros((dim,), dtype=dtype)
+            y0 = (x0, v0)
             f = lambda x: 0.5 * x
             shp_dtype = jax.ShapeDtypeStruct((dim,), dtype)
-            terms = get_terms(
-                VirtualBrownianTree(
-                    t0,
-                    t1,
-                    tol=2**-9,
-                    shape=shp_dtype,
-                    key=jrandom.PRNGKey(4),
-                    compute_stla=True,
-                )
+            bm = VirtualBrownianTree(
+                t0,
+                t1,
+                tol=2**-8,
+                shape=shp_dtype,
+                key=jrandom.PRNGKey(4),
+                spacetime_levyarea=True,
             )
             for args in [
                 (gam, u, f),
@@ -79,11 +46,13 @@ def test_shape(solver):
                 (gam, vec_u, f),
                 (vec_gam, vec_u, f),
             ]:
+                terms = LangevinTerm(args, bm)
                 sol = diffeqsolve(
-                    terms, solver, t0, t1, dt0=0.3, y0=y0, args=args, saveat=saveat
+                    terms, solver, t0, t1, dt0=0.3, y0=y0, args=None, saveat=saveat
                 )
-                assert sol.ys.shape == (10, 2 * dim)
-                assert sol.ys.dtype == dtype
+                for entry in sol.ys:
+                    assert entry.shape == (10, dim)
+                    assert jnp.dtype(entry) == dtype
 
 
 def _solvers():
@@ -101,31 +70,13 @@ def test_convergence(solver, theoretical_order):
 
     t0, t1 = 0.3, 5.1
 
-    gamma_hosc = jnp.array([2, 0.5], dtype=jnp.float64)
-    u_hosc = jnp.array([0.5, 2], dtype=jnp.float64)
-    args_hosc = (gamma_hosc, u_hosc, lambda x: 2 * x)
-    y0_hosc = jnp.zeros((4,), dtype=jnp.float64)
-    w_dim_hosc = 2
-    harmonic_osc = (
-        langevin_drift,
-        langevin_diffusion,
-        args_hosc,
-        y0_hosc,
-        t0,
-        t1,
-        w_dim_hosc,
-    )
-
-    grad_f_bqp = lambda x: 4 * x * (jnp.square(x) - 1)
-    args_bqp = (jnp.float64(0.8), jnp.float64(0.2), grad_f_bqp)
-    y0_bqp = jnp.zeros((2,), dtype=jnp.float64)
-    w_dim_bqp = 1
-    bqp = (langevin_drift, langevin_diffusion, args_bqp, y0_bqp, t0, t1, w_dim_bqp)
+    hosc = get_harmonic_oscillator(t0, t1, jnp.float64)
+    bqp = get_bqp(t0, t1, jnp.float64)
 
     hs1 = jnp.power(2.0, jnp.arange(-2, -6, -1, dtype=jnp.float64))
     hs2 = jnp.power(2.0, jnp.arange(-4, -9, -1, dtype=jnp.float64))
 
-    for sde in [harmonic_osc, bqp]:
+    for sde in [hosc, bqp]:
         _, errs, order_v_euler = sde_solver_order(
             keys, sde, solver, Euler(), 2**-12, hs=hs1
         )

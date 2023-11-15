@@ -11,16 +11,15 @@ from jax.numpy import sqrt
 from ..custom_types import Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
-from .ansr import check_diffusion_has_stla
+from ..term import AbstractTerm, LangevinTerm
 from .base import AbstractItoSolver
 
 
-_ErrorEstimate = Array
+_ErrorEstimate = Tuple[Array, Array]
 _SolverState = dict[str, Union[Array, float, Any]]
 
 
-def match_shape(c, u):
+def _match_shape(c, u):
     if jnp.ndim(c) != 0 and jnp.ndim(u) == 0:
         u = u * jnp.ones_like(c)
     if jnp.ndim(u) != 0 and jnp.ndim(c) == 0:
@@ -28,7 +27,21 @@ def match_shape(c, u):
     return c, u
 
 
-def directly_compute_coeffs(h, γ, u):
+# CONCERNING COEFFICIENTS:
+# The coefficients used in a step of ALIGN depend on
+# the time increment h, and the parameters γ and u.
+# Assuming the modelled SDE stays the same (i.e. γ and u are fixed),
+# then these coefficients must be recomputed each time h changes.
+# Furthermore, for very small h, directly computing the coefficients
+# via the function below can cause large floating point errors.
+# Hence, we pre-compute the Taylor expansion of the ALIGN coefficients
+# around h=0. Then we can compute the ALIGN coefficients either via
+# the Taylor expansion, or via direct computation.
+# In short the Taylor coefficients give a Taylor expansion with which
+# one can compute the ALIGN coefficients more precisely for a small h.
+
+
+def _directly_compute_coeffs(h, γ, u):
     # compute the coefficients directly (as opposed to via Taylor expansion)
     dtype = jnp.dtype(γ)
     α = γ * h
@@ -111,7 +124,7 @@ def _tay_cfs_single(c, u):
     }
 
 
-def comp_taylor_coeffs(γ, u):
+def _comp_taylor_coeffs(γ, u):
     # When the step-size h is small the coefficients (which depend on h) need
     # to be computed via Taylor expansion to ensure numerical stability.
     # This precomputes the Taylor coefficients (depending on γ and u), which
@@ -120,36 +133,46 @@ def comp_taylor_coeffs(γ, u):
     if jnp.ndim(γ) == 0 and jnp.ndim(u) == 0:
         return _tay_cfs_single(γ, u)
 
-    γ, u = match_shape(γ, u)
+    γ, u = _match_shape(γ, u)
 
     return jax.vmap(_tay_cfs_single)(γ, u)
 
 
-def eval_taylor(h, tay_cfs):
+def _eval_taylor(h, tay_cfs):
     # Multiplies the pre-computed Taylor coefficients by powers of h.
     # jax.debug.print("eval taylor for h = {h}", h=h)
     dtype = jnp.dtype(tay_cfs["a1"])
-    h_powers = jnp.power(h, jnp.arange(0, 6, dtype=dtype))
+    h_powers = jnp.power(h, jnp.arange(0, 6)).astype(dtype)
     return jtu.tree_map(
         lambda tay_leaf: jnp.tensordot(tay_leaf, h_powers, axes=1), tay_cfs
     )
 
 
 class ALIGN(AbstractItoSolver):
-    """The Adaptive Langevin via Interpolated Gradients and Noise method
+    r"""The Adaptive Langevin via Interpolated Gradients and Noise method
     designed by James Foster. Only works for Underdamped Langevin Diffusion
     of the form
-    d x_t &= v_t dt
-    d v_t &= - γ v_t dt - u ∇f(x_t) dt + (2γu)^(1/2) dW_t
+
+    $d x_t = v_t dt$
+
+    $d v_t = - γ v_t dt - u ∇f(x_t) dt + (2γu)^(1/2) dW_t$
+
     where v is the velocity, f is the potential, γ is the friction, and
     W is a Brownian motion.
     """
 
-    term_structure = MultiTerm[Tuple[ODETerm, ControlTerm]]
+    term_structure = LangevinTerm
     interpolation_cls = LocalLinearInterpolation
     taylor_threshold: Scalar = eqx.field(static=True)
 
     def __init__(self, taylor_threshold: Scalar = 0.0):
+        r"""**Arguments:**
+
+        - `taylor_threshold`: If the product `h*γ` is less than this, then
+        the Taylor expansion will be used to compute the coefficients.
+        Otherwise they will be computed directly. When using float32, the
+        empirically optimal value is 0.1, and for float64 about 0.01.
+        """
         self.taylor_threshold = taylor_threshold
 
     def order(self, terms):
@@ -168,17 +191,17 @@ class ALIGN(AbstractItoSolver):
         if jnp.ndim(γ) == 0 and jnp.ndim(u) == 0:
             return lax.cond(
                 cond,
-                lambda h_: eval_taylor(h_, tay_cfs),
-                lambda h_: directly_compute_coeffs(h_, γ, u),
+                lambda h_: _eval_taylor(h_, tay_cfs),
+                lambda h_: _directly_compute_coeffs(h_, γ, u),
                 h,
             )
         else:
-            tay_out = eval_taylor(h, tay_cfs)
+            tay_out = _eval_taylor(h, tay_cfs)
 
-            γ, u = match_shape(γ, u)
+            γ, u = _match_shape(γ, u)
 
             def select_tay_or_direct(dummy):
-                fun = lambda gam, _u: directly_compute_coeffs(h, gam, _u)
+                fun = lambda gam, _u: _directly_compute_coeffs(h, gam, _u)
                 direct_out = vmap(fun)(γ, u)
                 return jtu.tree_map(
                     lambda tay_leaf, direct_leaf: jnp.where(
@@ -197,30 +220,26 @@ class ALIGN(AbstractItoSolver):
 
     def init(
         self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        terms: LangevinTerm,
         t0: Scalar,
         t1: Scalar,
         y0: Array,
         args: PyTree,
     ) -> _SolverState:
-        """
-        Precompute _SolverState which carries the Taylor coefficients and the
+        """Precompute _SolverState which carries the Taylor coefficients and the
         ALIGN coefficients (which can be computed from h and the Taylor coeffs).
         This method is FSAL, so _SolverState also carries the previous evaluation
         of grad_f.
         """
-        # print(y0.dtype)
-        # jax.debug.print("y0 {a}", a=y0.dtype)
-        γ, u, f = args  # f is in fact grad(f)
+        γ, u, f = terms.args  # f is in fact grad(f)
         h = t1 - t0
 
-        tay_cfs = comp_taylor_coeffs(γ, u)
+        tay_cfs = _comp_taylor_coeffs(γ, u)
         coeffs = self.recompute_coeffs(h, γ, u, tay_cfs)
 
-        assert y0.ndim == 1
-        dim = int(y0.shape[0] / 2)
-        assert y0.shape[0] == 2 * dim
-        x0 = y0[:dim]
+        x0, v0 = y0
+        assert x0.shape == v0.shape
+        assert x0.ndim in [0, 1]
 
         state_out = {"h": h, "taylor_coeffs": tay_cfs, "coeffs": coeffs, "f(x)": f(x0)}
 
@@ -228,18 +247,18 @@ class ALIGN(AbstractItoSolver):
 
     def step(
         self,
-        terms: MultiTerm[Tuple[ODETerm, ControlTerm]],
+        terms: LangevinTerm,
         t0: Scalar,
         t1: Scalar,
-        y0: Array,
+        y0: Tuple[Array, Array],
         args: PyTree,
         solver_state: _SolverState,
         made_jump: Bool,
-    ) -> Tuple[Array, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+    ) -> Tuple[Tuple[Array, Array], _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del made_jump
         st = solver_state
         h = t1 - t0
-        γ, u, f = args
+        γ, u, f = terms.args
 
         h_state = st["h"]
         tay = st["taylor_coeffs"]
@@ -255,24 +274,26 @@ class ALIGN(AbstractItoSolver):
         # jax.debug.print("{h}", h=st['h'])
 
         drift, diffusion = terms.terms
-        check_diffusion_has_stla(diffusion)
-
-        levy: LevyVal = diffusion.levy_contr(t0, t1)
+        # compute the Brownian increment and space-time Levy area
+        _, levy = diffusion.contr(t0, t1, use_levy=True)
+        assert isinstance(levy, LevyVal)
+        assert levy.H is not None, "The diffusion should be a LangevinDiffusionTerm"
         w = levy.W
         hh = levy.H
 
-        assert y0.ndim == 1
-        dim = int(y0.shape[0] / 2)
-        assert y0.shape[0] == 2 * dim
-        x0, v0 = y0[:dim], y0[dim:]
+        x0, v0 = y0
+        assert x0.shape == v0.shape
+        assert x0.ndim in [0, 1]
+
         assert jnp.shape(cfs["a1"]) == jnp.shape(γ) or jnp.shape(
             cfs["a1"]
         ) == jnp.shape(u)
-        assert jnp.shape(γ) in [(), (dim,)]
+        assert jnp.shape(γ) in [(), x0.shape]
 
         f0 = st["f(x)"]
         x1 = x0 + cfs["a1"] * v0 + cfs["a2"] * f0 + cfs["cw1"] * w + cfs["ch1"] * hh
         f1 = f(x1)
+        assert f1.shape == f0.shape, f"f0: {f0.shape}, f1: {f1.shape}"
         st["f(x)"] = f1
         v1 = (
             cfs["beta"] * v0
@@ -282,10 +303,14 @@ class ALIGN(AbstractItoSolver):
             + cfs["ch2"] * hh
         )
 
-        y1 = jnp.concatenate((x1, v1))
-        assert y1.dtype == y0.dtype
+        y1 = (x1, v1)
+        assert v1.dtype == x1.dtype == x0.dtype
+        assert x1.shape == v1.shape == x0.shape
 
-        error_estimate = jnp.sqrt(jnp.sum(jnp.square(cfs["a4"] * (f1 - f0))))
+        error_estimate = (
+            jnp.zeros_like(x0),
+            jnp.sqrt(jnp.sum(jnp.square(cfs["a4"] * (f1 - f0)))),
+        )
 
         dense_info = dict(y0=y0, y1=y1)
         return y1, error_estimate, dense_info, st, RESULTS.successful

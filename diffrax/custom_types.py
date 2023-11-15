@@ -140,9 +140,3 @@ class LevyVal(eqx.Module):
     W: PyTree[Array] = field(default=None)
     J: Optional[PyTree[Array]] = field(default=None)
     H: Optional[PyTree[Array]] = field(default=None)
-
-    def wh(self):
-        return self.W, self.H
-
-    def wj(self):
-        return self.W, self.J

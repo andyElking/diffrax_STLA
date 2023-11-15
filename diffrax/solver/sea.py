@@ -1,11 +1,12 @@
 import numpy as np
 
-from .ansr import ANSR, StochasticButcherTableau
+from .ansr import AbstractANSR, StochasticButcherTableau
 
 
 tab = StochasticButcherTableau(
     c=np.array([]),
-    b=np.array([1.0]),
+    b_sol=np.array([1.0]),
+    b_error=None,
     a=[],
     cw=np.array([0.5]),
     ch=np.array([1.0]),
@@ -14,15 +15,24 @@ tab = StochasticButcherTableau(
 )
 
 
-class SEA(ANSR):
-    """Shifted Euler method for SDEs with additive noise.
-     It has a local error of O(h^2) compared to
-     standard Euler-Maruyama, which has O(h^1.5).
+class SEA(AbstractANSR):
+    r"""Shifted Euler method for SDEs with additive noise.
+     It has a local error of $O(h^2)$ compared to
+     standard Euler-Maruyama, which has $O(h^{1.5})$.
 
-    Based on equation (5.8) in
-    Foster, J., dos Reis, G., & Strange, C. (2023).
-    High order splitting methods for SDEs satisfying a commutativity condition.
-    arXiv [Math.NA] http://arxiv.org/abs/2210.17543
+    Based on equation $(5.8)$ in
+    ??? cite "Reference"
+
+        ```bibtex
+        @misc{foster2023high,
+          title={High order splitting methods for SDEs satisfying
+            a commutativity condition},
+          author={James Foster and Goncalo dos Reis and Calum Strange},
+          year={2023},
+          eprint={2210.17543},
+          archivePrefix={arXiv},
+          primaryClass={math.NA}
+        ```
     """
 
     tableau = tab

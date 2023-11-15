@@ -42,7 +42,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         self,
         shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: "jax.random.PRNGKey",
-        compute_stla: bool = False,
+        spacetime_levyarea: bool = False,
     ):
         self.shape = (
             jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(None))
@@ -50,7 +50,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
             else shape
         )
         self.key = key
-        self.compute_stla = compute_stla
+        self.spacetime_levyarea = spacetime_levyarea
 
         if any(
             not jnp.issubdtype(x.dtype, jnp.inexact)
@@ -68,7 +68,11 @@ class UnsafeBrownianPath(AbstractBrownianPath):
 
     @eqx.filter_jit
     def evaluate(
-        self, t0: Scalar, t1: Scalar, left: bool = True, use_levy: bool = False
+        self,
+        t0: Scalar,
+        t1: Scalar,
+        left: bool = True,
+        use_levy: bool = False,
     ) -> PyTree[Array]:
         del left
         t0 = eqxi.nondifferentiable(t0, name="t0")
@@ -80,13 +84,14 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         key = split_by_tree(key, self.shape)
         out = jtu.tree_map(
             lambda key, shape: self._evaluate_leaf(
-                t0, t1, key, shape, self.compute_stla, use_levy
+                t0, t1, key, shape, self.spacetime_levyarea, use_levy
             ),
             key,
             self.shape,
         )
         if use_levy:
-            out = _levy_tree_transpose(self.shape, self.compute_stla, out)
+            out = _levy_tree_transpose(self.shape, self.spacetime_levyarea, out)
+            assert isinstance(out, LevyVal)
         return out
 
     @staticmethod
@@ -95,21 +100,24 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         t1: Scalar,
         key,
         shape: jax.ShapeDtypeStruct,
-        compute_stla: bool,
+        spacetime_levyarea: bool,
         use_levy: bool,
     ):
-        key_w, key_hh = jrandom.split(key, 2)
-        w = jrandom.normal(key_w, shape.shape, shape.dtype) * jnp.sqrt(t1 - t0).astype(
-            shape.dtype
-        )
-        if not use_levy:
+        w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
+
+        if spacetime_levyarea:
+            key_w, key_hh = jrandom.split(key, 2)
+            w = jrandom.normal(key_w, shape.shape, shape.dtype) * w_std
+            hh_std = jnp.sqrt((t1 - t0) / 12).astype(shape.dtype)
+            hh = jrandom.normal(key_hh, shape.shape, shape.dtype) * hh_std
+        else:
+            hh = None
+            w = jrandom.normal(key, shape.shape, shape.dtype) * w_std
+
+        if use_levy:
+            return LevyVal(h=t1 - t0, W=w, H=hh)
+        else:
             return w
-        hh = None
-        if compute_stla:
-            hh = jrandom.normal(key_hh, shape.shape, shape.dtype) * jnp.sqrt(
-                (t1 - t0) / 12
-            ).astype(shape.dtype)
-        return LevyVal(h=t1 - t0, W=w, H=hh)
 
 
 UnsafeBrownianPath.__init__.__doc__ = """
@@ -119,5 +127,6 @@ UnsafeBrownianPath.__init__.__doc__ = """
     dtype, and PyTree structure of the output. For simplicity, `shape` can also just 
     be a tuple of integers, describing the shape of a single JAX array. In that case
     the dtype is chosen to be the default floating-point dtype.
+
 - `key`: A random key.
 """

@@ -41,6 +41,7 @@ from .saveat import SaveAt, SubSaveAt
 from .solution import is_event, is_okay, is_successful, RESULTS, Solution
 from .solver import (
     AbstractAdaptiveSolver,
+    AbstractANSR,
     AbstractDIRK,
     AbstractERK,
     AbstractESDIRK,
@@ -52,7 +53,6 @@ from .solver import (
     AbstractStratonovichSolver,
     AbstractWrappedSolver,
     ALIGN,
-    ANSR,
     Bosh3,
     ButcherTableau,
     CalculateJacobian,
@@ -94,6 +94,8 @@ from .step_size_controller import (
 from .term import (
     AbstractTerm,
     ControlTerm,
+    LangevinDiffusionTerm,
+    LangevinTerm,
     MultiTerm,
     ODETerm,
     WeaklyDiagonalControlTerm,

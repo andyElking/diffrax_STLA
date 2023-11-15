@@ -10,6 +10,7 @@ import jax.random as jrandom
 import jax.tree_util as jtu
 import pytest
 import scipy.stats
+from diffrax import ControlTerm, MultiTerm, ODETerm
 from equinox.internal import ω
 
 from .helpers import (
@@ -17,6 +18,7 @@ from .helpers import (
     all_split_solvers,
     implicit_tol,
     random_pytree,
+    SDE,
     sde_solver_order,
     shaped_allclose,
     treedefs,
@@ -186,15 +188,15 @@ def _squareplus(x):
 
 def _solvers():
     # solver, commutative, order
-    yield diffrax.Euler, False, 0.5
-    yield diffrax.EulerHeun, False, 0.5
-    yield diffrax.Heun, False, 0.5
-    yield diffrax.ItoMilstein, False, 0.5
-    yield diffrax.Midpoint, False, 0.5
-    yield diffrax.ReversibleHeun, False, 0.5
-    yield diffrax.StratonovichMilstein, False, 0.5
-    yield diffrax.ReversibleHeun, True, 1
-    yield diffrax.StratonovichMilstein, True, 1
+    yield diffrax.Euler, False, 0.5  # PASSES
+    yield diffrax.EulerHeun, False, 0.5  # 0.9326
+    yield diffrax.Heun, False, 0.5  # 0.86656
+    yield diffrax.ItoMilstein, False, 0.5  # 1.0025
+    yield diffrax.Midpoint, False, 0.5  # 0.8659
+    yield diffrax.ReversibleHeun, False, 0.5  # 0.8666
+    yield diffrax.StratonovichMilstein, False, 0.5  # 0.9331
+    yield diffrax.ReversibleHeun, True, 1  # 1.3648
+    yield diffrax.StratonovichMilstein, True, 1  # PASSES
 
 
 @pytest.mark.parametrize("solver_ctr,commutative,theoretical_order", _solvers())
@@ -236,7 +238,10 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     t1 = 2
     y0 = jrandom.normal(ykey, (3,), dtype=jnp.float64)
 
-    sde = (drift, diffusion, None, y0, t0, t1, noise_dim)
+    def get_terms(bm):
+        return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
+
+    sde = SDE(get_terms, None, y0, t0, t1, noise_dim)
 
     # Reference solver is always an ODE-viable solver, so its implementation has been
     # verified by the ODE tests like test_ode_order.

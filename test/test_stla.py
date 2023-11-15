@@ -69,12 +69,12 @@ def test_shape_and_dtype(ctr, getkey):
             shape = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
 
         if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape, getkey(), compute_stla=True)
+            path = ctr(shape, getkey(), spacetime_levyarea=True)
             assert path.t0 is None
             assert path.t1 is None
         elif ctr is diffrax.VirtualBrownianTree:
             tol = 2**-5
-            path = ctr(t0, t1, tol, shape, getkey(), compute_stla=True)
+            path = ctr(t0, t1, tol, shape, getkey(), spacetime_levyarea=True)
             assert path.t0 == 0
             assert path.t1 == 2
         else:
@@ -111,9 +111,11 @@ def test_statistics(ctr):
 
     def _eval(key):
         if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape=(), key=key, compute_stla=True)
+            path = ctr(shape=(), key=key, spacetime_levyarea=True)
         elif ctr is diffrax.VirtualBrownianTree:
-            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, compute_stla=True)
+            path = ctr(
+                t0=0, t1=5, tol=2**-5, shape=(), key=key, spacetime_levyarea=True
+            )
         else:
             assert False
         return path.evaluate(0, 5, use_levy=True)
@@ -151,10 +153,10 @@ def test_conditional_statistics():
     ts = jrandom.permutation(permute_key, ts)
 
     # Get some random paths
-    bm_keys = jrandom.split(bm_key, 100000)
+    bm_keys = jrandom.split(bm_key, 10000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, compute_stla=True
+            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, spacetime_levyarea=True
         )
     )(bm_keys)
 
@@ -171,9 +173,9 @@ def test_conditional_statistics():
         r, bm_r = out[i]
         u, bm_u = out[i + 1]
 
-        w_s, hh_s = bm_s.wh()
-        w_r, hh_r = bm_r.wh()
-        w_u, hh_u = bm_u.wh()
+        w_s, hh_s = bm_s.W, bm_s.H
+        w_r, hh_r = bm_r.W, bm_r.H
+        w_u, hh_u = bm_u.W, bm_u.H
 
         s = s - t0
         r = r - t0

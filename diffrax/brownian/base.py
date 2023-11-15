@@ -1,27 +1,27 @@
 import abc
-from typing import Optional
+from typing import Optional, Union
 
+import equinox as eqx
 import jax
 from jax import tree_util as jtu
 
-from .. import LevyVal
-from ..custom_types import Array, PyTree, Scalar
+from ..custom_types import Array, LevyVal, PyTree, Scalar
 from ..path import AbstractPath
 
 
-def _levy_tree_transpose(tree_shape, compute_stla, tree):
+def _levy_tree_transpose(tree_shape, spacetime_levyarea, tree):
     """Helper that takes a PyTree of LevyVals and transposes
     into a LevyVal of PyTrees.
 
     Args:
         tree_shape:
-        compute_stla:
+        spacetime_levyarea:
         tree:
 
     Returns:
 
     """
-    hh_default_val = 0.0 if compute_stla else None
+    hh_default_val = 0.0 if spacetime_levyarea else None
     return jtu.tree_transpose(
         outer_treedef=jax.tree_structure(tree_shape),
         inner_treedef=jax.tree_structure(
@@ -34,6 +34,8 @@ def _levy_tree_transpose(tree_shape, compute_stla, tree):
 class AbstractBrownianPath(AbstractPath):
     """Abstract base class for all Brownian paths."""
 
+    spacetime_levyarea: bool = eqx.field(static=True)
+
     @abc.abstractmethod
     def evaluate(
         self,
@@ -41,7 +43,7 @@ class AbstractBrownianPath(AbstractPath):
         t1: Optional[Scalar] = None,
         left: bool = True,
         use_levy: bool = False,
-    ) -> PyTree[Array]:
+    ) -> Union[PyTree[Array], LevyVal]:
         r"""Samples a Brownian increment $w(t_1) - w(t_0)$.
 
         Each increment has distribution $\mathcal{N}(0, t_1 - t_0)$.
@@ -53,6 +55,8 @@ class AbstractBrownianPath(AbstractPath):
         - `left`: Ignored. (This determines whether to treat the path as
             left-continuous or right-continuous at any jump points, but Brownian
             motion has no jump points.)
+        - `use_levy`: If True, the return type will be a `LevyVal`, which contains
+            PyTrees of Brownian increments and their Levy areas.
 
         **Returns:**
 

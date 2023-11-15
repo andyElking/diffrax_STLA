@@ -1,5 +1,5 @@
 from .align import ALIGN
-from .ansr import ANSR, StochasticButcherTableau
+from .ansr import AbstractANSR, StochasticButcherTableau
 from .base import (
     AbstractAdaptiveSolver,
     AbstractImplicitSolver,

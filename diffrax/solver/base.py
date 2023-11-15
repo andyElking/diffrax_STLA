@@ -293,7 +293,9 @@ class HalfSolver(AbstractAdaptiveSolver, AbstractWrappedSolver):
             terms, t0, t1, y0, args, original_solver_state, made_jump
         )
 
-        y_error = jnp.abs(y1 - y1_alt)
+        y_error: PyTree = jtu.tree_map(
+            lambda _y1, _y_alt: jnp.abs(_y1 - _y_alt), y1, y1_alt
+        )
         result = jnp.maximum(result1, jnp.maximum(result2, result3))
 
         return y1, y_error, dense_info, solver_state, result

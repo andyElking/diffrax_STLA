@@ -50,14 +50,15 @@ class AbstractPath(eqx.Module):
         t0: Scalar,
         t1: Optional[Scalar] = None,
         left: bool = True,
-        use_levy: bool = False,
-    ) -> Union[PyTree, LevyVal]:
+    ) -> PyTree:
         r"""Evaluate the path at any point in the interval $[t_0, t_1]$.
 
         **Arguments:**
 
         - `t0`: Any point in $[t_0, t_1]$ to evaluate the path at.
+
         - `t1`: If passed, then the increment from `t1` to `t0` is evaluated instead.
+
         - `left`: Across jump points: whether to treat the path as left-continuous
             or right-continuous.
 

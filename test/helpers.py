@@ -1,23 +1,27 @@
+import dataclasses
 import functools as ft
 import operator
+from typing import Callable, Tuple
 
 import diffrax
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 from diffrax import (
+    AbstractANSR,
+    AbstractBrownianPath,
+    AbstractTerm,
     ALIGN,
-    ANSR,
     ConstantStepSize,
-    ControlTerm,
     diffeqsolve,
-    MultiTerm,
-    ODETerm,
+    LangevinTerm,
     SaveAt,
+    UnsafeBrownianPath,
     VirtualBrownianTree,
 )
+from diffrax.custom_types import PyTree, Scalar
+from jax import numpy as jnp
 
 
 all_ode_solvers = (
@@ -94,57 +98,85 @@ def shaped_allclose(x, y, **kwargs):
     )
 
 
-def l2_dist(ys1: jax.Array, ys2: jax.Array):
-    assert ys1.shape == ys2.shape
-    n = ys1.shape[0]
-    square_dist = jnp.square(ys1 - ys2)
-    avg = 1 / n * jnp.sum(square_dist)
-    return jnp.sqrt(avg)
+def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
+    # first compute the square of the difference and sum over
+    # all but the first two axes (which represent the number of samples
+    # and the length of saveat). Also sum all the PyTree leaves
+    def sum_square_diff(y1, y2):
+        square_diff = jnp.square(y1 - y2)
+        # sum all but the first two axes
+        axes = range(2, square_diff.ndim)
+        out = jnp.sum(square_diff, axis=axes)
+        return out
+
+    dist = jtu.tree_map(sum_square_diff, ys1, ys2)
+    dist = sum(jtu.tree_leaves(dist))  # shape=(num_samples, len(saveat))
+    dist = jnp.max(dist, axis=1)  # take sup along the length of integration
+    dist = jnp.sqrt(jnp.mean(dist))
+    return dist
+
+
+@dataclasses.dataclass
+class SDE:
+    get_terms: Callable[[AbstractBrownianPath], AbstractTerm]
+    args: PyTree
+    y0: PyTree
+    t0: Scalar
+    t1: Scalar
+    w_shape: Tuple[int]
+
+    def get_dtype(self):
+        return jnp.dtype(jtu.tree_leaves(self.y0)[0])
+
+    def get_bm(self, key, need_stla=True, use_tree=True, tol=2**-14):
+        shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())
+        if use_tree:
+            return VirtualBrownianTree(
+                t0=self.t0,
+                t1=self.t1,
+                shape=shp_dtype,
+                tol=tol,
+                key=key,
+                spacetime_levyarea=need_stla,
+            )
+        else:
+            return UnsafeBrownianPath(
+                shape=shp_dtype, key=key, spacetime_levyarea=need_stla
+            )
 
 
 def batch_sde_solve(
-    keys, sde, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
+    keys, sde: SDE, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
 ):
-    _drift, _diffusion, args, y0, _t0, _t1, w_dim = sde
-    _saveat = SaveAt(ts=[_t1])
-    shp_dtype = jax.ShapeDtypeStruct((w_dim,), dtype=y0.dtype)
+    _saveat = SaveAt(ts=[sde.t1])
 
-    need_stla = need_stla or isinstance(solver, (ALIGN, ANSR))
+    need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
 
     def end_value(key):
-        path = VirtualBrownianTree(
-            t0=_t0,
-            t1=_t1,
-            shape=shp_dtype,
-            tol=2**-15,
-            key=key,
-            compute_stla=need_stla,
-        )
-
-        terms = MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, path))
+        path = sde.get_bm(key, need_stla=need_stla, use_tree=True)
+        terms = sde.get_terms(path)
 
         sol = diffeqsolve(
             terms,
             solver,
-            _t0,
-            _t1,
+            sde.t0,
+            sde.t1,
             dt0=dt0,
-            y0=y0,
-            args=args,
+            y0=sde.y0,
+            args=sde.args,
             saveat=_saveat,
             stepsize_controller=stepsize_controller,
             max_steps=None,
         )
-        return sol.ys[0]
+        return sol.ys
 
     return jax.vmap(end_value)(keys)
 
 
-def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=None):
-    y0 = sde[3]
-    dtype = y0.dtype
-    need_stla = isinstance(solver, (ALIGN, ANSR)) or isinstance(
-        ref_solver, (ALIGN, ANSR)
+def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, hs_num=5, hs=None):
+    dtype = sde.get_dtype()
+    need_stla = isinstance(solver, (ALIGN, AbstractANSR)) or isinstance(
+        ref_solver, (ALIGN, AbstractANSR)
     )
 
     correct_sols = batch_sde_solve(
@@ -155,8 +187,35 @@ def sde_solver_order(keys, sde, solver, ref_solver, dt_precise, hs_num=5, hs=Non
 
     def get_single_err(h):
         sols = batch_sde_solve(keys, sde, h, solver, need_stla=need_stla)
-        return l2_dist(sols, correct_sols)
+        return path_l2_dist(sols, correct_sols)
 
     errs = jax.vmap(get_single_err)(hs)
     order, _ = jnp.polyfit(jnp.log(hs), jnp.log(errs), 1)
     return hs, errs, order
+
+
+def get_bqp(t0=0.3, t1=15.0, dtype=jnp.float32):
+    grad_f_bqp = lambda x: 4 * x * (jnp.square(x) - 1)
+    args_bqp = (dtype(0.8), dtype(0.2), grad_f_bqp)
+    y0_bqp = (dtype(0), dtype(0))
+    w_shape_bqp = ()
+
+    def get_terms_bqp(bm):
+        return LangevinTerm(args_bqp, bm)
+
+    return SDE(get_terms_bqp, None, y0_bqp, t0, t1, w_shape_bqp)
+
+
+def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
+    gamma_hosc = jnp.array([2, 0.5], dtype=dtype)
+    u_hosc = jnp.array([0.5, 2], dtype=dtype)
+    args_hosc = (gamma_hosc, u_hosc, lambda x: 2 * x)
+    x0 = jnp.zeros((2,), dtype=dtype)
+    v0 = jnp.zeros((2,), dtype=dtype)
+    y0_hosc = (x0, v0)
+    w_shape_hosc = (2,)
+
+    def get_terms_hosc(bm):
+        return LangevinTerm(args_hosc, bm)
+
+    return SDE(get_terms_hosc, None, y0_hosc, t0, t1, w_shape_hosc)
