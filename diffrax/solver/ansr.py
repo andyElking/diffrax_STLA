@@ -14,7 +14,7 @@ from ..custom_types import Array, Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
 from ..term import _ControlTerm, AbstractTerm, MultiTerm, ODETerm
-from .base import AbstractItoSolver
+from .base import AbstractStratonovichSolver
 
 
 _ErrorEstimate = None
@@ -32,10 +32,10 @@ class StochasticButcherTableau:
     a: list[np.ndarray]
 
     # coefficients for W and H (of shape (len(c)+1,)
-    cw: np.ndarray
-    ch: np.ndarray
-    cw_last: Scalar
-    ch_last: Scalar
+    cW: np.ndarray
+    cH: Optional[np.ndarray]
+    bW: Scalar
+    bH: Optional[Scalar]
 
     def __post_init__(self):
         assert self.c.ndim == 1
@@ -47,8 +47,8 @@ class StochasticButcherTableau:
         assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.a))
         assert (self.b_error is None) or self.b_error.shape[0] == self.b_sol.shape[0]
         assert self.c.shape[0] + 1 == self.b_sol.shape[0]
-        assert self.cw.shape[0] == self.b_sol.shape[0]
-        assert self.ch.shape[0] == self.b_sol.shape[0]
+        assert self.cW.shape[0] == self.b_sol.shape[0]
+        assert self.cH.shape[0] == self.b_sol.shape[0]
         for i, (a_i, c_i) in enumerate(zip(self.a, self.c)):
             assert np.allclose(sum(a_i), c_i)
         assert np.allclose(sum(self.b_sol), 1.0)
@@ -73,38 +73,18 @@ Let `k` denote the number of stages of the solver.
     alternate solution that is compared against the main solution).
 - `c`: the time increments used in the Butcher tableau.
     Should be a NumPy array of shape `(k-1,)`, as the first stage has time increment 0
-- `cw`: The coefficients in front of the Brownian increment at each stage.
+- `cW`: The coefficients in front of the Brownian increment at each stage.
     Should be a NumPy array of shape `(k,)`.
-- `ch`: The coefficients in front of the space-time Lévy area at each stage.
+- `cH`: The coefficients in front of the space-time Lévy area at each stage.
     Should be a NumPy array of shape `(k,)`.
-- `cw_last`: Coefficient for the Brownian increment when computing the
+- `bW`: Coefficient for the Brownian increment when computing the
     output $y_{n+1}$. Should be a `Scalar`.
-- `ch_last`: Coefficient for the space-time Lévy area when computing the
+- `bH`: Coefficient for the space-time Lévy area when computing the
     output $y_{n+1}$. Should be a `Scalar`.
 """
 
 
-def _get_w(contr: PyTree):
-    def extract(leaf):
-        if isinstance(leaf, LevyVal):
-            return leaf.W
-        else:
-            return leaf
-
-    return jtu.tree_map(extract, contr, is_leaf=lambda lf: isinstance(lf, LevyVal))
-
-
-def _get_hh(contr: PyTree):
-    def extract(leaf):
-        if isinstance(leaf, LevyVal):
-            return leaf.H
-        else:
-            return jnp.zeros_like(leaf)
-
-    return jtu.tree_map(extract, contr, is_leaf=lambda lf: isinstance(lf, LevyVal))
-
-
-class AbstractANSR(AbstractItoSolver):
+class AbstractANSR(AbstractStratonovichSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a `ControlTerm` with
@@ -116,8 +96,8 @@ class AbstractANSR(AbstractItoSolver):
 
     We construct the SRK with $s$ stages as follows:
 
-    $y_{n+1} = y_n + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (c^W_{\text{last}}
-    \, W_{t_0, t_1} + c^H_{\text{last}} \, H_{t_0, t_1})$
+    $y_{n+1} = y_n + h \Big(\sum_{j=1}^s b_j k_j \Big) + σ \, (b^W
+    \, W_{t_0, t_1} + b^H \, H_{t_0, t_1})$
 
     $k_j = f(t_0 + c_j h , z_j)$
 
@@ -192,32 +172,48 @@ class AbstractANSR(AbstractItoSolver):
 
         # compute the Brownian increment and space-time Lévy area
         bm_inc = diffusion.contr(t0, t1, use_levy=True)
-        # assert isinstance(bm_inc, LevyVal) and (bm_inc.H is not None), (
-        #     "The diffusion should be a ControlTerm controlled by either a"
-        #     "VirtualBrownianTree or an UnsafeBrownianPath with"
-        #     "`spacetime_levyarea=True`"
-        # )
-        w = _get_w(bm_inc)
-        hh = _get_hh(bm_inc)
+        assert isinstance(bm_inc, LevyVal) and (bm_inc.H is not None), (
+            "The diffusion should be a ControlTerm controlled by either a"
+            "VirtualBrownianTree or an UnsafeBrownianPath with"
+            "`spacetime_levyarea=True`"
+        )
         sigma = diffusion.vf(t0, y0, args)
+        w = bm_inc.W
+
+        levy_areas = []
+        if self.tableau.cH is not None:
+            assert bm_inc.H is not None
+            levy_areas.append(bm_inc.H)
+
+        def add_levy_to_w(_cw, *_c_levy):
+            def aux_add_levy(w_leaf, *levy_leaves):
+                return _cw * w_leaf + sum(
+                    _c * _leaf for _c, _leaf in zip(_c_levy, levy_leaves)
+                )
+
+            return aux_add_levy
 
         def stage(
             carry: tuple[int, PyTree[Array]],
-            x: tuple[jax.Array, Scalar, Scalar, Scalar],
+            x: tuple[jax.Array, Scalar, Scalar, Optional[Scalar]],
         ):
             # Represents the jth stage of the SRK.
             # carry = (j, hks_{j-1}) where
             # hks_{j-1} = [hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
             # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
-            a_j, c_j, cw_j, ch_j = x
+            a_j, c_j, cW_j, c_levy_j = x
+            # for now c_levy_j is just [cH_j]
+
             j, hks_j = carry
-            diffusion_control = (cw_j * w**ω + ch_j * hh**ω).ω
+            diffusion_control = jtu.tree_map(
+                add_levy_to_w(cW_j, *c_levy_j), w, *levy_areas
+            )
 
             # compute Σ_{i=1}^{j-1} a_j_i hk_i
 
             a_j_mult_k = jtu.tree_map(lambda lf: jnp.tensordot(a_j, lf, axes=1), hks_j)
 
-            # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cw_j * ΔW + ch_j * ΔH)
+            # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (cW_j * ΔW + cH_j * ΔH)
             z_j = (
                 y0**ω
                 + a_j_mult_k**ω
@@ -236,10 +232,13 @@ class AbstractANSR(AbstractItoSolver):
         a = self._embed_a_lower(dtype)
         c = jnp.asarray(np.insert(self.tableau.c, 0, 0.0), dtype=dtype)
         b_sol = jnp.asarray(self.tableau.b_sol, dtype=dtype)
-        cw = jnp.asarray(self.tableau.cw, dtype=dtype)
-        ch = jnp.asarray(self.tableau.ch, dtype=dtype)
-        cw_last = jnp.asarray(self.tableau.cw_last, dtype=dtype)
-        ch_last = jnp.asarray(self.tableau.ch_last, dtype=dtype)
+        cW = jnp.asarray(self.tableau.cW, dtype=dtype)
+        bW = jnp.asarray(self.tableau.bW, dtype=dtype)
+        b_levy = []
+        c_levy = []
+        if self.tableau.cH is not None:
+            c_levy.append(jnp.asarray(self.tableau.cH, dtype=dtype))
+            b_levy.append(jnp.asarray(self.tableau.bH, dtype=dtype))
 
         # hks is a PyTree of the same shape as y0, except that the arrays inside have
         # an additional batch dimension of size len(b_sol) (i.e. num stages)
@@ -249,25 +248,25 @@ class AbstractANSR(AbstractItoSolver):
         )
         carry = (0, hks)
 
+        scan_inputs = (a, c, cW, c_levy)
         # output of lax.scan is ((num_stages, hks), None)
-        (_, hks), _ = lax.scan(stage, carry, (a, c, cw, ch), length=len(b_sol))
+        (_, hks), _ = lax.scan(stage, carry, scan_inputs, length=len(b_sol))
 
         # compute Σ_{j=1}^s b_j k_j
         if self.tableau.b_error is None:
             error = None
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
+            error = jtu.tree_map(
+                lambda lf: jnp.abs(jnp.tensordot(b_err, lf, axes=1)), hks
+            )
 
-            def weighted_rms(leaf):
-                weighted_sum = jnp.tensordot(b_err, leaf, axes=1)
-                return jnp.sqrt(jnp.mean(jnp.square(weighted_sum)))
-
-            error = jtu.tree_map(weighted_rms, hks)
-
-        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (cw_last * ΔW + ch_last * ΔH)
+        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (bW * ΔW + bH * ΔH)
 
         stages = jtu.tree_map(lambda lf: jnp.tensordot(b_sol, lf, axes=1), hks)
-        diffusion_contr = (cw_last * w**ω + ch_last * hh**ω).ω
+
+        diffusion_contr = jtu.tree_map(add_levy_to_w(bW, *b_levy), w, *levy_areas)
+
         y1 = (y0**ω + stages**ω + (diffusion.prod(sigma, diffusion_contr)) ** ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, error, dense_info, None, RESULTS.successful

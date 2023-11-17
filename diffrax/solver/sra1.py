@@ -8,10 +8,10 @@ tab = StochasticButcherTableau(
     b_sol=np.array([1 / 3, 2 / 3]),
     b_error=np.array([-2 / 3, 2 / 3]),
     a=[np.array([3 / 4])],
-    cw=np.array([0.0, 3 / 4]),
-    ch=np.array([0.0, 1.5]),
-    cw_last=1.0,
-    ch_last=0.0,
+    cW=np.array([0.0, 3 / 4]),
+    cH=np.array([0.0, 1.5]),
+    bW=1.0,
+    bH=0.0,
 )
 
 

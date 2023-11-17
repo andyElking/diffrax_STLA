@@ -591,22 +591,34 @@ class LangevinDiffusionTerm(ControlTerm):
         def vector_field(_, y: tuple, ___):
             dtype = y[1].dtype
             d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[1].shape, dtype=dtype)
-            if d_v.ndim > 0:
-                assert d_v.ndim == 1
-                d_v = jnp.diag(d_v)
-            d_y = (0, d_v)
+            # if d_v.ndim > 0:
+            #     assert d_v.ndim == 1
+            #     d_v = jnp.diag(d_v)
+            d_y = (0.0, d_v)
             return d_y
 
         super().__init__(vector_field, control)
 
-    def contr(
-        self, t0: Scalar, t1: Scalar, **kwargs
-    ) -> tuple[float, Union[PyTree[Array], LevyVal]]:
+    def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> Union[PyTree[Array], LevyVal]:
         # Since the vector field is of the form (dx, dv) and since x is
         # not influenced by the Brownian motion, the PyTree structure of
         # the control must also be a tuple, with an arbitrary first entry.
-        # Hence this returns (0, BM_increment).
-        return 0, self.control.evaluate(t0, t1, **kwargs)
+        # Hence this replaces all entries in the output of control with.
+        if "use_levy" in kwargs and kwargs["use_levy"]:
+            contr_out = self.control.evaluate(t0, t1, **kwargs)
+            return jtu.tree_map(
+                lambda lf: (0.0, lf),
+                contr_out,
+                is_leaf=lambda x: not isinstance(x, LevyVal),
+            )
+        else:
+            return 0, self.control.evaluate(t0, t1, **kwargs)
+
+    @staticmethod
+    def prod(vf: PyTree, control: PyTree) -> PyTree[Array]:
+        _, dv = vf
+        _, dw = control
+        return jnp.zeros(()), jtu.tree_map(operator.mul, dv, dw)
 
 
 class LangevinTerm(MultiTerm[Tuple[ODETerm, ControlTerm]]):
