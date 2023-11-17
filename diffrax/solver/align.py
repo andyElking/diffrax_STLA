@@ -275,11 +275,11 @@ class ALIGN(AbstractItoSolver):
 
         drift, diffusion = terms.terms
         # compute the Brownian increment and space-time Levy area
-        _, levy = diffusion.contr(t0, t1, use_levy=True)
+        levy = diffusion.contr(t0, t1, use_levy=True)
         assert isinstance(levy, LevyVal)
         assert levy.H is not None, "The diffusion should be a LangevinDiffusionTerm"
-        w = levy.W
-        hh = levy.H
+        _, w = levy.W
+        _, hh = levy.H
 
         x0, v0 = y0
         assert x0.shape == v0.shape
