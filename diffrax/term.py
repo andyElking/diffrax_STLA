@@ -618,7 +618,7 @@ class LangevinDiffusionTerm(ControlTerm):
     def prod(vf: PyTree, control: PyTree) -> PyTree[Array]:
         _, dv = vf
         _, dw = control
-        return jnp.zeros(()), jtu.tree_map(operator.mul, dv, dw)
+        return 0.0, jtu.tree_map(operator.mul, dv, dw)
 
 
 class LangevinTerm(MultiTerm[Tuple[ODETerm, ControlTerm]]):

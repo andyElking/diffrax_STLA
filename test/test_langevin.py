@@ -35,7 +35,7 @@ def test_shape(solver):
             bm = VirtualBrownianTree(
                 t0,
                 t1,
-                tol=2**-8,
+                tol=2**-6,
                 shape=shp_dtype,
                 key=jrandom.PRNGKey(4),
                 spacetime_levyarea=True,
