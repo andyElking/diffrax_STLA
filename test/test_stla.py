@@ -210,3 +210,23 @@ def test_conditional_statistics():
         # multiple-testing correction.
         assert pval_w > 0.001
         assert pval_hh > 0.001
+
+
+def test_reverse_time():
+    key = jrandom.PRNGKey(5678)
+    bm_key, sample_key = jrandom.split(key, 2)
+    bm = diffrax.VirtualBrownianTree(
+        t0=5, t1=0, tol=2**-5, shape=(), key=bm_key, spacetime_levyarea=True
+    )
+    assert bm.t0 == 5 and bm.t1 == 0
+
+    ts = jrandom.uniform(sample_key, shape=(100,), minval=0, maxval=5)
+
+    vec_eval = jax.vmap(lambda t_prev, t: bm.evaluate(t_prev, t))
+
+    fwd_increments = vec_eval(ts[:-1], ts[1:])
+    back_increments = vec_eval(ts[1:], ts[:-1])
+
+    assert jtu.tree_map(
+        lambda fwd, bck: jnp.allclose(fwd, -bck), fwd_increments, back_increments
+    )

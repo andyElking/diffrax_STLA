@@ -126,9 +126,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
         key: "jax.random.PRNGKey",
         spacetime_levyarea: bool = False,
     ):
-        self.t0 = jnp.minimum(t0, t1)
-        self.t1 = jnp.maximum(t0, t1)
-        self.tol = tol / (self.t1 - self.t0)
+        self.t0 = t0
+        self.t1 = t1
+        self.tol = tol / jnp.abs(self.t1 - self.t0)
         self.spacetime_levyarea = spacetime_levyarea
         self.shape = (
             jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(None))
@@ -149,14 +149,17 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         # Rescaling back from [0, 1] to the original interval [t0, t1].
         interval_len = self.t1 - self.t0  # can be any dtype
-        sqrt_len = jnp.sqrt(interval_len)
+        sqrt_len = jnp.sqrt(jnp.abs(interval_len))
+        sign = jnp.sign(self.t1 - self.t0)
 
         def sqrt_mult(z):
             # need to cast to dtype of each leaf in PyTree
-            return (z * sqrt_len).astype(z.dtype)
+            dtype = jnp.dtype(z)
+            return z * jnp.asarray(sign * sqrt_len, dtype)
 
         def mult(z):
-            return z * (interval_len).astype(z.dtype)
+            dtype = jnp.dtype(z)
+            return z * jnp.asarray(interval_len, dtype)
 
         return LevyVal(
             h=jtu.tree_map(mult, x.h),
