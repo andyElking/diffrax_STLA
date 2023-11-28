@@ -26,7 +26,7 @@ from .base import _levy_tree_transpose, AbstractBrownianPath
 #
 
 # We define
-# J_t = \int_0^t W_u du
+# tH_t = \int_0^t W_u du
 # H_{s,t} = 1/(t-s) ( \int_s^t ( W_u - (u-s)/(t-s) W_{s,t} ) du ).
 # For more details see Definition 4.2.1 and Theorem 6.1.4 of
 #
@@ -42,57 +42,57 @@ class _State(eqx.Module):
     w_t: Scalar
     w_u: Scalar
     key: "jax.random.PRNGKey"
-    J_s: Optional[Scalar] = None
-    J_t: Optional[Scalar] = None
-    J_u: Optional[Scalar] = None
+    sH_s: Optional[Scalar] = None
+    tH_t: Optional[Scalar] = None
+    uH_u: Optional[Scalar] = None
 
 
 def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
-    r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, J_s)$ and
-    $(W_u, J_u)$, where $J_u = \int_0^u W_t dt$
+    r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, sH_s)$ and
+    $(W_u, uH_u)$, where $uH_u = \int_0^u W_t dt$
 
     **Arguments:**
 
-        - `x0`: LevyVal$(W_s, J_s)$
-        - `x1`: LevyVal$(W_u, J_u)$
+        - `x0`: LevyVal$(W_s, sH_s)$
+        - `x1`: LevyVal$(W_u, uH_u)$
 
     **Returns:**
 
     LevyVal$(W_{s,u}, H_{s,u})$
     """
-    h = (x1.h - x0.h).astype(x0.W.dtype)
+    h = (x1.t - x0.t).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
     inverse_h = 1 / h
     # inverse_h = jnp.nan_to_num(1 / h).astype(x0.W.dtype)
     w_01 = x1.W - x0.W
     hh_01 = (x1.J - x0.J) * inverse_h - 0.5 * x1.W - 0.5 * x0.W
-    return LevyVal(h=h, W=w_01, H=hh_01)
+    return LevyVal(t=h, W=w_01, H=hh_01)
 
 
 def _wj_to_wh_single(x: LevyVal) -> LevyVal:
-    r"""Computes $(W_s, H_s)$ from $(W_s, J_s)$
-    where $J_u = \int_0^u W_t dt$
+    r"""Computes $(W_s, H_s)$ from $(W_s, sH_s)$
+    where $uH_u = \int_0^u W_t dt$
 
     **Arguments:**
 
-        - `x`: LevyVal$(W_s, J_s)$
+        - `x`: LevyVal$(W_s, sH_s)$
 
     **Returns:**
 
     LevyVal$(W_s, H_s)$
     """
-    h = jnp.where(jnp.abs(x.h) < jnp.finfo(x.h).eps, jnp.inf, x.h)
+    h = jnp.where(jnp.abs(x.t) < jnp.finfo(x.t).eps, jnp.inf, x.t)
     inverse_h = 1 / h
-    return LevyVal(h=x.h, W=x.W, H=x.J * inverse_h - 0.5 * x.W)
+    return LevyVal(t=x.t, W=x.W, H=x.J * inverse_h - 0.5 * x.W)
 
 
 class VirtualBrownianTree(AbstractBrownianPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
 
-    If the `spacetime_levyarea` is True, then it also computes space-time Lévy area `H`.
+    If `levy_area=="space_time"`, then it also computes space-time Lévy area `H`.
     This will impact the Brownian path, so even with the same key, the trajectory will
-    be different depending on the value of `spacetime_levyarea`.
+    be different depending on the value of `levy_area`.
 
     ??? cite "Reference"
 
@@ -114,7 +114,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: Scalar = field(init=True)  # override init=False in AbstractPath
     tol: Scalar = field(init=True)
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    spacetime_levyarea: bool = eqx.field(static=True)
+    levy_area: str = eqx.field(static=True)
     key: "jax.random.PRNGKey"  # noqa: F821
 
     def __init__(
@@ -124,12 +124,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
         tol: Scalar,
         shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: "jax.random.PRNGKey",
-        spacetime_levyarea: bool = False,
+        levy_area: str = "",
     ):
         self.t0 = jnp.minimum(t0, t1)
         self.t1 = jnp.maximum(t0, t1)
         self.tol = tol / (self.t1 - self.t0)
-        self.spacetime_levyarea = spacetime_levyarea
+        self.levy_area = levy_area
         self.shape = (
             jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(None))
             if is_tuple_of_ints(shape)
@@ -159,7 +159,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             return z * (interval_len).astype(z.dtype)
 
         return LevyVal(
-            h=jtu.tree_map(mult, x.h),
+            h=jtu.tree_map(mult, x.t),
             W=jtu.tree_map(sqrt_mult, x.W),
             J=jtu.tree_map(mult, x.J),
             H=jtu.tree_map(sqrt_mult, x.H),
@@ -195,7 +195,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         levy_0 = self._evaluate(t0)
         if t1 is None:
 
-            if self.spacetime_levyarea:
+            if self.levy_area == "space-time":
                 levy_out = jtu.tree_map(_wj_to_wh_single, levy_0, is_leaf=_is_levy_val)
             else:
                 levy_out = levy_0
@@ -207,8 +207,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             levy_1 = self._evaluate(t1)
             levy_diff = (
                 _wj_to_wh_diff
-                if self.spacetime_levyarea
-                else lambda x, y: LevyVal(h=y.h - x.h, W=y.W - x.W)
+                if self.levy_area == "space-time"
+                else lambda x, y: LevyVal(t=y.t - x.t, W=y.W - x.W)
             )
             levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
 
@@ -235,9 +235,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
         map_func = lambda key, shape: self._evaluate_leaf(key, r, shape)
         return jtu.tree_map(map_func, self.key, self.shape)
 
-    def _brownian_arch(self, s, u, w_s, w_u, key, shape, dtype, J_s, J_u):
-        """For `t = (s+u)/2` evaluates `w_t` and `J_t` conditioned
-         on `w_s`, `w_u`, `J_s`, and `J_u`.
+    def _brownian_arch(self, s, u, w_s, w_u, key, shape, dtype, sH_s, uH_u):
+        """For `t = (s+u)/2` evaluates `w_t` and `tH_t` conditioned
+         on `w_s`, `w_u`, `sH_s`, and `uH_u`.
         **Arguments:**
             - `s`: start time
             - `u`: end time
@@ -246,29 +246,38 @@ class VirtualBrownianTree(AbstractBrownianPath):
             - `key`:
             - `shape`:
             - `dtype`:
-            - `J_s`: space-time Lévy integral at s
-            - `J_u`: space-time Lévy integral at u
+            - `sH_s`: space-time Lévy integral at s
+            - `uH_u`: space-time Lévy integral at u
         """
 
         h = (u - s).astype(w_s.dtype)
 
-        if self.spacetime_levyarea:
-            assert J_u is not None
-            assert J_s is not None
-            n_key, z_key = jrandom.split(key, 2)
-            n = jrandom.normal(n_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
-            z = jrandom.normal(z_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
+        if self.levy_area == "space-time":
+            assert uH_u is not None
+            assert sH_s is not None
+            x1_key, x2_key = jrandom.split(key, 2)
+            x1 = jrandom.normal(x1_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
+            x2 = jrandom.normal(x2_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
 
-            w_t = (3 / (2 * h)) * (J_u - J_s) - 0.25 * w_u - 0.25 * w_s + z
-            J_t = J_u + 0.5 * (J_s - J_u) + (h / 8) * (w_s - w_u) + (h / 4) * n
+            uB = s * w_u - u * w_s
+            suH_su = uH_u - sH_s - 0.5 * uB
+            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * suH_su + 0.25 * x1
+            h_pow = jnp.power(h, 3 / 2)
+            tH_t = (
+                7 / 8 * sH_s
+                + 1 / 8 * uH_u
+                + 1 / 16 * uB
+                - (h_pow / 16) * x1
+                + (h_pow / (8 * jnp.sqrt(3))) * x2
+            )
         else:
-            assert J_u is None
-            assert J_s is None
+            assert uH_u is None
+            assert sH_s is None
             mean = w_s + 0.5 * (w_u - w_s)
             std = 0.5 * jnp.sqrt(h)
             w_t = mean + std * jrandom.normal(key, shape, dtype)
-            J_t = None
-        return w_t, J_t
+            tH_t = None
+        return w_t, tH_t
 
     def _evaluate_leaf(
         self,
@@ -284,22 +293,20 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         thalf = jnp.array(0.5, dtype)
         w_s = jnp.zeros(shape, dtype)
-        if self.spacetime_levyarea:
+        if self.levy_area == "space-time":
             key, init_key_w, init_key_la, midpoint_key = jrandom.split(key, 4)
-            w_t1 = jrandom.normal(init_key_w, shape, dtype)
-            J_std = jnp.sqrt(1 / 12)
-            J_mean = 0.5 * w_t1
-            J_t1 = J_std * jrandom.normal(init_key_la, shape, dtype) + J_mean
-            J_s = jnp.zeros_like(J_t1)
+            w_1 = jrandom.normal(init_key_w, shape, dtype)
+            H_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_la, shape, dtype)
+            H_0 = jnp.zeros_like(H_1)
 
         else:
             key, init_key_w, midpoint_key = jrandom.split(key, 3)
-            w_t1 = jrandom.normal(init_key_w, shape, dtype)
-            J_t1 = None
-            J_s = None
+            w_1 = jrandom.normal(init_key_w, shape, dtype)
+            H_1 = None
+            H_0 = None
 
-        w_thalf, J_thalf = self._brownian_arch(
-            t0, t1, w_s, w_t1, midpoint_key, shape, dtype, J_s, J_t1
+        w_thalf, tH_thalf = self._brownian_arch(
+            t0, t1, w_s, w_1, midpoint_key, shape, dtype, H_0, H_1
         )
         init_state = _State(
             s=t0,
@@ -307,10 +314,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
             u=t1,
             w_s=w_s,
             w_t=w_thalf,
-            w_u=w_t1,
-            J_s=J_s,
-            J_t=J_thalf,
-            J_u=J_t1,
+            w_u=w_1,
+            sH_s=H_0,
+            tH_t=tH_thalf,
+            uH_u=H_1,
             key=key,
         )
 
@@ -331,16 +338,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
             _u = jnp.where(_cond, _state.u, _state.t)
             _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
             _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
-            _J_s, _J_u = None, None
-            if self.spacetime_levyarea:
-                _J_s = jnp.where(_cond, _state.J_t, _state.J_s)
-                _J_u = jnp.where(_cond, _state.J_u, _state.J_t)
+            _sH_s, _uH_u = None, None
+            if self.levy_area == "space-time":
+                _sH_s = jnp.where(_cond, _state.tH_t, _state.sH_s)
+                _uH_u = jnp.where(_cond, _state.uH_u, _state.tH_t)
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
 
             _key, _midpoint_key = jrandom.split(_key, 2)
-            _w_t, _J_t = self._brownian_arch(
-                _s, _u, _w_s, _w_u, _midpoint_key, shape, dtype, _J_s, _J_u
+            _w_t, _tH_t = self._brownian_arch(
+                _s, _u, _w_s, _w_u, _midpoint_key, shape, dtype, _sH_s, _uH_u
             )
             return _State(
                 s=_s,
@@ -349,9 +356,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 w_s=_w_s,
                 w_t=_w_t,
                 w_u=_w_u,
-                J_s=_J_s,
-                J_t=_J_t,
-                J_u=_J_u,
+                sH_s=_sH_s,
+                tH_t=_tH_t,
+                uH_u=_uH_u,
                 key=_key,
             )
 
@@ -360,7 +367,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # Based on the values of (W, J) at s<t<u (where t = (s+u)/2), we interpolate
         # to obtain approximate values of (W_r, J_r) for all r ∈ [s,u]. This is done
         # in a way that gives (W_r, J_r) all the correct first and second moments
-        # conditional on (W_s, J_s), and (W_u, J_u), where (W_t, J_t) is treated as
+        # conditional on (W_s, H_0), and (W_u, uH_u), where (W_t, tH_t) is treated as
         # the source of randomness.
         # NOTE: this gives a different result than the original implementation of the
         # VirtualBrownianTree by Patrick Kidger.
@@ -370,45 +377,54 @@ class VirtualBrownianTree(AbstractBrownianPath):
         w_s = final_state.w_s
         w_t = final_state.w_t
         w_u = final_state.w_u
-        J_s = final_state.J_s
-        J_t = final_state.J_t
-        J_u = final_state.J_u
+        sH_s = final_state.sH_s
+        tH_t = final_state.tH_t
+        uH_u = final_state.uH_u
 
         h = u - s
         w_su = w_u - w_s
-        w_st = w_t - w_s
         sr = r - s
         ru = u - r
 
-        if self.spacetime_levyarea:
-            H_su = (1 / h) * (J_u - J_s) - w_s - 0.5 * (w_u - w_s)
-            H_st = (2 / h) * (J_t - J_s) - w_s - 0.5 * (w_t - w_s)
-            x1 = (4 / jnp.sqrt(h)) * (w_st - 0.5 * w_su - 1.5 * H_su)
-            x2 = jnp.sqrt(12 / h) * (w_st + 2 * H_st - 0.5 * w_su - 2 * H_su)
-            d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
+        if self.levy_area == "space-time":
+            # reverse _brownian_arch to get x1, x2 from w_s, w_t, w_u, sH_s, tH_t, uH_u
+
+            uB = s * w_u - u * w_s
+            suH_su = uH_u - sH_s - 0.5 * uB  # (u-s) * H_{s,u}
+            h_pow = jnp.power(h, 3 / 2)
+
+            x1 = 4 * w_t - 2 * w_u - 2 * w_s + 6 / h * suH_su
+            x2 = jnp.sqrt(3) * (
+                1 / h_pow * (8 * tH_t - 7 * sH_s - uH_u - uB / 2) + 0.5 * x1
+            )
+
+            sr3 = jnp.power(sr, 3)
+            ru3 = jnp.power(ru, 3)
+            h3 = jnp.power(h, 3)
+            sr_ru_half = jnp.sqrt(sr * ru)
+            d = jnp.sqrt(sr3 + ru3)
             d_prime = 1 / (2 * h * d)
-            a = d_prime * jnp.power(sr, 3.5) * jnp.sqrt(ru)
-            b = d_prime * jnp.power(ru, 3.5) * jnp.sqrt(sr)
+            a = d_prime * sr3 * sr_ru_half
+            b = d_prime * ru3 * sr_ru_half
 
             w_sr = (
-                (sr / h) * w_su
-                + 6 * sr * ru / jnp.square(h) * H_su
-                + 2 / h * (a + b) * x1
+                sr / h * w_su
+                + 6 * sr * ru / jnp.power(h, 3) * suH_su
+                + 2 * (a + b) / h * x1
             )
-            H_sr = (
-                jnp.square(sr / h) * H_su
-                - d_prime * jnp.power(sr, 2.5) * jnp.sqrt(ru) * x1
-                + (1 / (jnp.sqrt(12) * d)) * jnp.sqrt(sr) * jnp.power(ru, 1.5) * x2
-            )
-
             w_r = w_s + w_sr
-            J_r = J_s + sr * H_sr + (sr / 2) * (w_s + w_r)
+            c = jnp.sqrt((sr3 * ru3) / 12) / (6 * d)
+            srH_sr = sr3 / h3 * suH_su - a * x1 + c * x2
+            rH_r = sH_s + srH_sr + 0.5 * uB
+            H_r = 1 / r * rH_r
+
         else:
             # the brownian bridge b_t is our access to randomness
             b_t = w_t - 0.5 * (w_u + w_s)
             w_r = w_s + (2 * jnp.sqrt(sr * ru) / h) * b_t + (sr / h) * w_su
-            J_r = None
-        return LevyVal(h=r, W=w_r, J=J_r, H=None)
+            H_r = None
+            rH_r = None
+        return LevyVal(t=r, W=w_r, tH_t=rH_r, H=H_r)
 
 
 # Coefficients for space-time-time Levy area generation

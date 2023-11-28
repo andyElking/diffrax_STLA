@@ -136,7 +136,7 @@ sentinel: Any = eqxi.doc_repr(object(), "sentinel")
 
 
 class LevyVal(eqx.Module):
-    h: Scalar = field(default=0.0)
+    t: Scalar = field(default=0.0)
     W: PyTree[Array] = field(default=None)
     J: Optional[PyTree[Array]] = field(default=None)
     H: Optional[PyTree[Array]] = field(default=None)
