@@ -409,3 +409,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_r = w_s + (2 * jnp.sqrt(sr * ru) / h) * b_t + (sr / h) * w_su
             J_r = None
         return LevyVal(h=r, W=w_r, J=J_r, H=None)
+
+
+# Coefficients for space-time-time Levy area generation
+# B_1 = jnp.sqrt((st * tu * ((st - tu)**4 + 4 * (st**2 * tu**2))) / h**5)
+# H_1 = -(st**3 * tu * (st**2 - 3 * st * tu + 6 * tu**2)) /
+# (2 * jnp.sqrt((st * tu * ((st - tu)**4 + 4 * (st**2 * tu**2))) * h**5))
+# H_2 = jnp.sqrt((st * tu**3 * (st**5 + tu**5)) /
+# (12 * ((st - tu)**4 + 4 * (st**2 * tu**2)))) / h**2
+# K_1 = (st**4 * tu * (st - tu)) /
+# (12 * jnp.sqrt(st * tu * h**5 * ((st - tu)**4 + 4 * (st**2 * tu**2))))
+# K_2 = -(st**5 * tu**2) / (4 * h *
+# jnp.sqrt(3 * st * tu * (4 * st**2 * tu**2 + (st - tu)**4) * (st**5 + tu**5)))
+# K_3 = jnp.sqrt((st * tu**5) / (720 * (st**5 + tu**5)))
