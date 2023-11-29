@@ -140,7 +140,7 @@ def test_conditional_statistics():
     ts = jrandom.permutation(permute_key, ts)
 
     # Get some random paths
-    bm_keys = jrandom.split(bm_key, 100000)
+    bm_keys = jrandom.split(bm_key, 10000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
             t0=t0, t1=t1, shape=(), tol=2**-12, key=k

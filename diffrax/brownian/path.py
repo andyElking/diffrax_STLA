@@ -30,6 +30,10 @@ class UnsafeBrownianPath(AbstractBrownianPath):
     interval, ignoring the correlation between samples exhibited in true Brownian
     motion. Hence the restrictions above. (They describe the general case for which the
     correlation structure isn't needed.)
+
+    Depending on the `levy_area` argument, this can also be used to generate Levy area.
+    `levy_area` can be "", "space-time" or "space-time-time".
+
     """
 
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
@@ -50,6 +54,10 @@ class UnsafeBrownianPath(AbstractBrownianPath):
             else shape
         )
         self.key = key
+        if levy_area not in ["", "space-time"]:
+            raise ValueError(
+                f"levy_area must be one of '', 'space-time', but got {levy_area}."
+            )
         self.levy_area = levy_area
 
         if any(
@@ -115,7 +123,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
             w = jrandom.normal(key, shape.shape, shape.dtype) * w_std
 
         if use_levy:
-            return LevyVal(t=t1 - t0, W=w, H=hh)
+            return LevyVal(t=t1 - t0, W=w, H=hh, tH_t=None, K=None, t2K_t=None)
         else:
             return w
 

@@ -27,8 +27,8 @@ from .base import AbstractBrownianPath
 #
 
 # We define
-# tH_t = \int_0^t W_u du
 # H_{s,t} = 1/(t-s) ( \int_s^t ( W_u - (u-s)/(t-s) W_{s,t} ) du ).
+# tH_t = t * H_{0,t}
 # For more details see Definition 4.2.1 and Theorem 6.1.4 of
 #
 # Foster, J. M. (2020). Numerical approximations for stochastic
@@ -69,13 +69,14 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     w_01 = x1.W - x0.W
     thh_01 = x1.tH_t - x0.tH_t - 0.5 * uB
     hh_01 = inverse_h * thh_01
-    return LevyVal(t=h, W=w_01, H=hh_01)
+    return LevyVal(t=h, W=w_01, H=hh_01, tH_t=None, K=None, t2K_t=None)
 
 
 class VirtualBrownianTree(AbstractBrownianPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
 
+    Can be initialised with `levy_area` set to `""`, or `"space-time"`.
     If `levy_area=="space_time"`, then it also computes space-time Lévy area `H`.
     This will impact the Brownian path, so even with the same key, the trajectory will
     be different depending on the value of `levy_area`.
@@ -117,6 +118,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
         self.t0 = t0
         self.t1 = t1
         self.tol = tol / (self.t1 - self.t0)
+        if levy_area not in ["", "space-time"]:
+            raise ValueError(
+                f"levy_area must be one of '', 'space-time', but got {levy_area}."
+            )
         self.levy_area = levy_area
         self.shape = (
             jax.ShapeDtypeStruct(shape, jax.dtypes.canonicalize_dtype(None))
@@ -152,6 +157,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
             t=jtu.tree_map(mult, x.t),
             W=jtu.tree_map(sqrt_mult, x.W),
             H=jtu.tree_map(sqrt_mult, x.H),
+            tH_t=None,
+            K=None,
+            t2K_t=None,
         )
 
     @eqx.filter_jit
@@ -187,7 +195,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
             levy_diff = (
                 _levy_diff
                 if self.levy_area == "space-time"
-                else lambda x, y: LevyVal(t=y.t - x.t, W=y.W - x.W)
+                else lambda x, y: LevyVal(
+                    t=y.t - x.t, W=y.W - x.W, H=None, tH_t=None, K=None, t2K_t=None
+                )
             )
             levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
 
@@ -402,7 +412,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_r = w_s + (2 * jnp.sqrt(sr * ru) / h) * b_t + (sr / h) * w_su
             H_r = None
             rH_r = None
-        return LevyVal(t=r, W=w_r, tH_t=rH_r, H=H_r)
+        return LevyVal(t=r, W=w_r, tH_t=rH_r, H=H_r, K=None, t2K_t=None)
 
 
 # Coefficients for space-time-time Levy area generation

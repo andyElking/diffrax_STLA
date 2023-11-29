@@ -138,10 +138,10 @@ sentinel: Any = eqxi.doc_repr(object(), "sentinel")
 class LevyVal(eqx.Module):
     t: Scalar
     W: PyTree[Array]
-    H: Optional[PyTree[Array]] = None
-    tH_t: Optional[PyTree[Array]] = None
-    K: Optional[PyTree[Array]] = None
-    t2K_t: Optional[PyTree[Array]] = None
+    H: Optional[PyTree[Array]]
+    tH_t: Optional[PyTree[Array]]
+    K: Optional[PyTree[Array]]
+    t2K_t: Optional[PyTree[Array]]
 
 
 def levy_tree_transpose(tree_shape, levy_area, tree):
@@ -149,12 +149,15 @@ def levy_tree_transpose(tree_shape, levy_area, tree):
     into a LevyVal of PyTrees.
 
     **Arguments:**
-        tree_shape: Corresponds to `outer_treedef` in `jax.tree_transpose`.
-        spacetime_levyarea: Whether the `H` field of the LevyVal is a filled.
-        tree: the PyTree of LevyVals to transpose.
+        - `tree_shape`: Corresponds to `outer_treedef` in `jax.tree_transpose`.
+
+        - `levy_area`: can be "", "space-time" or "space-time-time", which indicates
+        which fields of the LevyVal will have values.
+
+        - `tree`: the PyTree of LevyVals to transpose.
 
     **Returns:**
-        A LevyVal of PyTrees.
+        A `LevyVal` of PyTrees.
     """
     if len(levy_area) >= 10 and levy_area[:10] == "space-time":
         hh_default_val = 0.0
@@ -168,7 +171,9 @@ def levy_tree_transpose(tree_shape, levy_area, tree):
     return jtu.tree_transpose(
         outer_treedef=jax.tree_structure(tree_shape),
         inner_treedef=jax.tree_structure(
-            LevyVal(t=0.0, W=0.0, H=hh_default_val, K=kk_default_val)
+            LevyVal(
+                t=0.0, W=0.0, H=hh_default_val, tH_t=None, K=kk_default_val, t2K_t=None
+            )
         ),
         pytree_to_transpose=tree,
     )
