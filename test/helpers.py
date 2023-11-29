@@ -9,7 +9,7 @@ import jax
 import jax.random as jrandom
 import jax.tree_util as jtu
 from diffrax import (
-    AbstractANSR,
+    AbstractAdditiveSRK,
     AbstractBrownianPath,
     AbstractTerm,
     ALIGN,
@@ -150,7 +150,7 @@ def batch_sde_solve(
 ):
     _saveat = SaveAt(ts=[sde.t1])
 
-    need_stla = need_stla or isinstance(solver, (ALIGN, AbstractANSR))
+    need_stla = need_stla or isinstance(solver, (ALIGN, AbstractAdditiveSRK))
 
     def end_value(key):
         path = sde.get_bm(key, need_stla=need_stla, use_tree=True)
@@ -175,8 +175,8 @@ def batch_sde_solve(
 
 def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, hs_num=5, hs=None):
     dtype = sde.get_dtype()
-    need_stla = isinstance(solver, (ALIGN, AbstractANSR)) or isinstance(
-        ref_solver, (ALIGN, AbstractANSR)
+    need_stla = isinstance(solver, (ALIGN, AbstractAdditiveSRK)) or isinstance(
+        ref_solver, (ALIGN, AbstractAdditiveSRK)
     )
 
     correct_sols = batch_sde_solve(

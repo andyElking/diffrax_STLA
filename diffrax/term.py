@@ -68,10 +68,6 @@ class AbstractTerm(eqx.Module):
         """
         pass
 
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        r"""Same as contr, except if it is a Brownian path it outputs LevyVal."""
-        pass
-
     @abc.abstractmethod
     def prod(self, vf: PyTree, control: PyTree) -> PyTree:
         r"""Determines the interaction between vector field and control.
@@ -216,15 +212,6 @@ class _ControlTerm(AbstractTerm):
 
     def contr(self, t0: Scalar, t1: Scalar, **kwargs) -> PyTree:
         return self.control.evaluate(t0, t1, **kwargs)
-
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> LevyVal:
-        """
-        Same as contr, except that it returns a LevyVal.
-        Intended for use with VirtualBrownianTree when computing
-        Levy area (use the compute_stla flag when initialising the
-        Virtual Brownian Tree).
-        """
-        return self.control.eval_levy(t0, t1)
 
     def to_ode(self) -> ODETerm:
         r"""If the control is differentiable then $f(t, y(t), args) \mathrm{d}x(t)$
@@ -426,10 +413,6 @@ class WrapTerm(AbstractTerm):
         _t0 = jnp.where(self.direction == 1, t0, -t1)
         _t1 = jnp.where(self.direction == 1, t1, -t0)
         return self.term.is_vf_expensive(_t0, _t1, y, args)
-
-    def levy_contr(self, t0: Scalar, t1: Scalar) -> (PyTree, PyTree):
-        assert isinstance(self.term, _ControlTerm)
-        return self.term.levy_contr(t0, t1)
 
 
 class AdjointTerm(AbstractTerm):

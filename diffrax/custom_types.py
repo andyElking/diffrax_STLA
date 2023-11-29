@@ -1,6 +1,6 @@
+import dataclasses
 import inspect
 import typing
-from dataclasses import field
 from typing import Any, Dict, Generic, Optional, Tuple, TypeVar, Union
 
 import equinox as eqx
@@ -135,8 +135,11 @@ DenseInfos = Dict[str, PyTree[Array["times", ...]]]  # noqa: F821
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
 
 
+@dataclasses.dataclass
 class LevyVal(eqx.Module):
-    t: Scalar = field(default=0.0)
-    W: PyTree[Array] = field(default=None)
-    J: Optional[PyTree[Array]] = field(default=None)
-    H: Optional[PyTree[Array]] = field(default=None)
+    t: Scalar
+    W: PyTree[Array]
+    H: Optional[PyTree[Array]]
+    tH_t: Optional[PyTree[Array]]
+    K: Optional[PyTree[Array]]
+    t2K_t: Optional[PyTree[Array]]

@@ -1,7 +1,6 @@
 import abc
 from typing import Optional, Union
 
-import equinox as eqx
 import jax
 from jax import tree_util as jtu
 
@@ -9,17 +8,17 @@ from ..custom_types import Array, LevyVal, PyTree, Scalar
 from ..path import AbstractPath
 
 
-def _levy_tree_transpose(tree_shape, spacetime_levyarea, tree):
+def levy_tree_transpose(tree_shape, spacetime_levyarea, tree):
     """Helper that takes a PyTree of LevyVals and transposes
     into a LevyVal of PyTrees.
 
-    Args:
-        tree_shape:
-        spacetime_levyarea:
-        tree:
+    **Arguments:**
+        tree_shape: Corresponds to `outer_treedef` in `jax.tree_transpose`.
+        spacetime_levyarea: Whether the `H` field of the LevyVal is a filled.
+        tree: the PyTree of LevyVals to transpose.
 
-    Returns:
-
+    **Returns:**
+        A LevyVal of PyTrees.
     """
     hh_default_val = 0.0 if spacetime_levyarea else None
     return jtu.tree_transpose(
@@ -33,8 +32,6 @@ def _levy_tree_transpose(tree_shape, spacetime_levyarea, tree):
 
 class AbstractBrownianPath(AbstractPath):
     """Abstract base class for all Brownian paths."""
-
-    spacetime_levyarea: bool = eqx.field(static=True)
 
     @abc.abstractmethod
     def evaluate(

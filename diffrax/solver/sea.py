@@ -1,6 +1,6 @@
 import numpy as np
 
-from .ansr import AbstractANSR, StochasticButcherTableau
+from .additive_srk import AbstractAdditiveSRK, StochasticButcherTableau
 
 
 tab = StochasticButcherTableau(
@@ -15,7 +15,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class SEA(AbstractANSR):
+class SEA(AbstractAdditiveSRK):
     r"""Shifted Euler method for SDEs with additive noise.
      It has a local error of $O(h^2)$ compared to
      standard Euler-Maruyama, which has $O(h^{1.5})$.

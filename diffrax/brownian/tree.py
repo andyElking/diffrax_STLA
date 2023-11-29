@@ -11,7 +11,7 @@ import jax.tree_util as jtu
 
 from ..custom_types import LevyVal, PyTree, Scalar
 from ..misc import is_tuple_of_ints, linear_rescale, split_by_tree
-from .base import _levy_tree_transpose, AbstractBrownianPath
+from .base import AbstractBrownianPath, levy_tree_transpose
 
 
 #
@@ -53,17 +53,17 @@ def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
 
     **Arguments:**
 
-        - `x0`: LevyVal$(W_s, sH_s)$
-        - `x1`: LevyVal$(W_u, uH_u)$
+    - `x0`: `LevyVal(W_s, sH_s)`
+
+    - `x1`: `LevyVal$(W_u, uH_u)`
 
     **Returns:**
 
-    LevyVal$(W_{s,u}, H_{s,u})$
+    `LevyVal(W_{s,u}, H_{s,u})`
     """
     h = (x1.t - x0.t).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
     inverse_h = 1 / h
-    # inverse_h = jnp.nan_to_num(1 / h).astype(x0.W.dtype)
     w_01 = x1.W - x0.W
     hh_01 = (x1.J - x0.J) * inverse_h - 0.5 * x1.W - 0.5 * x0.W
     return LevyVal(t=h, W=w_01, H=hh_01)
@@ -75,7 +75,7 @@ def _wj_to_wh_single(x: LevyVal) -> LevyVal:
 
     **Arguments:**
 
-        - `x`: LevyVal$(W_s, sH_s)$
+    - `x`: LevyVal$(W_s, sH_s)$
 
     **Returns:**
 
@@ -112,7 +112,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
     t0: Scalar = field(init=True)
     t1: Scalar = field(init=True)  # override init=False in AbstractPath
-    tol: Scalar = field(init=True)
+    tol: Scalar
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
     levy_area: str = eqx.field(static=True)
     key: "jax.random.PRNGKey"  # noqa: F821
@@ -126,8 +126,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
         key: "jax.random.PRNGKey",
         levy_area: str = "",
     ):
-        self.t0 = jnp.minimum(t0, t1)
-        self.t1 = jnp.maximum(t0, t1)
+        if t0 >= t1:
+            raise ValueError("t0 must be strictly less than t1.")
+        self.t0 = t0
+        self.t1 = t1
         self.tol = tol / (self.t1 - self.t0)
         self.levy_area = levy_area
         self.shape = (
@@ -173,19 +175,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
         left: bool = True,
         use_levy: bool = False,
     ) -> LevyVal:
-        """Computes the Brownian increment between times `t0` and `t1`.
-
-        **Arguments:**
-            - `t0`: Start of interval
-
-            - `t1`: End of interval
-
-            - `left`: ignored since Brownian motion is continuous
-
-            - `use_levy`: If true, then the return type is a LevyVal encapsulating
-            the Brownian increment and the corresponding Lévy area if it was computed.
-        """
-
         def _is_levy_val(obj):
             return isinstance(obj, LevyVal)
 
@@ -212,7 +201,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             )
             levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
 
-        levy_out = _levy_tree_transpose(self.shape, self.spacetime_levyarea, levy_out)
+        levy_out = levy_tree_transpose(self.shape, self.spacetime_levyarea, levy_out)
         # now map [0,1] back onto [self.t0, self.t1]
         levy_out = self._denormalise_bm_inc(levy_out)
         assert isinstance(levy_out, LevyVal)
@@ -220,12 +209,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
     def _evaluate(self, r: Scalar) -> PyTree[LevyVal]:
         """Maps the _evaluate_leaf function at time τ using self.key onto self.shape"""
-        eqxi.error_if(
+        r = eqxi.error_if(
             r,
             r < 0,
             "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
         )
-        eqxi.error_if(
+        r = eqxi.error_if(
             r,
             r > 1,
             "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",

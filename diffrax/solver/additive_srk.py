@@ -84,7 +84,7 @@ Let `k` denote the number of stages of the solver.
 """
 
 
-class AbstractANSR(AbstractStratonovichSolver):
+class AbstractAdditiveSRK(AbstractStratonovichSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a `ControlTerm` with
