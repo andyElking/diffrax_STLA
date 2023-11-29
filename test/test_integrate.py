@@ -188,15 +188,15 @@ def _squareplus(x):
 
 def _solvers():
     # solver, commutative, order
-    yield diffrax.Euler, False, 0.5  # PASSES
-    yield diffrax.EulerHeun, False, 0.5  # 0.9326
-    yield diffrax.Heun, False, 0.5  # 0.86656
-    yield diffrax.ItoMilstein, False, 0.5  # 1.0025
-    yield diffrax.Midpoint, False, 0.5  # 0.8659
-    yield diffrax.ReversibleHeun, False, 0.5  # 0.8666
-    yield diffrax.StratonovichMilstein, False, 0.5  # 0.9331
-    yield diffrax.ReversibleHeun, True, 1  # 1.3648
-    yield diffrax.StratonovichMilstein, True, 1  # PASSES
+    yield diffrax.Euler, False, 0.5
+    yield diffrax.EulerHeun, False, 0.5
+    yield diffrax.Heun, False, 0.5
+    yield diffrax.ItoMilstein, False, 0.5
+    yield diffrax.Midpoint, False, 0.5
+    yield diffrax.ReversibleHeun, False, 0.5
+    yield diffrax.StratonovichMilstein, False, 0.5
+    yield diffrax.ReversibleHeun, True, 1
+    yield diffrax.StratonovichMilstein, True, 1
 
 
 @pytest.mark.parametrize("solver_ctr,commutative,theoretical_order", _solvers())

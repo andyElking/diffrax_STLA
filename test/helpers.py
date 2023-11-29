@@ -153,7 +153,8 @@ def batch_sde_solve(
 ):
     _saveat = SaveAt(ts=[sde.t1])
 
-    levy_area = levy_area or isinstance(solver, (ALIGN, AbstractAdditiveSRK))
+    if isinstance(solver, (ALIGN, AbstractAdditiveSRK)) and levy_area == "":
+        raise ValueError("ALIGN and AbstractAdditiveSRK require levy_area")
 
     def end_value(key):
         path = sde.get_bm(key, levy_area=levy_area, use_tree=True)

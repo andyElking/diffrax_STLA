@@ -38,7 +38,7 @@ def test_shape(solver):
                 tol=2**-6,
                 shape=shp_dtype,
                 key=jrandom.PRNGKey(4),
-                spacetime_levyarea=True,
+                levy_area="space-time",
             )
             for args in [
                 (gam, u, f),
