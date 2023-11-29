@@ -46,7 +46,7 @@ See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochast
 
 ### Additive-Noise Stochastic Runge--Kutta (ANSR)
 
-::: diffrax.AbstractANSR
+::: diffrax.AbstractAdditiveSRK
     selection:
         members: false
 
