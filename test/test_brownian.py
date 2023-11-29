@@ -140,7 +140,7 @@ def test_conditional_statistics():
     ts = jrandom.permutation(permute_key, ts)
 
     # Get some random paths
-    bm_keys = jrandom.split(bm_key, 10000)
+    bm_keys = jrandom.split(bm_key, 100000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
             t0=t0, t1=t1, shape=(), tol=2**-12, key=k
@@ -155,7 +155,7 @@ def test_conditional_statistics():
     out = sorted(out, key=lambda x: x[0])
 
     # Test their conditional statistics
-    for i in range(1, 98):
+    for i in range(1, len(ts) - 2):
         prev_t, prev_vals = out[i - 1]
         this_t, this_vals = out[i]
         next_t, next_vals = out[i + 1]

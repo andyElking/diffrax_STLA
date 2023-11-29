@@ -144,19 +144,19 @@ def test_conditional_statistics():
     ts = []
     prev_ti = sorted_ts[0]
     for ti in sorted_ts[1:]:
-        if ti < prev_ti + 2**-7:
+        if ti < prev_ti + 2**-9:
             continue
         prev_ti = ti
         ts.append(ti)
     ts = jnp.stack(ts)
-    assert len(ts) > 10
+    assert len(ts) > 80
     ts = jrandom.permutation(permute_key, ts)
 
     # Get some random paths
-    bm_keys = jrandom.split(bm_key, 10000)
+    bm_keys = jrandom.split(bm_key, 100000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, levy_area="space-time"
+            t0=t0, t1=t1, shape=(), tol=2**-12, key=k, levy_area="space-time"
         )
     )(bm_keys)
 
