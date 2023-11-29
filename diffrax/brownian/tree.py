@@ -138,12 +138,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # Rescaling back from [0, 1] to the original interval [t0, t1].
         interval_len = self.t1 - self.t0  # can be any dtype
         sqrt_len = jnp.sqrt(jnp.abs(interval_len))
-        sign = jnp.sign(self.t1 - self.t0)
 
         def sqrt_mult(z):
             # need to cast to dtype of each leaf in PyTree
             dtype = jnp.dtype(z)
-            return z * jnp.asarray(sign * sqrt_len, dtype)
+            return z * jnp.asarray(sqrt_len, dtype)
 
         def mult(z):
             dtype = jnp.dtype(z)
@@ -231,24 +230,26 @@ class VirtualBrownianTree(AbstractBrownianPath):
         """
 
         h = (u - s).astype(w_s.dtype)
+        sqrt_h = jnp.sqrt(h)
 
         if self.levy_area == "space-time":
             assert uH_u is not None
             assert sH_s is not None
             x1_key, x2_key = jrandom.split(key, 2)
-            x1 = jrandom.normal(x1_key, shape, dtype) * jnp.sqrt((1 / 12) * h)
-            x2 = jrandom.normal(x2_key, shape, dtype) * jnp.sqrt((1 / 16) * h)
+            x1 = jrandom.normal(x1_key, shape, dtype) * sqrt_h
+            x2 = jrandom.normal(x2_key, shape, dtype) * sqrt_h
 
             uB = s * w_u - u * w_s
             suH_su = uH_u - sH_s - 0.5 * uB
             w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * suH_su + 0.25 * x1
-            h_pow = jnp.power(h, 3 / 2)
+            t = s + (u - s) / 2
             tH_t = (
                 7 / 8 * sH_s
                 + 1 / 8 * uH_u
                 + 1 / 16 * uB
-                - (h_pow / 16) * x1
-                + (h_pow / (8 * jnp.sqrt(3))) * x2
+                - (h / 16) * x1
+                + (h / (8 * jnp.sqrt(3))) * x2
+                + 0.5 * (t * w_s - s * w_t)
             )
         else:
             assert uH_u is None
@@ -276,17 +277,17 @@ class VirtualBrownianTree(AbstractBrownianPath):
         if self.levy_area == "space-time":
             key, init_key_w, init_key_la, midpoint_key = jrandom.split(key, 4)
             w_1 = jrandom.normal(init_key_w, shape, dtype)
-            H_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_la, shape, dtype)
-            H_0 = jnp.zeros_like(H_1)
+            tH_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_la, shape, dtype)
+            tH_0 = jnp.zeros_like(tH_1)
 
         else:
             key, init_key_w, midpoint_key = jrandom.split(key, 3)
             w_1 = jrandom.normal(init_key_w, shape, dtype)
-            H_1 = None
-            H_0 = None
+            tH_1 = None
+            tH_0 = None
 
         w_thalf, tH_thalf = self._brownian_arch(
-            t0, t1, w_s, w_1, midpoint_key, shape, dtype, H_0, H_1
+            t0, t1, w_s, w_1, midpoint_key, shape, dtype, tH_0, tH_1
         )
         init_state = _State(
             s=t0,
@@ -295,9 +296,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_s=w_s,
             w_t=w_thalf,
             w_u=w_1,
-            sH_s=H_0,
+            sH_s=tH_0,
             tH_t=tH_thalf,
-            uH_u=H_1,
+            uH_u=tH_1,
             key=key,
         )
 
@@ -318,10 +319,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
             _u = jnp.where(_cond, _state.u, _state.t)
             _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
             _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
-            _sH_s, _uH_u = None, None
             if self.levy_area == "space-time":
                 _sH_s = jnp.where(_cond, _state.tH_t, _state.sH_s)
                 _uH_u = jnp.where(_cond, _state.uH_u, _state.tH_t)
+            else:
+                _sH_s, _uH_u = None, None
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
 
@@ -347,19 +349,20 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # Based on the values of (W, J) at s<t<u (where t = (s+u)/2), we interpolate
         # to obtain approximate values of (W_r, J_r) for all r ∈ [s,u]. This is done
         # in a way that gives (W_r, J_r) all the correct first and second moments
-        # conditional on (W_s, H_0), and (W_u, uH_u), where (W_t, tH_t) is treated as
+        # conditional on (W_s, tH_0), and (W_u, uH_u), where (W_t, tH_t) is treated as
         # the source of randomness.
         # NOTE: this gives a different result than the original implementation of the
         # VirtualBrownianTree by Patrick Kidger.
 
         s = final_state.s
+        t = final_state.t
         u = final_state.u
         w_s = final_state.w_s
         w_t = final_state.w_t
         w_u = final_state.w_u
-        sH_s = final_state.sH_s
+        # sH_s = final_state.sH_s
         tH_t = final_state.tH_t
-        uH_u = final_state.uH_u
+        # uH_u = final_state.uH_u
 
         h = u - s
         w_su = w_u - w_s
@@ -367,36 +370,40 @@ class VirtualBrownianTree(AbstractBrownianPath):
         ru = u - r
 
         if self.levy_area == "space-time":
-            # reverse _brownian_arch to get x1, x2 from w_s, w_t, w_u, sH_s, tH_t, uH_u
-
-            uB = s * w_u - u * w_s
-            suH_su = uH_u - sH_s - 0.5 * uB  # (u-s) * H_{s,u}
-            h_pow = jnp.power(h, 3 / 2)
-
-            x1 = 4 * w_t - 2 * w_u - 2 * w_s + 6 / h * suH_su
-            x2 = jnp.sqrt(3) * (
-                1 / h_pow * (8 * tH_t - 7 * sH_s - uH_u - uB / 2) + 0.5 * x1
-            )
-
-            sr3 = jnp.power(sr, 3)
-            ru3 = jnp.power(ru, 3)
-            h3 = jnp.power(h, 3)
-            sr_ru_half = jnp.sqrt(sr * ru)
-            d = jnp.sqrt(sr3 + ru3)
-            d_prime = 1 / (2 * h * d)
-            a = d_prime * sr3 * sr_ru_half
-            b = d_prime * ru3 * sr_ru_half
-
-            w_sr = (
-                sr / h * w_su
-                + 6 * sr * ru / jnp.power(h, 3) * suH_su
-                + 2 * (a + b) / h * x1
-            )
-            w_r = w_s + w_sr
-            c = jnp.sqrt((sr3 * ru3) / 12) / (6 * d)
-            srH_sr = sr3 / h3 * suH_su - a * x1 + c * x2
-            rH_r = sH_s + srH_sr + 0.5 * uB
-            H_r = 1 / r * rH_r
+            # # reverse _brownian_arch to get x1, x2 from
+            # # w_s, w_t, w_u, sH_s, tH_t, uH_u
+            #
+            # uB = s * w_u - u * w_s
+            # suH_su = uH_u - sH_s - 0.5 * uB  # (u-s) * H_{s,u}
+            #
+            # x1 = 4 * w_t - 2 * w_u - 2 * w_s + 6 / h * suH_su
+            # x2 = jnp.sqrt(3) * (
+            #         1 / h * (8 * tH_t - 4 * (t * w_s - s * w_t)
+            #                  - 7 * sH_s - uH_u - uB / 2) + 0.5 * x1
+            # )
+            #
+            # sr3 = jnp.power(sr, 3)
+            # ru3 = jnp.power(ru, 3)
+            # h3 = jnp.power(h, 3)
+            # sr_ru_half = jnp.sqrt(sr * ru)
+            # d = jnp.sqrt(sr3 + ru3)
+            # d_prime = 1 / (2 * h * d)
+            # a = d_prime * sr3 * sr_ru_half
+            # b = d_prime * ru3 * sr_ru_half
+            #
+            # w_sr = (
+            #         sr / h * w_su
+            #         + 6 * sr * ru / jnp.power(h, 3) * suH_su
+            #         + 2 * (a + b) / h * x1
+            # )
+            # w_r = w_s + w_sr
+            # c = jnp.sqrt((sr3 * ru3) / 12) / (6 * d)
+            # srH_sr = sr3 / h3 * suH_su - a * x1 + c * x2
+            # rH_r = sH_s + srH_sr + 0.5 * uB
+            # H_r = 1 / r * rH_r
+            w_r = w_t
+            rH_r = tH_t
+            H_r = tH_t / t
 
         else:
             # the brownian bridge b_t is our access to randomness

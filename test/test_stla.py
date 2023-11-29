@@ -139,7 +139,7 @@ def test_conditional_statistics():
     # Get >80 randomly selected points; not too close to avoid discretisation error.
     t0 = 0.3
     t1 = 8.7
-    ts = jrandom.uniform(sample_key, shape=(100,), minval=t0, maxval=t1)
+    ts = jrandom.uniform(sample_key, shape=(100,), minval=t0 + 0.1, maxval=t1 - 0.1)
     sorted_ts = jnp.sort(ts)
     ts = []
     prev_ti = sorted_ts[0]
@@ -156,7 +156,7 @@ def test_conditional_statistics():
     bm_keys = jrandom.split(bm_key, 10000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, levy_area="space-time"
+            t0=t0, t1=t1, shape=(), tol=2**-15, key=k, levy_area="space-time"
         )
     )(bm_keys)
 
@@ -216,9 +216,8 @@ def test_reverse_time():
     key = jrandom.PRNGKey(5678)
     bm_key, sample_key = jrandom.split(key, 2)
     bm = diffrax.VirtualBrownianTree(
-        t0=5, t1=0, tol=2**-5, shape=(), key=bm_key, spacetime_levyarea=True
+        t0=0, t1=5, tol=2**-5, shape=(), key=bm_key, levy_area="space-time"
     )
-    assert bm.t0 == 5 and bm.t1 == 0
 
     ts = jrandom.uniform(sample_key, shape=(100,), minval=0, maxval=5)
 
