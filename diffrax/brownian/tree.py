@@ -43,9 +43,9 @@ class _State(eqx.Module):
     w_t: Scalar
     w_u: Scalar
     key: "jax.random.PRNGKey"
-    sH_s: Optional[Scalar] = None
-    tH_t: Optional[Scalar] = None
-    uH_u: Optional[Scalar] = None
+    sH_s: Optional[Scalar]
+    tH_t: Optional[Scalar]
+    uH_u: Optional[Scalar]
 
 
 def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
@@ -65,7 +65,7 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     h = (x1.t - x0.t).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
     inverse_h = 1 / h
-    uB = x0.t * x1.W - x1.t * x0.W
+    uB = x1.t * x0.W - x0.t * x1.W
     w_01 = x1.W - x0.W
     thh_01 = x1.tH_t - x0.tH_t - 0.5 * uB
     hh_01 = inverse_h * thh_01
@@ -239,18 +239,14 @@ class VirtualBrownianTree(AbstractBrownianPath):
             x1 = jrandom.normal(x1_key, shape, dtype) * sqrt_h
             x2 = jrandom.normal(x2_key, shape, dtype) * sqrt_h
 
-            uB = s * w_u - u * w_s
-            suH_su = uH_u - sH_s - 0.5 * uB
-            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * suH_su + 0.25 * x1
+            uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
+            hH_su = uH_u - sH_s - 0.5 * uB
+            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * hH_su + 0.25 * x1
             t = s + (u - s) / 2
-            tH_t = (
-                7 / 8 * sH_s
-                + 1 / 8 * uH_u
-                + 1 / 16 * uB
-                - (h / 16) * x1
-                + (h / (8 * jnp.sqrt(3))) * x2
-                + 0.5 * (t * w_s - s * w_t)
-            )
+            stH_st = 0.125 * hH_su - h / 16 * x1 + h / (8 * jnp.sqrt(3)) * x2
+
+            tH_t = sH_s + stH_st + 0.5 * (t * w_s - s * w_t)
+
         else:
             assert uH_u is None
             assert sH_s is None
@@ -283,8 +279,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         else:
             key, init_key_w, midpoint_key = jrandom.split(key, 3)
             w_1 = jrandom.normal(init_key_w, shape, dtype)
-            tH_1 = None
-            tH_0 = None
+            tH_1, tH_0 = None, None
 
         w_thalf, tH_thalf = self._brownian_arch(
             t0, t1, w_s, w_1, midpoint_key, shape, dtype, tH_0, tH_1
@@ -360,9 +355,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
         w_s = final_state.w_s
         w_t = final_state.w_t
         w_u = final_state.w_u
-        # sH_s = final_state.sH_s
+        sH_s = final_state.sH_s
         tH_t = final_state.tH_t
-        # uH_u = final_state.uH_u
+        uH_u = final_state.uH_u
 
         h = u - s
         w_su = w_u - w_s
@@ -370,40 +365,36 @@ class VirtualBrownianTree(AbstractBrownianPath):
         ru = u - r
 
         if self.levy_area == "space-time":
-            # # reverse _brownian_arch to get x1, x2 from
-            # # w_s, w_t, w_u, sH_s, tH_t, uH_u
-            #
-            # uB = s * w_u - u * w_s
-            # suH_su = uH_u - sH_s - 0.5 * uB  # (u-s) * H_{s,u}
-            #
-            # x1 = 4 * w_t - 2 * w_u - 2 * w_s + 6 / h * suH_su
-            # x2 = jnp.sqrt(3) * (
-            #         1 / h * (8 * tH_t - 4 * (t * w_s - s * w_t)
-            #                  - 7 * sH_s - uH_u - uB / 2) + 0.5 * x1
-            # )
-            #
-            # sr3 = jnp.power(sr, 3)
-            # ru3 = jnp.power(ru, 3)
-            # h3 = jnp.power(h, 3)
-            # sr_ru_half = jnp.sqrt(sr * ru)
-            # d = jnp.sqrt(sr3 + ru3)
-            # d_prime = 1 / (2 * h * d)
-            # a = d_prime * sr3 * sr_ru_half
-            # b = d_prime * ru3 * sr_ru_half
-            #
-            # w_sr = (
-            #         sr / h * w_su
-            #         + 6 * sr * ru / jnp.power(h, 3) * suH_su
-            #         + 2 * (a + b) / h * x1
-            # )
-            # w_r = w_s + w_sr
-            # c = jnp.sqrt((sr3 * ru3) / 12) / (6 * d)
-            # srH_sr = sr3 / h3 * suH_su - a * x1 + c * x2
-            # rH_r = sH_s + srH_sr + 0.5 * uB
-            # H_r = 1 / r * rH_r
-            w_r = w_t
-            rH_r = tH_t
-            H_r = tH_t / t
+            # reverse _brownian_arch to get x1, x2 from
+            # w_s, w_t, w_u, sH_s, tH_t, uH_u
+
+            uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
+            hH_su = uH_u - sH_s - 0.5 * uB
+            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / h * hH_su
+            stH_st = tH_t - sH_s - 0.5 * (t * w_s - s * w_t)
+            x2 = jnp.sqrt(3) * (1 / h * (8 * stH_st - hH_su) + 0.5 * x1)
+            # note that x1, x2 are Normal(0, h), unlike in thm 6.1.4 of
+            # Foster's thesis, where they are Normal(0, 1), so there is
+            # an extra factor of sqrt(h) in the formula for c and d_prime.
+            root_h = jnp.sqrt(h)
+            x1 = x1 / root_h
+            x2 = x2 / root_h
+
+            sr3 = jnp.power(sr, 3)
+            ru3 = jnp.power(ru, 3)
+            h3 = jnp.power(h, 3)
+            sr_ru_half = jnp.sqrt(sr * ru)
+            d = jnp.sqrt(sr3 + ru3)
+            d_prime = 1 / (2 * h * d)
+            a = d_prime * sr3 * sr_ru_half
+            b = d_prime * ru3 * sr_ru_half
+
+            w_sr = sr / h * w_su + 6 * sr * ru / h3 * hH_su + 2 * (a + b) / h * x1
+            w_r = w_s + w_sr
+            c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
+            srH_sr = sr3 / h3 * hH_su - a * x1 + c * x2
+            rH_r = sH_s + srH_sr + 0.5 * (r * w_s - s * w_r)
+            H_r = 1 / r * rH_r
 
         else:
             # the brownian bridge b_t is our access to randomness

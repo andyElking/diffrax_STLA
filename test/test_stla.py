@@ -139,7 +139,7 @@ def test_conditional_statistics():
     # Get >80 randomly selected points; not too close to avoid discretisation error.
     t0 = 0.3
     t1 = 8.7
-    ts = jrandom.uniform(sample_key, shape=(100,), minval=t0 + 0.1, maxval=t1 - 0.1)
+    ts = jrandom.uniform(sample_key, shape=(100,), minval=t0, maxval=t1)
     sorted_ts = jnp.sort(ts)
     ts = []
     prev_ti = sorted_ts[0]
@@ -156,7 +156,7 @@ def test_conditional_statistics():
     bm_keys = jrandom.split(bm_key, 10000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-15, key=k, levy_area="space-time"
+            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, levy_area="space-time"
         )
     )(bm_keys)
 
