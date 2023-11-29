@@ -128,7 +128,7 @@ class SDE:
     def get_dtype(self):
         return jnp.dtype(jtu.tree_leaves(self.y0)[0])
 
-    def get_bm(self, key, need_stla=True, use_tree=True, tol=2**-14):
+    def get_bm(self, key, levy_area="space-time", use_tree=True, tol=2**-14):
         shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())
         if use_tree:
             return VirtualBrownianTree(
@@ -137,23 +137,26 @@ class SDE:
                 shape=shp_dtype,
                 tol=tol,
                 key=key,
-                spacetime_levyarea=need_stla,
+                levy_area=levy_area,
             )
         else:
-            return UnsafeBrownianPath(
-                shape=shp_dtype, key=key, spacetime_levyarea=need_stla
-            )
+            return UnsafeBrownianPath(shape=shp_dtype, key=key, levy_area=levy_area)
 
 
 def batch_sde_solve(
-    keys, sde: SDE, dt0, solver, stepsize_controller=ConstantStepSize(), need_stla=False
+    keys,
+    sde: SDE,
+    dt0,
+    solver,
+    stepsize_controller=ConstantStepSize(),
+    levy_area="space-time",
 ):
     _saveat = SaveAt(ts=[sde.t1])
 
-    need_stla = need_stla or isinstance(solver, (ALIGN, AbstractAdditiveSRK))
+    levy_area = levy_area or isinstance(solver, (ALIGN, AbstractAdditiveSRK))
 
     def end_value(key):
-        path = sde.get_bm(key, need_stla=need_stla, use_tree=True)
+        path = sde.get_bm(key, levy_area=levy_area, use_tree=True)
         terms = sde.get_terms(path)
 
         sol = diffeqsolve(
@@ -178,15 +181,16 @@ def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, hs_num=5, h
     need_stla = isinstance(solver, (ALIGN, AbstractAdditiveSRK)) or isinstance(
         ref_solver, (ALIGN, AbstractAdditiveSRK)
     )
+    levy_area = "space-time" if need_stla else ""
 
     correct_sols = batch_sde_solve(
-        keys, sde, dt_precise, ref_solver, need_stla=need_stla
+        keys, sde, dt_precise, ref_solver, levy_area=levy_area
     )
     if hs is None:
         hs = jnp.power(2.0, jnp.arange(-3, -3 - hs_num, -1, dtype=dtype))
 
     def get_single_err(h):
-        sols = batch_sde_solve(keys, sde, h, solver, need_stla=need_stla)
+        sols = batch_sde_solve(keys, sde, h, solver, levy_area=levy_area)
         return path_l2_dist(sols, correct_sols)
 
     errs = jax.vmap(get_single_err)(hs)

@@ -88,7 +88,7 @@ class AbstractAdditiveSRK(AbstractStratonovichSolver):
     r"""Additive-Noise Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a `ControlTerm` with
-    `control=VirtualBrownianTree(spacetime_levyarea=True)`, since this method
+    `control=VirtualBrownianTree(levy_area="space-time")`, since this method
     makes use of space-time Lévy area.
 
     Given the SDE
@@ -123,13 +123,13 @@ class AbstractAdditiveSRK(AbstractStratonovichSolver):
         y0: PyTree,
         args: PyTree,
     ) -> _SolverState:
-        # Check that the diffusion has spacetime_levyarea enabled
+        # Check that the diffusion has levy_area="space-time"
         _, diffusion = terms.terms
         is_bm = lambda x: isinstance(x, AbstractBrownianPath)
         leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
         paths = [x for x in leaves if is_bm(x)]
         for path in paths:
-            if not path.spacetime_levyarea:
+            if not path.levy_area == "space-time":
                 raise ValueError(
                     "The Brownian path controlling the diffusion "
                     "should be initialised with `compute_stla=True`"
@@ -172,17 +172,20 @@ class AbstractAdditiveSRK(AbstractStratonovichSolver):
 
         # compute the Brownian increment and space-time Lévy area
         bm_inc = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(bm_inc, LevyVal) and (bm_inc.H is not None), (
+        assert isinstance(bm_inc, LevyVal), (
             "The diffusion should be a ControlTerm controlled by either a"
-            "VirtualBrownianTree or an UnsafeBrownianPath with"
-            "`spacetime_levyarea=True`"
+            "VirtualBrownianTree or an UnsafeBrownianPath"
         )
         sigma = diffusion.vf(t0, y0, args)
         w = bm_inc.W
 
         levy_areas = []
         if self.tableau.cH is not None:
-            assert bm_inc.H is not None
+            assert bm_inc.H is not None, (
+                "The diffusion should be a ControlTerm controlled by either a"
+                "VirtualBrownianTree or an UnsafeBrownianPath with"
+                "`levy_area='space-time'`"
+            )
             levy_areas.append(bm_inc.H)
 
         def add_levy_to_w(_cw, *_c_levy):

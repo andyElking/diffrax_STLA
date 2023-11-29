@@ -50,7 +50,7 @@ class _State(eqx.Module):
 
 def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, sH_s)$ and
-    $(W_u, uH_u)$, where $uH_u = \int_0^u W_t dt$
+    $(W_u, uH_u)$, where `uH_u = u * H_u`.
 
     **Arguments:**
 
@@ -341,10 +341,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
 
-        # Based on the values of (W, J) at s<t<u (where t = (s+u)/2), we interpolate
-        # to obtain approximate values of (W_r, J_r) for all r ∈ [s,u]. This is done
-        # in a way that gives (W_r, J_r) all the correct first and second moments
-        # conditional on (W_s, tH_0), and (W_u, uH_u), where (W_t, tH_t) is treated as
+        # Based on the values of (W, H) at s<t<u (where t = (s+u)/2), we interpolate
+        # to obtain approximate values of (W_r, H_r) for all r ∈ [s,u]. This is done
+        # in a way that gives (W_r, H_r) all the correct first and second moments
+        # conditional on (W_s, H_s), and (W_u, H_u), where (W_t, H_t) is treated as
         # the source of randomness.
         # NOTE: this gives a different result than the original implementation of the
         # VirtualBrownianTree by Patrick Kidger.
