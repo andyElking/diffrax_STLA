@@ -1,33 +1,8 @@
 import abc
 from typing import Optional, Union
 
-import jax
-from jax import tree_util as jtu
-
 from ..custom_types import Array, LevyVal, PyTree, Scalar
 from ..path import AbstractPath
-
-
-def levy_tree_transpose(tree_shape, spacetime_levyarea, tree):
-    """Helper that takes a PyTree of LevyVals and transposes
-    into a LevyVal of PyTrees.
-
-    **Arguments:**
-        tree_shape: Corresponds to `outer_treedef` in `jax.tree_transpose`.
-        spacetime_levyarea: Whether the `H` field of the LevyVal is a filled.
-        tree: the PyTree of LevyVals to transpose.
-
-    **Returns:**
-        A LevyVal of PyTrees.
-    """
-    hh_default_val = 0.0 if spacetime_levyarea else None
-    return jtu.tree_transpose(
-        outer_treedef=jax.tree_structure(tree_shape),
-        inner_treedef=jax.tree_structure(
-            LevyVal(h=0.0, W=0.0, J=None, H=hh_default_val)
-        ),
-        pytree_to_transpose=tree,
-    )
 
 
 class AbstractBrownianPath(AbstractPath):

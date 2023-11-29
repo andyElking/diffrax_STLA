@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import field
 from typing import Optional, Tuple, Union
 
@@ -9,9 +10,9 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 
-from ..custom_types import LevyVal, PyTree, Scalar
+from ..custom_types import levy_tree_transpose, LevyVal, PyTree, Scalar
 from ..misc import is_tuple_of_ints, linear_rescale, split_by_tree
-from .base import AbstractBrownianPath, levy_tree_transpose
+from .base import AbstractBrownianPath
 
 
 #
@@ -47,7 +48,7 @@ class _State(eqx.Module):
     uH_u: Optional[Scalar] = None
 
 
-def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
+def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, sH_s)$ and
     $(W_u, uH_u)$, where $uH_u = \int_0^u W_t dt$
 
@@ -64,26 +65,11 @@ def _wj_to_wh_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     h = (x1.t - x0.t).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
     inverse_h = 1 / h
+    uB = x0.t * x1.W - x1.t * x0.W
     w_01 = x1.W - x0.W
-    hh_01 = (x1.J - x0.J) * inverse_h - 0.5 * x1.W - 0.5 * x0.W
+    thh_01 = x1.tH_t - x0.tH_t - 0.5 * uB
+    hh_01 = inverse_h * thh_01
     return LevyVal(t=h, W=w_01, H=hh_01)
-
-
-def _wj_to_wh_single(x: LevyVal) -> LevyVal:
-    r"""Computes $(W_s, H_s)$ from $(W_s, sH_s)$
-    where $uH_u = \int_0^u W_t dt$
-
-    **Arguments:**
-
-    - `x`: LevyVal$(W_s, sH_s)$
-
-    **Returns:**
-
-    LevyVal$(W_s, H_s)$
-    """
-    h = jnp.where(jnp.abs(x.t) < jnp.finfo(x.t).eps, jnp.inf, x.t)
-    inverse_h = 1 / h
-    return LevyVal(t=x.t, W=x.W, H=x.J * inverse_h - 0.5 * x.W)
 
 
 class VirtualBrownianTree(AbstractBrownianPath):
@@ -161,9 +147,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             return z * (interval_len).astype(z.dtype)
 
         return LevyVal(
-            h=jtu.tree_map(mult, x.t),
+            t=jtu.tree_map(mult, x.t),
             W=jtu.tree_map(sqrt_mult, x.W),
-            J=jtu.tree_map(mult, x.J),
             H=jtu.tree_map(sqrt_mult, x.H),
         )
 
@@ -185,7 +170,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
         if t1 is None:
 
             if self.levy_area == "space-time":
-                levy_out = jtu.tree_map(_wj_to_wh_single, levy_0, is_leaf=_is_levy_val)
+                # set tH_t to None
+                levy_out = jtu.tree_map(
+                    lambda x: dataclasses.replace(x, tH_t=None), levy_0
+                )
             else:
                 levy_out = levy_0
 
@@ -195,13 +183,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
             t1 = linear_rescale(self.t0, t1, self.t1)
             levy_1 = self._evaluate(t1)
             levy_diff = (
-                _wj_to_wh_diff
+                _levy_diff
                 if self.levy_area == "space-time"
                 else lambda x, y: LevyVal(t=y.t - x.t, W=y.W - x.W)
             )
             levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
 
-        levy_out = levy_tree_transpose(self.shape, self.spacetime_levyarea, levy_out)
+        levy_out = levy_tree_transpose(self.shape, self.levy_area, levy_out)
         # now map [0,1] back onto [self.t0, self.t1]
         levy_out = self._denormalise_bm_inc(levy_out)
         assert isinstance(levy_out, LevyVal)

@@ -7,9 +7,9 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.tree_util as jtu
 
-from ..custom_types import Array, LevyVal, PyTree, Scalar
+from ..custom_types import Array, levy_tree_transpose, LevyVal, PyTree, Scalar
 from ..misc import force_bitcast_convert_type, is_tuple_of_ints, split_by_tree
-from .base import AbstractBrownianPath, levy_tree_transpose
+from .base import AbstractBrownianPath
 
 
 class UnsafeBrownianPath(AbstractBrownianPath):
@@ -105,7 +105,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
     ):
         w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
 
-        if levy_area == "spacetime":
+        if levy_area == "space-time":
             key_w, key_hh = jrandom.split(key, 2)
             w = jrandom.normal(key_w, shape.shape, shape.dtype) * w_std
             hh_std = jnp.sqrt((t1 - t0) / 12).astype(shape.dtype)
@@ -115,7 +115,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
             w = jrandom.normal(key, shape.shape, shape.dtype) * w_std
 
         if use_levy:
-            return LevyVal(h=t1 - t0, W=w, H=hh)
+            return LevyVal(t=t1 - t0, W=w, H=hh)
         else:
             return w
 

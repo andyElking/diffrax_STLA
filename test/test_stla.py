@@ -69,12 +69,12 @@ def test_shape_and_dtype(ctr, getkey):
             shape = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
 
         if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape, getkey(), spacetime_levyarea=True)
+            path = ctr(shape, getkey(), levy_area="space-time")
             assert path.t0 is None
             assert path.t1 is None
         elif ctr is diffrax.VirtualBrownianTree:
             tol = 2**-5
-            path = ctr(t0, t1, tol, shape, getkey(), spacetime_levyarea=True)
+            path = ctr(t0, t1, tol, shape, getkey(), levy_area="space-time")
             assert path.t0 == 0
             assert path.t1 == 2
         else:
@@ -111,10 +111,10 @@ def test_statistics(ctr):
 
     def _eval(key):
         if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape=(), key=key, spacetime_levyarea=True)
+            path = ctr(shape=(), key=key, levy_area="space-time")
         elif ctr is diffrax.VirtualBrownianTree:
             path = ctr(
-                t0=0, t1=5, tol=2**-5, shape=(), key=key, spacetime_levyarea=True
+                t0=0, t1=5, tol=2**-5, shape=(), key=key, levy_area="space-time"
             )
         else:
             assert False
@@ -156,7 +156,7 @@ def test_conditional_statistics():
     bm_keys = jrandom.split(bm_key, 10000)
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, spacetime_levyarea=True
+            t0=t0, t1=t1, shape=(), tol=2**-10, key=k, levy_area="space-time"
         )
     )(bm_keys)
 

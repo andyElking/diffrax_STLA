@@ -1,10 +1,10 @@
-import dataclasses
 import inspect
 import typing
 from typing import Any, Dict, Generic, Optional, Tuple, TypeVar, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
+import jax
 import jax.tree_util as jtu
 
 
@@ -135,11 +135,40 @@ DenseInfos = Dict[str, PyTree[Array["times", ...]]]  # noqa: F821
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
 
 
-@dataclasses.dataclass
 class LevyVal(eqx.Module):
     t: Scalar
     W: PyTree[Array]
-    H: Optional[PyTree[Array]]
-    tH_t: Optional[PyTree[Array]]
-    K: Optional[PyTree[Array]]
-    t2K_t: Optional[PyTree[Array]]
+    H: Optional[PyTree[Array]] = None
+    tH_t: Optional[PyTree[Array]] = None
+    K: Optional[PyTree[Array]] = None
+    t2K_t: Optional[PyTree[Array]] = None
+
+
+def levy_tree_transpose(tree_shape, levy_area, tree):
+    """Helper that takes a PyTree of LevyVals and transposes
+    into a LevyVal of PyTrees.
+
+    **Arguments:**
+        tree_shape: Corresponds to `outer_treedef` in `jax.tree_transpose`.
+        spacetime_levyarea: Whether the `H` field of the LevyVal is a filled.
+        tree: the PyTree of LevyVals to transpose.
+
+    **Returns:**
+        A LevyVal of PyTrees.
+    """
+    if len(levy_area) >= 10 and levy_area[:10] == "space-time":
+        hh_default_val = 0.0
+        if levy_area == "space-time-time":
+            kk_default_val = 0.0
+        else:
+            kk_default_val = None
+    else:
+        hh_default_val = None
+        kk_default_val = None
+    return jtu.tree_transpose(
+        outer_treedef=jax.tree_structure(tree_shape),
+        inner_treedef=jax.tree_structure(
+            LevyVal(t=0.0, W=0.0, H=hh_default_val, K=kk_default_val)
+        ),
+        pytree_to_transpose=tree,
+    )
