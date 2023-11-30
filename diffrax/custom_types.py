@@ -139,9 +139,9 @@ class LevyVal(eqx.Module):
     t: Scalar
     W: PyTree[Array]
     H: Optional[PyTree[Array]]
-    tH_t: Optional[PyTree[Array]]
+    bar_H: Optional[PyTree[Array]]  # \bar{H}_{s,u} = (u-s) H_{s,u}
     K: Optional[PyTree[Array]]
-    t2K_t: Optional[PyTree[Array]]
+    bar_K: Optional[PyTree[Array]]  # \bar{K}_{s,u} = (u-s)^2 K_{s,u}
 
 
 def levy_tree_transpose(tree_shape, levy_area, tree):
@@ -172,7 +172,7 @@ def levy_tree_transpose(tree_shape, levy_area, tree):
         outer_treedef=jax.tree_structure(tree_shape),
         inner_treedef=jax.tree_structure(
             LevyVal(
-                t=0.0, W=0.0, H=hh_default_val, tH_t=None, K=kk_default_val, t2K_t=None
+                t=0.0, W=0.0, H=hh_default_val, bar_H=None, K=kk_default_val, bar_K=None
             )
         ),
         pytree_to_transpose=tree,
