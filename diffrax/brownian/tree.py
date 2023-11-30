@@ -68,20 +68,20 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
     h = (x1.t - x0.t).astype(x0.W.dtype)
     h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
     inverse_h = 1 / h
-    uB = x1.t * x0.W - x0.t * x1.W
+    u_bb_s = x1.t * x0.W - x0.t * x1.W
     w_01 = x1.W - x0.W
-    bhh_01 = x1.bhh_t - x0.bhh_t - 0.5 * uB  # bhh_01 = H_{s,u} * (u-s)
+    bhh_01 = x1.bar_H - x0.bar_H - 0.5 * u_bb_s  # bhh_01 = H_{s,u} * (u-s)
     hh_01 = inverse_h * bhh_01
 
     if x0.K is not None:
         assert x1.K is not None
         # bkk_01 = K_{s,u} * (u-s)**2
         bkk_01 = (
-            x1.bkk_t
-            - x0.bkk_t
-            - h / 2 * x0.bhh_t
+            x1.bar_K
+            - x0.bar_K
+            - h / 2 * x0.bar_H
             + x0.t / 2 * bhh_01
-            - (x1.t - 2 * x0.t) / 12 * uB
+            - (x1.t - 2 * x0.t) / 12 * u_bb_s
         )
         kk_01 = jnp.square(inverse_h) * bkk_01
     else:
@@ -137,8 +137,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # Since we rescale the interval to [0,1],
         # we need to rescale the tolerance too.
         self.tol = tol / (self.t1 - self.t0)
-
-        if levy_area not in ["", "space-time"]:
+        if levy_area not in ["", "space-time", "space-time-time"]:
             raise ValueError(
                 f"levy_area must be one of '', 'space-time', but got {levy_area}."
             )
@@ -264,18 +263,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
             - `bhh_u`: space-time Lévy integral at u
         """
 
-        su = jnp.power(jnp.asarray(2.0, dtype), -level)
-        st = su / 2
-        t = s + st
-        u_minus_s = u - s
-        su = eqxi.error_if(
-            su,
-            jnp.abs(u_minus_s - su) > 1e-17,
-            "VirtualBrownianTree: u-s is not 2^(-tree_level)",
-        )
+        su = u - s
+        t = s + su / 2
         root_su = jnp.sqrt(su)
-
-        w_s, w_u, w_su = w
 
         if self.levy_area == "space-time-time":
 
@@ -285,42 +275,63 @@ class VirtualBrownianTree(AbstractBrownianPath):
             assert bhh_s is not None
             assert bkk_u is not None
             assert bkk_s is not None
-            x1_key, x2_key = jrandom.split(key, 2)
-            x1 = jrandom.normal(x1_key, shape, dtype) * sqrt_h
-            x2 = jrandom.normal(x2_key, shape, dtype) * sqrt_h
+            z_key, x1_key, x2_key = jrandom.split(key, 3)
+            z = jrandom.normal(z_key, shape, dtype) * (root_su / 4)
+            x1 = jrandom.normal(x1_key, shape, dtype) * (root_su / jnp.sqrt(768))
+            x2 = jrandom.normal(x2_key, shape, dtype) * (root_su / jnp.sqrt(2880))
 
-            uB = u * w_s - s * w_u
-            sbhh_su = bhh_u - bhh_s - 0.5 * uB
-            bkk_su = bkk_u - bkk_s - uB * bhh_u - 0.5 * uB**2
-            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * sbhh_su + 0.25 * x1
-            t = s + (u - s) / 2
-            sbhh_st = 0.125 * sbhh_su - h / 16 * x1 + h / (8 * jnp.sqrt(3)) * x2
-            bkk_st = 0.125 * bkk_su - h / 16 * x1**2 + h / (8 * jnp.sqrt(3)) * x1 * x2
-            bhh_t = bhh_s + sbhh_st + 0.5 * (t * w_s - s * w_t)
-            bkk_t = bkk_s + bkk_st + 0.5 * (t * w_s - s * w_t) ** 2
+            su2 = jnp.square(su)
+            u_bb_s = u * w_s - s * w_u
+            w_su = w_u - w_s
+            bhh_su = bhh_u - bhh_s - 0.5 * u_bb_s
+            bkk_su = (
+                bkk_u
+                - bkk_s
+                - su / 2 * bhh_s
+                + s / 2 * bhh_su
+                - (u - 2 * s) / 12 * u_bb_s
+            )
+
+            w_st = 0.5 * w_su + 1.5 / su * bhh_su + z
+            bhh_st = 0.125 * bhh_su + 15 / (8 * su) * bkk_su - su / 4 * z + su / 2 * x1
+            bkk_st = 1 / 32 * bkk_su - su2 / 8 * x1 + su2 / 4 * x2
+
+            # jax.debug.print("w_st {w_st}, bhh_st {bhh_st}, bkk_st {bkk_st}",
+            #                 w_st=w_st, bhh_st=bhh_st, bkk_st=bkk_st)
+
+            w_t = w_s + w_st
+            t_bb_s = t * w_s - s * w_t
+            bhh_t = bhh_s + bhh_st + 0.5 * t_bb_s
+            bkk_t = (
+                bkk_s
+                + bkk_st
+                + su / 4 * bhh_s
+                - s / 2 * bhh_st
+                + (t - 2 * s) / 12 * t_bb_s
+            )
+
+            # jax.debug.print("t {t}, w_t {w_t}, bhh_t {bhh_t}, bkk_t {bkk_t}",
+            #                 t=t, w_t=w_t, bhh_t=bhh_t, bkk_t=bkk_t)
 
         elif self.levy_area == "space-time":
             assert bhh_u is not None
             assert bhh_s is not None
             x1_key, x2_key = jrandom.split(key, 2)
-            x1 = jrandom.normal(x1_key, shape, dtype) * sqrt_h
-            x2 = jrandom.normal(x2_key, shape, dtype) * sqrt_h
+            x1 = jrandom.normal(x1_key, shape, dtype) * root_su
+            x2 = jrandom.normal(x2_key, shape, dtype) * root_su
 
-            uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
-            hH_su = bhh_u - bhh_s - 0.5 * uB
-            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * hH_su + 0.25 * x1
-            t = s + (u - s) / 2
-            sbhh_st = 0.125 * hH_su - h / 16 * x1 + h / (8 * jnp.sqrt(3)) * x2
-
-            bhh_t = bhh_s + sbhh_st + 0.5 * (t * w_s - s * w_t)
-
+            u_bb_s = u * w_s - s * w_u  # = u * brownian bridge on [0,u] evaluated at s
+            bhh_su = bhh_u - bhh_s - 0.5 * u_bb_s
+            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * su) * bhh_su + 0.25 * x1
+            bhh_st = 0.125 * bhh_su - su / 16 * x1 + su / (8 * jnp.sqrt(3)) * x2
+            bhh_t = bhh_s + bhh_st + 0.5 * (t * w_s - s * w_t)
             bkk_t = None
 
         else:
             assert bhh_u is None
             assert bhh_s is None
             mean = w_s + 0.5 * (w_u - w_s)
-            std = 0.5 * jnp.sqrt(h)
+            std = 0.5 * jnp.sqrt(su)
             w_t = mean + std * jrandom.normal(key, shape, dtype)
             bhh_t, bkk_t = None, None
         return w_t, bhh_t, bkk_t
@@ -352,7 +363,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_1 = jrandom.normal(init_key_w, shape, dtype)
             bhh_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_stla, shape, dtype)
             bhh_0 = jnp.zeros_like(bhh_1)
-            bkk_1 = 1 / 720 * jrandom.normal(init_key_sttla, shape, dtype)
+            bkk_1 = jnp.sqrt(1 / 720) * jrandom.normal(init_key_sttla, shape, dtype)
             bkk_0 = jnp.zeros_like(bkk_1)
 
         elif self.levy_area == "space-time":
@@ -417,6 +428,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                     _bkk_s, _bkk_u = None, None
             else:
                 _bhh_s, _bhh_u = None, None
+                _bkk_s, _bkk_u = None, None
             _key = jnp.where(_cond, _key1, _key2)
             _t = _s + 0.5 * (_u - _s)
 
@@ -462,8 +474,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
 
-        level = final_state.level + 1
-        s, t, u = final_state.stu
+        # Based on the values of (W, H) at s<t<u (where t = (s+u)/2), we interpolate
+        # to obtain approximate values of (W_r, hh_r) for all r ∈ [s,u]. This is done
+        # in a way that gives (W_r, hh_r) all the correct first and second moments
+        # conditional on (W_s, H_s), and (W_u, H_u), where (W_t, H_t) is treated as
+        # the source of randomness.
+        # NOTE: this gives a different result than the original implementation of the
+        # VirtualBrownianTree by Patrick Kidger.
 
         s = final_state.s
         t = final_state.t
@@ -486,18 +503,20 @@ class VirtualBrownianTree(AbstractBrownianPath):
         if self.levy_area == "space-time-time":
 
             w_r = w_t
-            H_r = bhh_t / t
-            K_r = bkk_t / t**2
+            hh_r = bhh_t / t
+            bhh_r = bhh_t
+            kk_r = bkk_t / t**2
+            bkk_r = bkk_t
 
         elif self.levy_area == "space-time":
             # reverse _brownian_arch to get x1, x2 from
             # w_s, w_t, w_u, bhh_s, bhh_t, bhh_u
 
             uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
-            sbhh_su = bhh_u - bhh_s - 0.5 * uB
-            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / su * sbhh_su
-            sbhh_st = bhh_t - bhh_s - 0.5 * (t * w_s - s * w_t)
-            x2 = jnp.sqrt(3) * (1 / su * (8 * sbhh_st - sbhh_su) + 0.5 * x1)
+            bhh_su = bhh_u - bhh_s - 0.5 * uB
+            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / su * bhh_su
+            bhh_st = bhh_t - bhh_s - 0.5 * (t * w_s - s * w_t)
+            x2 = jnp.sqrt(3) * (1 / su * (8 * bhh_st - bhh_su) + 0.5 * x1)
             # note that x1, x2 are Normal(0, su), unlike in thm 6.1.4 of
             # Foster's thesis, where they are Normal(0, 1), so there is
             # an extra factor of sqrt(su) in the formula for c and d_prime.
@@ -518,21 +537,21 @@ class VirtualBrownianTree(AbstractBrownianPath):
             a = d_prime * sr3 * sr_ru_half
             b = d_prime * ru3 * sr_ru_half
 
-            w_sr = sr / su * w_su + 6 * sr * ru / su3 * sbhh_su + 2 * (a + b) / su * x1
+            w_sr = sr / su * w_su + 6 * sr * ru / su3 * bhh_su + 2 * (a + b) / su * x1
             w_r = w_s + w_sr
             c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
-            bhh_sr = sr3 / su3 * sbhh_su - a * x1 + c * x2
+            bhh_sr = sr3 / su3 * bhh_su - a * x1 + c * x2
             bhh_r = bhh_s + bhh_sr + 0.5 * (r * w_s - s * w_r)
 
             r = jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
             inverse_r = 1 / r
-            H_r = inverse_r * bhh_r
-            K_r, bkk_r = None, None
+            hh_r = inverse_r * bhh_r
+            kk_r, bkk_r = None, None
 
         else:
             # the brownian bridge b_t is our access to randomness
             b_t = w_t - 0.5 * (w_u + w_s)
             w_r = w_s + (2 * jnp.sqrt(sr * ru) / su) * b_t + (sr / su) * w_su
-            H_r, bhh_r = None, None
-            K_r, bkk_r = None, None
-        return LevyVal(t=r, W=w_r, bar_H=bhh_r, H=H_r, K=K_r, bar_K=bkk_r)
+            hh_r, bhh_r = None, None
+            kk_r, bkk_r = None, None
+        return LevyVal(t=r, W=w_r, bar_H=bhh_r, H=hh_r, K=kk_r, bar_K=bkk_r)

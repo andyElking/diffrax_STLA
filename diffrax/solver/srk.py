@@ -34,22 +34,22 @@ class StochasticButcherTableau:
     # coefficients for W and H (of shape (len(c)+1,)
     bW: np.ndarray
     # bH is None if spacetime_levyarea=False
-    bH: Optional[np.ndarray]
-    bK: Optional[np.ndarray]
+    bH: Optional[np.ndarray] = None
+    bK: Optional[np.ndarray] = None
 
     # assuming SDE has additive noise we only need a 1-dimensional array
     # for the coefficients in front of the Brownian increment and the
     # space-time Lévy area.
-    cW: Optional[np.ndarray]
-    cH: Optional[np.ndarray]
-    cK: Optional[np.ndarray]
+    cW: Optional[np.ndarray] = None
+    cH: Optional[np.ndarray] = None
+    cK: Optional[np.ndarray] = None
 
     # If the SDE has non-additive noise, we need an equivalent of the
     # matrix a, one for the Brownian motion and one for each type of
     # Lévy area.
-    aW: Optional[list[np.ndarray]]
-    aH: Optional[list[np.ndarray]]
-    aK: Optional[list[np.ndarray]]
+    aW: Optional[list[np.ndarray]] = None
+    aH: Optional[list[np.ndarray]] = None
+    aK: Optional[list[np.ndarray]] = None
 
     additive_noise: bool = True
 
