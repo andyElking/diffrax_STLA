@@ -40,10 +40,12 @@ class _State(eqx.Module):
     w_stu: tuple[Scalar, Scalar, Scalar]  # W at times s, t, u
     w_st_tu: tuple[Scalar, Scalar]  # W_{s,t} and W_{t,u}
     key: "jax.random.PRNGKey"
-    bhh_stu: Optional[Tuple[Scalar, Scalar, Scalar]]  # \bar{H} at times s, t, u
-    bhh_st_tu: Optional[Tuple[Scalar, Scalar]]  # \bar{H}_{s,t} and \bar{H}_{t,u}
-    bkk_stu: Optional[Tuple[Scalar, Scalar, Scalar]]  # \bar{K} at times s, t, u
-    bkk_st_tu: Optional[Tuple[Scalar, Scalar]]  # \bar{K}_{s,t} and \bar{K}_{t,u}
+    sH_s: Optional[Scalar]
+    tH_t: Optional[Scalar]
+    uH_u: Optional[Scalar]
+    s2K_s: Optional[Scalar]
+    t2K_t: Optional[Scalar]
+    u2K_u: Optional[Scalar]
 
 
 def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
@@ -228,24 +230,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
         return jtu.tree_map(map_func, self.key, self.shape)
 
     def _brownian_arch(
-        self,
-        level: int,
-        s: Scalar,
-        u: Scalar,
-        w: Tuple[Scalar, Scalar, Scalar],
-        key,
-        shape,
-        dtype,
-        bhh: Optional[Tuple[Scalar, Scalar, Scalar]],
-        bkk: Optional[Tuple[Scalar, Scalar, Scalar]],
+        self, s, u, w_s, w_u, key, shape, dtype, sH_s, uH_u, s2K_s, u2K_u
     ):
-        r"""For `t = (s+u)/2` evaluates `w_t` and (optionally) `bhh_t`
-         conditioned on `w_s`, `w_u`, `bhh_s`, `bhh_u`, where
-         `bhh_st` represents $\bar{H}_{s,t} \coloneqq (t-s) H_{s,t}$.
-         To avoid cancellation errors, requires an input of `w_su`, `bhh_su`
-         and also returns `w_st` and `w_tu` in addition to just `w_t`. Same for `bhh`
-         if it is not None.
-
+        """For `t = (s+u)/2` evaluates `w_t` and `tH_t` conditioned
+         on `w_s`, `w_u`, `sH_s`, and `uH_u`.
         **Arguments:**
             - `s`: start time
             - `u`: end time
@@ -279,10 +267,36 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_s, w_u, w_su = w
 
-        if self.levy_area == "space-time":
-            assert bhh is not None
-            assert bkk is None
-            bhh_s, bhh_u, bhh_su = bhh
+        if self.levy_area == "space-time-time":
+
+            # TODO: check if this is correct
+
+            assert uH_u is not None
+            assert sH_s is not None
+            assert u2K_u is not None
+            assert s2K_s is not None
+            x1_key, x2_key = jrandom.split(key, 2)
+            x1 = jrandom.normal(x1_key, shape, dtype) * sqrt_h
+            x2 = jrandom.normal(x2_key, shape, dtype) * sqrt_h
+
+            uB = u * w_s - s * w_u
+            suH_su = uH_u - sH_s - 0.5 * uB
+            su2K_su = u2K_u - s2K_s - uB * uH_u - 0.5 * uB**2
+            w_t = w_s + 0.5 * (w_u - w_s) + 3 / (2 * h) * suH_su + 0.25 * x1
+            t = s + (u - s) / 2
+            stH_st = 0.125 * suH_su - h / 16 * x1 + h / (8 * jnp.sqrt(3)) * x2
+            st2K_st = (
+                0.125 * su2K_su - h / 16 * x1**2 + h / (8 * jnp.sqrt(3)) * x1 * x2
+            )
+            tH_t = sH_s + stH_st + 0.5 * (t * w_s - s * w_t)
+            t2K_t = s2K_s + st2K_st + 0.5 * (t * w_s - s * w_t) ** 2
+
+        elif self.levy_area == "space-time":
+            assert uH_u is not None
+            assert sH_s is not None
+            x1_key, x2_key = jrandom.split(key, 2)
+            x1 = jrandom.normal(x1_key, shape, dtype) * sqrt_h
+            x2 = jrandom.normal(x2_key, shape, dtype) * sqrt_h
 
             z1_key, z2_key = jrandom.split(key, 2)
             z1 = jrandom.normal(z1_key, shape, dtype)
@@ -308,17 +322,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bkk = None
             bkk_st_tu = None
 
+            t2K_t = None
+
         else:
-            assert bhh is None
-            assert bkk is None
-            mean = 0.5 * (w_u - w_s)
-            w_term2 = root_su / 2 * jrandom.normal(key, shape, dtype)
-            w_st = mean + +w_term2
-            w_tu = mean - w_term2
-            w_st_tu = (w_st, w_tu)
-            w_t = w_s + w_st
-            bhh, bhh_st_tu, bkk, bkk_st_tu = None, None, None, None
-        return t, w_t, w_st_tu, bhh, bhh_st_tu, bkk, bkk_st_tu
+            assert uH_u is None
+            assert sH_s is None
+            mean = w_s + 0.5 * (w_u - w_s)
+            std = 0.5 * jnp.sqrt(h)
+            w_t = mean + std * jrandom.normal(key, shape, dtype)
+            tH_t, t2K_t = None, None
+        return w_t, tH_t, t2K_t
 
     def _evaluate_leaf(
         self,
@@ -334,25 +347,37 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_0 = jnp.zeros(shape, dtype)
 
-        if self.levy_area == "space-time":
+        thalf = jnp.array(0.5, dtype)
+        w_s = jnp.zeros(shape, dtype)
+        if self.levy_area == "space-time-time":
+            (
+                key,
+                init_key_w,
+                init_key_stla,
+                init_key_sttla,
+                midpoint_key,
+            ) = jrandom.split(key, 5)
+            w_1 = jrandom.normal(init_key_w, shape, dtype)
+            tH_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_stla, shape, dtype)
+            tH_0 = jnp.zeros_like(tH_1)
+            t2K_1 = 1 / 720 * jrandom.normal(init_key_sttla, shape, dtype)
+            t2K_0 = jnp.zeros_like(t2K_1)
+
+        elif self.levy_area == "space-time":
             key, init_key_w, init_key_la, midpoint_key = jrandom.split(key, 4)
             w_1 = jrandom.normal(init_key_w, shape, dtype)
-
-            bhh_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_la, shape, dtype)
-            bhh_0 = jnp.zeros_like(bhh_1)
-            bhh = (bhh_0, bhh_1, bhh_1)
-            bkk = None
+            tH_1 = jnp.sqrt(1 / 12) * jrandom.normal(init_key_la, shape, dtype)
+            tH_0 = jnp.zeros_like(tH_1)
+            t2K_0, t2K_1 = None, None
 
         else:
             key, init_key_w, midpoint_key = jrandom.split(key, 3)
             w_1 = jrandom.normal(init_key_w, shape, dtype)
-            bhh = None
-            bkk = None
+            tH_1, tH_0 = None, None
+            t2K_0, t2K_1 = None, None
 
-        w = (w_0, w_1, w_1)
-
-        half, w_half, w_inc, bhh, bhh_inc, bkk, bkk_inc = self._brownian_arch(
-            0, t0, t1, w, key, shape, dtype, bhh, bkk
+        w_thalf, tH_thalf, t2K_half = self._brownian_arch(
+            t0, t1, w_s, w_1, midpoint_key, shape, dtype, tH_0, tH_1, t2K_0, t2K_1
         )
         init_state = _State(
             level=0,
@@ -380,10 +405,24 @@ class VirtualBrownianTree(AbstractBrownianPath):
             """Single-step of binary search for τ."""
             _level = _state.level + 1
             _key1, _key2 = jrandom.split(_state.key, 2)
-            _s, _t, _u = _state.stu
-            _cond = r > _t
-            _s = jnp.where(_cond, _t, _s)
-            _u = jnp.where(_cond, _u, _t)
+            _cond = r > _state.t
+            _s = jnp.where(_cond, _state.t, _state.s)
+            _u = jnp.where(_cond, _state.u, _state.t)
+            _w_s = jnp.where(_cond, _state.w_t, _state.w_s)
+            _w_u = jnp.where(_cond, _state.w_u, _state.w_t)
+
+            if self.levy_area in ["space-time", "space-time-time"]:
+                _sH_s = jnp.where(_cond, _state.tH_t, _state.sH_s)
+                _uH_u = jnp.where(_cond, _state.uH_u, _state.tH_t)
+                if self.levy_area == "space-time-time":
+                    _s2K_s = jnp.where(_cond, _state.t2K_t, _state.s2K_s)
+                    _u2K_u = jnp.where(_cond, _state.u2K_u, _state.t2K_t)
+                else:
+                    _s2K_s, _u2K_u = None, None
+            else:
+                _sH_s, _uH_u = None, None
+            _key = jnp.where(_cond, _key1, _key2)
+            _t = _s + 0.5 * (_u - _s)
 
             _w = split_interval(_cond, _state.w_stu, _state.w_st_tu)
             if self.levy_area in ["space-time", "space-time-time"]:
@@ -395,9 +434,18 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             _key = jnp.where(_cond, _key1, _key2)
             _key, _midpoint_key = jrandom.split(_key, 2)
-
-            _t, _w_t, _w_inc, _bhh, _bhh_inc, _bkk, _bkk_inc = self._brownian_arch(
-                _level, _s, _u, _w, _midpoint_key, shape, dtype, _bhh, _bkk
+            _w_t, _tH_t = self._brownian_arch(
+                _s,
+                _u,
+                _w_s,
+                _w_u,
+                _midpoint_key,
+                shape,
+                dtype,
+                _sH_s,
+                _uH_u,
+                _s2K_s,
+                _u2K_u,
             )
 
             return _State(
@@ -436,9 +484,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
         sr = r - s
         ru = su - sr  # make sure su = sr + ru regardless of cancellation error
 
-        w_s, w_u, w_su = split_interval(cond, final_state.w_stu, final_state.w_st_tu)
-        key1, key2 = jrandom.split(final_state.key, 2)
-        key = jnp.where(cond, key1, key2)
+        if self.levy_area == "space-time-time":
+
+            pass
+
+        elif self.levy_area == "space-time":
+            # reverse _brownian_arch to get x1, x2 from
+            # w_s, w_t, w_u, sH_s, tH_t, uH_u
 
             uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
             suH_su = uH_u - sH_s - 0.5 * uB
