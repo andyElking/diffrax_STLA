@@ -91,14 +91,20 @@ def test_shape_and_dtype(ctr, levy_area, getkey):
                 _, t1 = _t1
                 bm = path.evaluate(t0, t1, use_levy=True)
                 out_w = bm.W
-                out_hh = bm.H
+                out_h = bm.H
                 out_w_shape = jtu.tree_map(
                     lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), out_w
                 )
-                out_hh_shape = jtu.tree_map(
-                    lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), out_hh
+                out_h_shape = jtu.tree_map(
+                    lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), out_h
                 )
-                assert out_hh_shape == shape
+                if levy_area == "space-time-time":
+                    out_k = bm.K
+                    out_k_shape = jtu.tree_map(
+                        lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), out_k
+                    )
+                    assert out_k_shape == shape
+                assert out_h_shape == shape
                 assert out_w_shape == shape
 
 
@@ -118,18 +124,24 @@ def test_statistics(ctr, levy_area):
             path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, levy_area=levy_area)
         else:
             assert False
-        return path.evaluate(0, 5, use_levy=True)
+        return path.evaluate(0, 3, use_levy=True)
 
     bm_inc = jax.vmap(_eval)(keys)
     values_w = bm_inc.W
     values_h = bm_inc.H
     assert values_w.shape == (10000,) and values_h.shape == (10000,)
-    ref_dist_w = stats.norm(loc=0, scale=math.sqrt(5))
+    ref_dist_w = stats.norm(loc=0, scale=math.sqrt(3))
     _, pval_w = stats.kstest(values_w, ref_dist_w.cdf)
-    ref_dist_h = stats.norm(loc=0, scale=math.sqrt(5 / 12))
+    ref_dist_h = stats.norm(loc=0, scale=math.sqrt(3 / 12))
     _, pval_h = stats.kstest(values_h, ref_dist_h.cdf)
     assert pval_w > 0.1
     assert pval_h > 0.1
+    if levy_area == "space-time-time":
+        values_k = bm_inc.K
+        assert values_k.shape == (10000,)
+        ref_dist_k = stats.norm(loc=0, scale=math.sqrt(3 / 720))
+        _, pval_k = stats.kstest(values_k, ref_dist_k.cdf)
+        assert pval_k > 0.1
 
 
 @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
@@ -175,50 +187,129 @@ def test_conditional_statistics(levy_area):
         r, bm_r = out[i]
         u, bm_u = out[i + 1]
 
-        w_s, hh_s = bm_s.W, bm_s.H
-        w_r, hh_r = bm_r.W, bm_r.H
-        w_u, hh_u = bm_u.W, bm_u.H
-        # if levy_area == "space-time-time":
-        #     kk_s, kk_r, kk_u = bm_s.K, bm_r.K, bm_u.K
-
+        w_s, h_s = bm_s.W, bm_s.H
+        w_r, h_r = bm_r.W, bm_r.H
+        w_u, h_u = bm_u.W, bm_u.H
+        bh_s = s * h_s
+        bh_r = r * h_r
+        bh_u = u * h_u
         s = s - t0
         r = r - t0
         u = u - t0
         su = u - s
         sr = r - s
         ru = u - r
+        sr3 = jnp.power(sr, 3)
+        ru3 = jnp.power(ru, 3)
+        su3 = jnp.power(su, 3)
+        sr_ru_half = jnp.sqrt(sr * ru)
         if levy_area == "space-time":
-            d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
-            a = (1 / (2 * su * d)) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
-            b = (1 / (2 * su * d)) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
-            c = (1.0 / (jnp.sqrt(12) * d)) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
+            d = jnp.sqrt(sr3 + ru3)
+            d_prime = 1 / (2 * su * d)
+            a = d_prime * sr3 * sr_ru_half
+            b = d_prime * ru3 * sr_ru_half
+            c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
 
-            hh_su = (1.0 / su) * (u * hh_u - s * hh_s - u / 2 * w_s + s / 2 * w_u)
+            u_bb_s = u * w_s - s * w_u  # bb_s = brownian bridge on [0,u] evaluated at s
 
-            w_mean = (
-                w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / jnp.square(su)) * hh_su
-            )
+            # bh_su = \bar{H}_{s,u} := (u-s) H_{s,u}
+            bh_su = bh_u - bh_s - 0.5 * u_bb_s
+
+            w_mean = w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / su3) * bh_su
             w_std = 2 * (a + b) / su
             normalised_w = (w_r - w_mean) / w_std
-            hh_mean = (
-                (s / r) * hh_s
-                + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su
+            h_mean = (
+                (1 / r) * bh_s
+                + (sr3 / (r * su3)) * bh_su
                 + 0.5 * w_s
                 - s / (2 * r) * w_mean
             )
-            hh_var = jnp.square(c / r) + jnp.square((a * u + s * b) / (r * su))
-            hh_std = jnp.sqrt(hh_var)
-            normalised_hh = (hh_r - hh_mean) / hh_std
+            h_var = jnp.square(c / r) + jnp.square((a * u + s * b) / (r * su))
+            h_std = jnp.sqrt(h_var)
+            normalised_h = (h_r - h_mean) / h_std
 
             _, pval_w = stats.kstest(normalised_w, stats.norm.cdf)
-            _, pval_hh = stats.kstest(normalised_hh, stats.norm.cdf)
+            _, pval_h = stats.kstest(normalised_h, stats.norm.cdf)
 
             # Raise if the failure is statistically significant at 10%, subject to
             # multiple-testing correction.
             assert pval_w > 0.001
-            assert pval_hh > 0.001
+            assert pval_h > 0.001
         elif levy_area == "space-time-time":
-            pass
+            # TODO: implement this
+            su5 = jnp.power(su, 5)
+            sr2 = jnp.square(sr)
+            ru2 = jnp.square(ru)
+
+            k_s, k_r, k_u = bm_s.K, bm_r.K, bm_u.K
+            bk_s = s**2 * k_s
+            bk_r = r**2 * k_r
+            bk_u = u**2 * k_u
+            # u_bb_s := u * brownian bridge on [0,u] evaluated at s
+            u_bb_s = u * w_s - s * w_u
+
+            # Chen's relation for H
+            bh_su = bh_u - bh_s - 0.5 * u_bb_s
+
+            # Chen's relation for \bar{K}_{s,u} := (u-s)^2 * K_{s,u}
+            bk_su = (
+                bk_u - bk_s - su / 2 * bh_u + s / 2 * bh_su - (u - 2 * s) / 12 * u_bb_s
+            )
+
+            # compute the mean of (W_sr, H_sr, K_sr) conditioned on
+            # (W_s, H_s, K_s, W_u, H_u, K_u)
+            bb_mean = (
+                6 * sr * ru / su3 * bh_su + 120 * sr * ru * (ru - sr) / 2 / su5 * bk_su
+            )
+            w_mean = sr / su * (w_u - w_s) + bb_mean
+            h_mean = sr2 / su3 * bh_su + 30 * sr2 * ru / su5 * bk_su
+            k_mean = sr3 / su3 * bk_su
+
+            mean = jnp.array([w_mean, h_mean, k_mean])
+
+            # now compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
+            # (W_s, H_s, K_s, W_u, H_u, K_u)
+            # note that the covariance matrix is independent of the values of
+            # (W_s, H_s, K_s, W_u, H_u, K_u), since those are already represented
+            # in the mean.
+            sr5 = jnp.power(sr, 5)
+
+            ww_cov = (sr * ru * ((sr - ru) ** 4 + 4 * (sr2 * ru2))) / su5
+            wh_cov = -(sr3 * ru * (sr2 - 3 * sr * ru + 6 * ru2)) / (2 * su5)
+            wk_cov = (sr**4 * ru * (sr - ru)) / (12 * su5)
+            hh_cov = sr / 12 * (1 - (sr3 * (sr2 + 2 * sr * ru + 16 * ru2)) / su5)
+            hk_cov = -(sr5 * ru) / (24 * su5)
+            kk_cov = sr / 720 * (1 - sr5 / su5)
+
+            cov = jnp.array(
+                [
+                    [ww_cov, wh_cov, wk_cov],
+                    [wh_cov, hh_cov, hk_cov],
+                    [wk_cov, hk_cov, kk_cov],
+                ]
+            )
+
+            # now compute the values of (W_sr, H_sr, K_sr), which are to be tested
+            # against the normal distribution N(mean, cov)
+            w_sr = w_r - w_s
+            r_bb_s = r * w_s - s * w_r
+            h_sr = 1 / sr * (bh_r - bh_s - 0.5 * r_bb_s)
+            k_sr = (
+                1
+                / sr2
+                * (
+                    bk_r
+                    - bk_s
+                    - 0.5 * (sr * bh_r - s * bh_su)
+                    - 1 / 12 * (r - 2 * s) * r_bb_s
+                )
+            )
+
+            # now compare the distributions using the ks test
+            normalised = jnp.array([w_sr, h_sr, k_sr]) - mean
+            _, pval = stats.kstest(normalised, stats.multivariate_normal(mean, cov).cdf)
+
+            assert pval > 0.001
 
 
 def test_reverse_time():

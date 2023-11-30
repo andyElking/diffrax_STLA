@@ -431,6 +431,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             "VirtualBrownianTree: u-s is not 2^(-tree_level) in final step.",
         )
 
+        su = u - s
+        w_su = w_u - w_s
         sr = r - s
         ru = su - sr  # make sure su = sr + ru regardless of cancellation error
 
@@ -438,13 +440,17 @@ class VirtualBrownianTree(AbstractBrownianPath):
         key1, key2 = jrandom.split(final_state.key, 2)
         key = jnp.where(cond, key1, key2)
 
-        # BM only case
-        if self.levy_area == "":
-            w_sr = sr / su * w_su + jnp.sqrt(sr * ru / su) * jrandom.normal(
-                key, shape, dtype
-            )
-            w_r = w_s + w_sr
-            return LevyVal(dt=r, W=w_r, H=None, bar_H=None, K=None, bar_K=None)
+            uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
+            suH_su = uH_u - sH_s - 0.5 * uB
+            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / su * suH_su
+            stH_st = tH_t - sH_s - 0.5 * (t * w_s - s * w_t)
+            x2 = jnp.sqrt(3) * (1 / su * (8 * stH_st - suH_su) + 0.5 * x1)
+            # note that x1, x2 are Normal(0, su), unlike in thm 6.1.4 of
+            # Foster's thesis, where they are Normal(0, 1), so there is
+            # an extra factor of sqrt(su) in the formula for c and d_prime.
+            root_su = jnp.sqrt(su)
+            x1 = x1 / root_su
+            x2 = x2 / root_su
 
         elif self.levy_area == "space-time":
             bhh_s, bhh_u, bhh_su = split_interval(
@@ -453,26 +459,23 @@ class VirtualBrownianTree(AbstractBrownianPath):
             sr3 = jnp.power(sr, 3)
             ru3 = jnp.power(ru, 3)
             su3 = jnp.power(su, 3)
-            key1, key2 = jrandom.split(key, 2)
-            x1 = jrandom.normal(key1, shape, dtype)
-            x2 = jrandom.normal(key2, shape, dtype)
-
             sr_ru_half = jnp.sqrt(sr * ru)
             d = jnp.sqrt(sr3 + ru3)
             d_prime = 1 / (2 * su * d)
             a = d_prime * sr3 * sr_ru_half
             b = d_prime * ru3 * sr_ru_half
 
-            w_sr = sr / su * w_su + 6 * sr * ru / su3 * bhh_su + 2 * (a + b) / su * x1
+            w_sr = sr / su * w_su + 6 * sr * ru / su3 * suH_su + 2 * (a + b) / su * x1
             w_r = w_s + w_sr
             c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
-            bhh_sr = sr3 / su3 * bhh_su - a * x1 + c * x2
-            bhh_r = bhh_s + bhh_sr + 0.5 * (r * w_s - s * w_r)
-
-            inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
-            hh_r = inverse_r * bhh_r
+            srH_sr = sr3 / su3 * suH_su - a * x1 + c * x2
+            rH_r = sH_s + srH_sr + 0.5 * (r * w_s - s * w_r)
+            H_r = 1 / r * rH_r
 
         else:
-            assert False
-
-        return LevyVal(dt=r, W=w_r, H=hh_r, bar_H=bhh_r, K=None, bar_K=None)
+            # the brownian bridge b_t is our access to randomness
+            b_t = w_t - 0.5 * (w_u + w_s)
+            w_r = w_s + (2 * jnp.sqrt(sr * ru) / su) * b_t + (sr / su) * w_su
+            H_r = None
+            rH_r = None
+        return LevyVal(t=r, W=w_r, tH_t=rH_r, H=H_r, K=None, t2K_t=None)
