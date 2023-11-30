@@ -369,7 +369,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         tH_t = final_state.tH_t
         uH_u = final_state.uH_u
 
-        h = u - s
+        su = u - s
         w_su = w_u - w_s
         sr = r - s
         ru = u - r
@@ -379,37 +379,37 @@ class VirtualBrownianTree(AbstractBrownianPath):
             # w_s, w_t, w_u, sH_s, tH_t, uH_u
 
             uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
-            hH_su = uH_u - sH_s - 0.5 * uB
-            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / h * hH_su
+            suH_su = uH_u - sH_s - 0.5 * uB
+            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / su * suH_su
             stH_st = tH_t - sH_s - 0.5 * (t * w_s - s * w_t)
-            x2 = jnp.sqrt(3) * (1 / h * (8 * stH_st - hH_su) + 0.5 * x1)
-            # note that x1, x2 are Normal(0, h), unlike in thm 6.1.4 of
+            x2 = jnp.sqrt(3) * (1 / su * (8 * stH_st - suH_su) + 0.5 * x1)
+            # note that x1, x2 are Normal(0, su), unlike in thm 6.1.4 of
             # Foster's thesis, where they are Normal(0, 1), so there is
-            # an extra factor of sqrt(h) in the formula for c and d_prime.
-            root_h = jnp.sqrt(h)
-            x1 = x1 / root_h
-            x2 = x2 / root_h
+            # an extra factor of sqrt(su) in the formula for c and d_prime.
+            root_su = jnp.sqrt(su)
+            x1 = x1 / root_su
+            x2 = x2 / root_su
 
             sr3 = jnp.power(sr, 3)
             ru3 = jnp.power(ru, 3)
-            h3 = jnp.power(h, 3)
+            su3 = jnp.power(su, 3)
             sr_ru_half = jnp.sqrt(sr * ru)
             d = jnp.sqrt(sr3 + ru3)
-            d_prime = 1 / (2 * h * d)
+            d_prime = 1 / (2 * su * d)
             a = d_prime * sr3 * sr_ru_half
             b = d_prime * ru3 * sr_ru_half
 
-            w_sr = sr / h * w_su + 6 * sr * ru / h3 * hH_su + 2 * (a + b) / h * x1
+            w_sr = sr / su * w_su + 6 * sr * ru / su3 * suH_su + 2 * (a + b) / su * x1
             w_r = w_s + w_sr
             c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
-            srH_sr = sr3 / h3 * hH_su - a * x1 + c * x2
+            srH_sr = sr3 / su3 * suH_su - a * x1 + c * x2
             rH_r = sH_s + srH_sr + 0.5 * (r * w_s - s * w_r)
             H_r = 1 / r * rH_r
 
         else:
             # the brownian bridge b_t is our access to randomness
             b_t = w_t - 0.5 * (w_u + w_s)
-            w_r = w_s + (2 * jnp.sqrt(sr * ru) / h) * b_t + (sr / h) * w_su
+            w_r = w_s + (2 * jnp.sqrt(sr * ru) / su) * b_t + (sr / su) * w_su
             H_r = None
             rH_r = None
         return LevyVal(t=r, W=w_r, tH_t=rH_r, H=H_r, K=None, t2K_t=None)
