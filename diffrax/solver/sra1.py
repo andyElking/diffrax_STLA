@@ -1,6 +1,6 @@
 import numpy as np
 
-from .additive_srk import AbstractAdditiveSRK, StochasticButcherTableau
+from .srk import AbstractSRK, StochasticButcherTableau
 
 
 tab = StochasticButcherTableau(
@@ -15,7 +15,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class SRA1(AbstractAdditiveSRK):
+class SRA1(AbstractSRK):
     r"""Based on the SRA1 method by Andreas Rößler.
 
     ??? cite "Reference"

@@ -25,7 +25,8 @@ def _make_struct(shape, dtype):
 @pytest.mark.parametrize(
     "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
 )
-def test_shape_and_dtype(ctr, getkey):
+@pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
+def test_shape_and_dtype(ctr, levy_area, getkey):
     t0 = 0
     t1 = 2
 
@@ -69,12 +70,12 @@ def test_shape_and_dtype(ctr, getkey):
             shape = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
 
         if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape, getkey(), levy_area="space-time")
+            path = ctr(shape, getkey(), levy_area=levy_area)
             assert path.t0 is None
             assert path.t1 is None
         elif ctr is diffrax.VirtualBrownianTree:
             tol = 2**-5
-            path = ctr(t0, t1, tol, shape, getkey(), levy_area="space-time")
+            path = ctr(t0, t1, tol, shape, getkey(), levy_area=levy_area)
             assert path.t0 == 0
             assert path.t1 == 2
         else:
@@ -104,18 +105,17 @@ def test_shape_and_dtype(ctr, getkey):
 @pytest.mark.parametrize(
     "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
 )
-def test_statistics(ctr):
+@pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
+def test_statistics(ctr, levy_area):
     # Deterministic key for this test; not using getkey()
     key = jrandom.PRNGKey(5678)
     keys = jrandom.split(key, 10000)
 
     def _eval(key):
         if ctr is diffrax.UnsafeBrownianPath:
-            path = ctr(shape=(), key=key, levy_area="space-time")
+            path = ctr(shape=(), key=key, levy_area=levy_area)
         elif ctr is diffrax.VirtualBrownianTree:
-            path = ctr(
-                t0=0, t1=5, tol=2**-5, shape=(), key=key, levy_area="space-time"
-            )
+            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, levy_area=levy_area)
         else:
             assert False
         return path.evaluate(0, 5, use_levy=True)
@@ -132,7 +132,8 @@ def test_statistics(ctr):
     assert pval_h > 0.1
 
 
-def test_conditional_statistics():
+@pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
+def test_conditional_statistics(levy_area):
     key = jrandom.PRNGKey(5678)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
 
@@ -154,9 +155,10 @@ def test_conditional_statistics():
 
     # Get some random paths
     bm_keys = jrandom.split(bm_key, 100000)
+
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-12, key=k, levy_area="space-time"
+            t0=t0, t1=t1, shape=(), tol=2**-12, key=k, levy_area=levy_area
         )
     )(bm_keys)
 
@@ -176,6 +178,8 @@ def test_conditional_statistics():
         w_s, hh_s = bm_s.W, bm_s.H
         w_r, hh_r = bm_r.W, bm_r.H
         w_u, hh_u = bm_u.W, bm_u.H
+        # if levy_area == "space-time-time":
+        #     kk_s, kk_r, kk_u = bm_s.K, bm_r.K, bm_u.K
 
         s = s - t0
         r = r - t0
@@ -183,33 +187,38 @@ def test_conditional_statistics():
         su = u - s
         sr = r - s
         ru = u - r
-        d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
-        a = (1 / (2 * su * d)) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
-        b = (1 / (2 * su * d)) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
-        c = (1.0 / (jnp.sqrt(12) * d)) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
+        if levy_area == "space-time":
+            d = jnp.sqrt(jnp.power(sr, 3) + jnp.power(ru, 3))
+            a = (1 / (2 * su * d)) * jnp.power(sr, 7 / 2) * jnp.sqrt(ru)
+            b = (1 / (2 * su * d)) * jnp.power(ru, 7 / 2) * jnp.sqrt(sr)
+            c = (1.0 / (jnp.sqrt(12) * d)) * jnp.power(sr, 3 / 2) * jnp.power(ru, 3 / 2)
 
-        hh_su = (1.0 / su) * (u * hh_u - s * hh_s - u / 2 * w_s + s / 2 * w_u)
+            hh_su = (1.0 / su) * (u * hh_u - s * hh_s - u / 2 * w_s + s / 2 * w_u)
 
-        w_mean = w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / jnp.square(su)) * hh_su
-        w_std = 2 * (a + b) / su
-        normalised_w = (w_r - w_mean) / w_std
-        hh_mean = (
-            (s / r) * hh_s
-            + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su
-            + 0.5 * w_s
-            - s / (2 * r) * w_mean
-        )
-        hh_var = jnp.square(c / r) + jnp.square((a * u + s * b) / (r * su))
-        hh_std = jnp.sqrt(hh_var)
-        normalised_hh = (hh_r - hh_mean) / hh_std
+            w_mean = (
+                w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / jnp.square(su)) * hh_su
+            )
+            w_std = 2 * (a + b) / su
+            normalised_w = (w_r - w_mean) / w_std
+            hh_mean = (
+                (s / r) * hh_s
+                + (jnp.power(sr, 3) / (r * jnp.square(su))) * hh_su
+                + 0.5 * w_s
+                - s / (2 * r) * w_mean
+            )
+            hh_var = jnp.square(c / r) + jnp.square((a * u + s * b) / (r * su))
+            hh_std = jnp.sqrt(hh_var)
+            normalised_hh = (hh_r - hh_mean) / hh_std
 
-        _, pval_w = stats.kstest(normalised_w, stats.norm.cdf)
-        _, pval_hh = stats.kstest(normalised_hh, stats.norm.cdf)
+            _, pval_w = stats.kstest(normalised_w, stats.norm.cdf)
+            _, pval_hh = stats.kstest(normalised_hh, stats.norm.cdf)
 
-        # Raise if the failure is statistically significant at 10%, subject to
-        # multiple-testing correction.
-        assert pval_w > 0.001
-        assert pval_hh > 0.001
+            # Raise if the failure is statistically significant at 10%, subject to
+            # multiple-testing correction.
+            assert pval_w > 0.001
+            assert pval_hh > 0.001
+        elif levy_area == "space-time-time":
+            pass
 
 
 def test_reverse_time():
