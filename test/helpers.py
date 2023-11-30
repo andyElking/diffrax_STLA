@@ -9,8 +9,8 @@ import jax
 import jax.random as jrandom
 import jax.tree_util as jtu
 from diffrax import (
-    AbstractAdditiveSRK,
     AbstractBrownianPath,
+    AbstractSRK,
     AbstractTerm,
     ALIGN,
     ConstantStepSize,
@@ -153,7 +153,7 @@ def batch_sde_solve(
 ):
     _saveat = SaveAt(ts=[sde.t1])
 
-    if isinstance(solver, (ALIGN, AbstractAdditiveSRK)) and levy_area == "":
+    if isinstance(solver, (ALIGN, AbstractSRK)) and levy_area == "":
         raise ValueError("ALIGN and AbstractAdditiveSRK require levy_area")
 
     def end_value(key):
@@ -179,8 +179,8 @@ def batch_sde_solve(
 
 def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, hs_num=5, hs=None):
     dtype = sde.get_dtype()
-    need_stla = isinstance(solver, (ALIGN, AbstractAdditiveSRK)) or isinstance(
-        ref_solver, (ALIGN, AbstractAdditiveSRK)
+    need_stla = isinstance(solver, (ALIGN, AbstractSRK)) or isinstance(
+        ref_solver, (ALIGN, AbstractSRK)
     )
     levy_area = "space-time" if need_stla else ""
 

@@ -41,7 +41,6 @@ from .saveat import SaveAt, SubSaveAt
 from .solution import is_event, is_okay, is_successful, RESULTS, Solution
 from .solver import (
     AbstractAdaptiveSolver,
-    AbstractAdditiveSRK,
     AbstractDIRK,
     AbstractERK,
     AbstractESDIRK,
@@ -50,6 +49,7 @@ from .solver import (
     AbstractRungeKutta,
     AbstractSDIRK,
     AbstractSolver,
+    AbstractSRK,
     AbstractStratonovichSolver,
     AbstractWrappedSolver,
     ALIGN,

@@ -1,6 +1,6 @@
 import numpy as np
 
-from .additive_srk import AbstractAdditiveSRK, StochasticButcherTableau
+from .srk import AbstractSRK, StochasticButcherTableau
 
 
 tab = StochasticButcherTableau(
@@ -15,7 +15,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class ShARK(AbstractAdditiveSRK):
+class ShARK(AbstractSRK):
     r"""Shifted Additive-noise Runge-Kutta method for SDEs by James Foster.
     Applied to SDEs with additive noise, it converges strongly with order 1.5.
 
