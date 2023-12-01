@@ -125,9 +125,7 @@ def test_statistics(ctr, levy_area):
         if ctr is diffrax.UnsafeBrownianPath:
             path = ctr(shape=(), key=key, levy_area=levy_area)
         elif ctr is diffrax.VirtualBrownianTree:
-            path = ctr(
-                t0=0.5, t1=5, tol=2**-9, shape=(), key=key, levy_area=levy_area
-            )
+            path = ctr(t0=0, t1=5, tol=2**-12, shape=(), key=key, levy_area=levy_area)
         else:
             assert False
         return path.evaluate(1, 4, use_levy=True)
@@ -157,12 +155,14 @@ def conditional_statistics(levy_area):
 
     # Get >80 randomly selected points; not too close to avoid discretisation error.
     t0 = 0.3
+    eval_t0 = t0 + 0.2
     t1 = 8.7
     # ts = jrandom.uniform(sample_key, shape=(30,), minval=t0, maxval=t1)
-    ts = jnp.array([1.0, 3.0, 6.0, 7.0, 8.0])
+    ts = jnp.array([1.0, 3.0, 6.0, 7.0])
     sorted_ts = jnp.sort(ts)
     ts = []
     prev_ti = sorted_ts[0]
+    ts.append(prev_ti)
     for ti in sorted_ts[1:]:
         if ti < prev_ti + 2**-5:
             continue
@@ -184,7 +184,7 @@ def conditional_statistics(levy_area):
     # Sample some points
     out = []
     for ti in ts:
-        vals = jax.vmap(lambda p: p.evaluate(t0, ti, use_levy=True))(path)
+        vals = jax.vmap(lambda p: p.evaluate(eval_t0, ti, use_levy=True))(path)
         out.append((ti, vals))
     out = sorted(out, key=lambda x: x[0])
 
@@ -194,10 +194,14 @@ def conditional_statistics(levy_area):
         r, bm_r = out[i]
         u, bm_u = out[i + 1]
 
-        s = s - t0
-        r = r - t0
-        u = u - t0
+        s = s - eval_t0
+        r = r - eval_t0
+        u = u - eval_t0
         print(f"s {s}, r {r}, u {u}")
+
+        assert jnp.allclose(s, bm_s.dt, atol=1e-3, rtol=1e-2)
+        assert jnp.allclose(r, bm_r.dt, atol=1e-3, rtol=1e-2)
+        assert jnp.allclose(u, bm_u.dt, atol=1e-3, rtol=1e-2)
 
         w_s, h_s = bm_s.W, bm_s.H
         w_r, h_r = bm_r.W, bm_r.H

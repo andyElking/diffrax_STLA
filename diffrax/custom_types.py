@@ -136,7 +136,7 @@ sentinel: Any = eqxi.doc_repr(object(), "sentinel")
 
 
 class LevyVal(eqx.Module):
-    t: Scalar
+    dt: Scalar
     W: PyTree[Array]
     H: Optional[PyTree[Array]]
     bar_H: Optional[PyTree[Array]]  # \bar{H}_{s,u} = (u-s) H_{s,u}
@@ -172,7 +172,12 @@ def levy_tree_transpose(tree_shape, levy_area, tree):
         outer_treedef=jax.tree_structure(tree_shape),
         inner_treedef=jax.tree_structure(
             LevyVal(
-                t=0.0, W=0.0, H=hh_default_val, bar_H=None, K=kk_default_val, bar_K=None
+                dt=0.0,
+                W=0.0,
+                H=hh_default_val,
+                bar_H=None,
+                K=kk_default_val,
+                bar_K=None,
             )
         ),
         pytree_to_transpose=tree,
