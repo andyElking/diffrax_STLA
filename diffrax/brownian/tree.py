@@ -49,6 +49,7 @@ class _State(eqx.Module):
     bkk_s: Optional[Scalar]
     bkk_t: Optional[Scalar]
     bkk_u: Optional[Scalar]
+    zzz: tuple[Optional[Scalar], Optional[Scalar], Optional[Scalar]]
 
 
 def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
@@ -68,29 +69,29 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
 
     `LevyVal(W_su, H_su)` or `LevyVal(W_su, H_su, K_su)`
     """
-    h = (x1.t - x0.t).astype(x0.W.dtype)
-    h = jnp.where(jnp.abs(h) < jnp.finfo(h).eps, jnp.inf, h)
-    inverse_h = 1 / h
+    su = (x1.t - x0.t).astype(x0.W.dtype)
+    su = jnp.where(jnp.abs(su) < jnp.finfo(su).eps, jnp.inf, su)
+    inverse_h = 1 / su
     u_bb_s = x1.t * x0.W - x0.t * x1.W
-    w_01 = x1.W - x0.W
-    bhh_01 = x1.bar_H - x0.bar_H - 0.5 * u_bb_s  # bhh_01 = H_{s,u} * (u-s)
-    hh_01 = inverse_h * bhh_01
+    w_su = x1.W - x0.W
+    bhh_su = x1.bar_H - x0.bar_H - 0.5 * u_bb_s  # bhh_su = H_{s,u} * (u-s)
+    hh_su = inverse_h * bhh_su
 
     if x0.K is not None:
         assert x1.K is not None
-        # bkk_01 = K_{s,u} * (u-s)**2
-        bkk_01 = (
+        # bkk_su = K_{s,u} * (u-s)**2
+        bkk_su = (
             x1.bar_K
             - x0.bar_K
-            - h / 2 * x0.bar_H
-            + x0.t / 2 * bhh_01
+            - su / 2 * x0.bar_H
+            + x0.t / 2 * bhh_su
             - (x1.t - 2 * x0.t) / 12 * u_bb_s
         )
-        kk_01 = jnp.square(inverse_h) * bkk_01
+        kk_su = jnp.square(inverse_h) * bkk_su
     else:
-        kk_01 = None
+        kk_su = None
 
-    return LevyVal(t=h, W=w_01, H=hh_01, bar_H=None, K=kk_01, bar_K=None)
+    return LevyVal(t=su, W=w_su, H=hh_su, bar_H=None, K=kk_su, bar_K=None)
 
 
 class VirtualBrownianTree(AbstractBrownianPath):
@@ -163,19 +164,19 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         # Rescaling back from [0, 1] to the original interval [t0, t1].
         interval_len = self.t1 - self.t0  # can be any dtype
-        sqrt_len = jnp.sqrt(jnp.abs(interval_len))
+        sqrt_len = jnp.sqrt(interval_len)
 
         def sqrt_mult(z):
             # need to cast to dtype of each leaf in PyTree
             dtype = jnp.dtype(z)
             return z * jnp.asarray(sqrt_len, dtype)
 
-        def mult(z):
+        def mult_and_add(z):
             dtype = jnp.dtype(z)
-            return z * jnp.asarray(interval_len, dtype)
+            return jnp.asarray(self.t0 + z * interval_len, dtype=dtype)
 
         return LevyVal(
-            t=jtu.tree_map(mult, x.t),
+            t=jtu.tree_map(mult_and_add, x.t),
             W=jtu.tree_map(sqrt_mult, x.W),
             H=jtu.tree_map(sqrt_mult, x.H),
             bar_H=None,
@@ -275,10 +276,14 @@ class VirtualBrownianTree(AbstractBrownianPath):
             assert bhh_s is not None
             assert bkk_u is not None
             assert bkk_s is not None
-            z_key, x1_key, x2_key = jrandom.split(key, 3)
-            z = jrandom.normal(z_key, shape, dtype) * (root_su / 4)
-            x1 = jrandom.normal(x1_key, shape, dtype) * (root_su / jnp.sqrt(768))
-            x2 = jrandom.normal(x2_key, shape, dtype) * (root_su / jnp.sqrt(2880))
+            z1_key, z2_key, z3_key = jrandom.split(key, 3)
+            z1 = jrandom.normal(z1_key, shape, dtype)
+            z2 = jrandom.normal(z2_key, shape, dtype)
+            z3 = jrandom.normal(z3_key, shape, dtype)
+
+            z = z1 * (root_su / 4)
+            x1 = z2 * (root_su / jnp.sqrt(768))
+            x2 = z3 * (root_su / jnp.sqrt(2880))
 
             su2 = jnp.square(su)
             u_bb_s = u * w_s - s * w_u
@@ -316,9 +321,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
         elif self.levy_area == "space-time":
             assert bhh_u is not None
             assert bhh_s is not None
-            x1_key, x2_key = jrandom.split(key, 2)
-            x1 = jrandom.normal(x1_key, shape, dtype) * root_su
-            x2 = jrandom.normal(x2_key, shape, dtype) * root_su
+            z1_key, z2_key = jrandom.split(key, 2)
+            z1 = jrandom.normal(z1_key, shape, dtype)
+            z2 = jrandom.normal(z2_key, shape, dtype)
+            z3 = None
+            x1 = z1 * root_su
+            x2 = z2 * root_su
 
             u_bb_s = u * w_s - s * w_u  # = u * brownian bridge on [0,u] evaluated at s
             bhh_su = bhh_u - bhh_s - 0.5 * u_bb_s
@@ -330,11 +338,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
         else:
             assert bhh_u is None
             assert bhh_s is None
+            z1, z2, z3 = None, None, None
             mean = w_s + 0.5 * (w_u - w_s)
             std = 0.5 * jnp.sqrt(su)
             w_t = mean + std * jrandom.normal(key, shape, dtype)
             bhh_t, bkk_t = None, None
-        return w_t, bhh_t, bkk_t
+        return w_t, bhh_t, bkk_t, (z1, z2, z3)
 
     def _evaluate_leaf(
         self,
@@ -377,7 +386,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bhh_1, bhh_0 = None, None
             bkk_0, bkk_1 = None, None
 
-        w_thalf, bhh_thalf, bkk_half = self._brownian_arch(
+        w_thalf, bhh_thalf, bkk_half, zzz = self._brownian_arch(
             t0, t1, w_s, w_1, midpoint_key, shape, dtype, bhh_0, bhh_1, bkk_0, bkk_1
         )
         init_state = _State(
@@ -394,6 +403,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bkk_s=bkk_0,
             bkk_t=bkk_half,
             bkk_u=bkk_1,
+            zzz=zzz,
         )
 
         def _cond_fun(_state):
@@ -429,7 +439,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             _t = _s + 0.5 * (_u - _s)
 
             _key, _midpoint_key = jrandom.split(_key, 2)
-            _w_t, _bhh_t, _bkk_t = self._brownian_arch(
+            _w_t, _bhh_t, _bkk_t, zzz = self._brownian_arch(
                 _s,
                 _u,
                 _w_s,
@@ -456,6 +466,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 bkk_s=_bkk_s,
                 bkk_t=_bkk_t,
                 bkk_u=_bkk_u,
+                zzz=zzz,
             )
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
@@ -480,6 +491,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # bkk_s = final_state.bkk_s
         bkk_t = final_state.bkk_t
         # bkk_u = final_state.bkk_u
+        zzz = final_state.zzz
 
         su = u - s
         w_su = w_u - w_s
@@ -498,17 +510,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
             # reverse _brownian_arch to get x1, x2 from
             # w_s, w_t, w_u, bhh_s, bhh_t, bhh_u
 
-            uB = u * w_s - s * w_u  # B = brownian bridge on [0,u] evaluated at s
-            bhh_su = bhh_u - bhh_s - 0.5 * uB
-            x1 = 4 * (w_t - 0.5 * w_s - 0.5 * w_u) - 6 / su * bhh_su
-            bhh_st = bhh_t - bhh_s - 0.5 * (t * w_s - s * w_t)
-            x2 = jnp.sqrt(3) * (1 / su * (8 * bhh_st - bhh_su) + 0.5 * x1)
-            # note that x1, x2 are Normal(0, su), unlike in thm 6.1.4 of
-            # Foster's thesis, where they are Normal(0, 1), so there is
-            # an extra factor of sqrt(su) in the formula for c and d_prime.
-            root_su = jnp.sqrt(su)
-            x1 = x1 / root_su
-            x2 = x2 / root_su
+            u_bb_s = (
+                u * w_s - s * w_u
+            )  # = u * (brownian bridge on [0,u] evaluated at s)
+            bhh_su = bhh_u - bhh_s - 0.5 * u_bb_s
+            x1, x2, _ = zzz
 
             sr3 = jnp.power(sr, 3)
             ru3 = jnp.power(ru, 3)
