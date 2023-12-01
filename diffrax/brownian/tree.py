@@ -66,13 +66,13 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
 
     `LevyVal(W_su, H_su)` or `LevyVal(W_su, H_su, K_su)`
     """
-    su = (x1.t - x0.t).astype(x0.W.dtype)
-    su = jnp.where(jnp.abs(su) < jnp.finfo(su).eps, jnp.inf, su)
-    inverse_h = 1 / su
-    u_bb_s = x1.t * x0.W - x0.t * x1.W
+    su = (x1.dt - x0.dt).astype(x0.W.dtype)
+    _su = jnp.where(jnp.abs(su) < jnp.finfo(su).eps, jnp.inf, su)
+    inverse_su = 1 / _su
+    u_bb_s = x1.dt * x0.W - x0.dt * x1.W
     w_su = x1.W - x0.W
     bhh_su = x1.bar_H - x0.bar_H - 0.5 * u_bb_s  # bhh_su = H_{s,u} * (u-s)
-    hh_su = inverse_h * bhh_su
+    hh_su = inverse_su * bhh_su
 
     if x0.K is not None:
         assert x1.K is not None
@@ -81,14 +81,14 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
             x1.bar_K
             - x0.bar_K
             - su / 2 * x0.bar_H
-            + x0.t / 2 * bhh_su
-            - (x1.t - 2 * x0.t) / 12 * u_bb_s
+            + x0.dt / 2 * bhh_su
+            - (x1.dt - 2 * x0.dt) / 12 * u_bb_s
         )
-        kk_su = jnp.square(inverse_h) * bkk_su
+        kk_su = jnp.square(inverse_su) * bkk_su
     else:
         kk_su = None
 
-    return LevyVal(t=su, W=w_su, H=hh_su, bar_H=None, K=kk_su, bar_K=None)
+    return LevyVal(dt=su, W=w_su, H=hh_su, bar_H=None, K=kk_su, bar_K=None)
 
 
 class VirtualBrownianTree(AbstractBrownianPath):
@@ -140,7 +140,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
         self.tol = tol / (self.t1 - self.t0)
         if levy_area not in ["", "space-time", "space-time-time"]:
             raise ValueError(
-                f"levy_area must be one of '', 'space-time', but got {levy_area}."
+                f"levy_area must be one of '', 'space-time', or 'space-time-time', "
+                f"but got {levy_area}."
             )
         self.levy_area = levy_area
         self.shape = (
@@ -169,12 +170,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
             dtype = jnp.dtype(z)
             return z * jnp.asarray(sqrt_len, dtype)
 
-        def mult_and_add(z):
+        def mult(z):
             dtype = jnp.dtype(z)
-            return jnp.asarray(self.t0 + z * interval_len, dtype=dtype)
+            return jnp.asarray(interval_len, dtype=dtype) * z
 
         return LevyVal(
-            t=jtu.tree_map(mult_and_add, x.t),
+            dt=jtu.tree_map(mult, x.dt),
             W=jtu.tree_map(sqrt_mult, x.W),
             H=jtu.tree_map(sqrt_mult, x.H),
             bar_H=None,
@@ -201,9 +202,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             if self.levy_area in ["space-time", "space-time-time"]:
                 # set bhh_t and bkk_t to None
-                levy_out = jtu.tree_map(
-                    lambda x: dataclasses.replace(x, bhh_t=None, bkk_t=None), levy_0
-                )
+                def remove_bhh_bkk(x):
+                    return dataclasses.replace(x, bar_H=None, bar_K=None)
+
+                levy_out = jtu.tree_map(remove_bhh_bkk, levy_0, is_leaf=_is_levy_val)
             else:
                 levy_out = levy_0
 
@@ -217,7 +219,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 levy_diff = _levy_diff
             else:
                 levy_diff = lambda x, y: LevyVal(
-                    t=y.t - x.t, W=y.W - x.W, H=None, bar_H=None, K=None, bar_K=None
+                    dt=y.dt - x.dt, W=y.W - x.W, H=None, bar_H=None, K=None, bar_K=None
                 )
 
             levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
@@ -265,7 +267,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         """
 
         su = u - s
-        t = s + su / 2
+        t = s + (su / 2)
         root_su = jnp.sqrt(su)
 
         if self.levy_area == "space-time-time":
@@ -343,7 +345,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             std = 0.5 * jnp.sqrt(su)
             w_t = mean + std * jrandom.normal(key, shape, dtype)
             bhh_t, bkk_t = None, None
-        return w_t, bhh_t, bkk_t, (z1, z2, z3)
+        return t, w_t, bhh_t, bkk_t, (z1, z2, z3)
 
     def _evaluate_leaf(
         self,
@@ -359,8 +361,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_0 = jnp.zeros(shape, dtype)
 
-        thalf = jnp.array(0.5, dtype)
-        w_s = jnp.zeros(shape, dtype)
+        w_0 = jnp.zeros(shape, dtype)
         if self.levy_area == "space-time-time":
             (
                 key,
@@ -388,19 +389,19 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bhh_1, bhh_0 = None, None
             bkk_0, bkk_1 = None, None
 
-        w_thalf, bhh_thalf, bkk_half, zzz = self._brownian_arch(
-            t0, t1, w_s, w_1, midpoint_key, shape, dtype, bhh_0, bhh_1, bkk_0, bkk_1
+        t_half, w_half, bhh_half, bkk_half, zzz = self._brownian_arch(
+            t0, t1, w_0, w_1, midpoint_key, shape, dtype, bhh_0, bhh_1, bkk_0, bkk_1
         )
         init_state = _State(
             s=t0,
-            t=thalf,
+            t=t_half,
             u=t1,
-            w_s=w_s,
-            w_t=w_thalf,
+            w_s=w_0,
+            w_t=w_half,
             w_u=w_1,
             key=key,
             bhh_s=bhh_0,
-            bhh_t=bhh_thalf,
+            bhh_t=bhh_half,
             bhh_u=bhh_1,
             bkk_s=bkk_0,
             bkk_t=bkk_half,
@@ -440,7 +441,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 _bhh_s, _bhh_u = None, None
                 _bkk_s, _bkk_u = None, None
             _key = jnp.where(_cond, _key1, _key2)
-            _t = _s + 0.5 * (_u - _s)
 
             _w = split_interval(_cond, _state.w_stu, _state.w_st_tu)
             if self.levy_area in ["space-time", "space-time-time"]:
@@ -452,7 +452,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             _key = jnp.where(_cond, _key1, _key2)
             _key, _midpoint_key = jrandom.split(_key, 2)
-            _w_t, _bhh_t, _bkk_t, zzz = self._brownian_arch(
+            _t, _w_t, _bhh_t, _bkk_t, _zzz = self._brownian_arch(
                 _s,
                 _u,
                 _w_s,
@@ -480,7 +480,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 bkk_s=_bkk_s,
                 bkk_t=_bkk_t,
                 bkk_u=_bkk_u,
-                zzz=zzz,
+                zzz=_zzz,
             )
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
@@ -513,7 +513,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         ru = su - sr  # make sure su = sr + ru regardless of cancellation error
 
         if self.levy_area == "space-time-time":
-
+            r = t
             w_r = w_t
             hh_r = bhh_t / t
             bhh_r = bhh_t
@@ -549,8 +549,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bhh_sr = sr3 / su3 * bhh_su - a * x1 + c * x2
             bhh_r = bhh_s + bhh_sr + 0.5 * (r * w_s - s * w_r)
 
-            r = jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
-            inverse_r = 1 / r
+            _r = jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
+            inverse_r = 1 / _r
             hh_r = inverse_r * bhh_r
             kk_r, bkk_r = None, None
 
@@ -560,4 +560,4 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_r = w_s + (2 * jnp.sqrt(sr * ru) / su) * b_t + (sr / su) * w_su
             hh_r, bhh_r = None, None
             kk_r, bkk_r = None, None
-        return LevyVal(t=r, W=w_r, bar_H=bhh_r, H=hh_r, K=kk_r, bar_K=bkk_r)
+        return LevyVal(dt=r, W=w_r, H=hh_r, bar_H=bhh_r, K=kk_r, bar_K=bkk_r)
