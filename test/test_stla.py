@@ -148,23 +148,25 @@ def test_statistics(ctr, levy_area):
         assert pval_k > 0.1
 
 
-# @pytest.mark.parametrize("levy_area", ["space-time-time"])
+# @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 def conditional_statistics(levy_area):
     key = jrandom.PRNGKey(5678)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
 
     # Get >80 randomly selected points; not too close to avoid discretisation error.
     t0 = 0.3
-    eval_t0 = t0 + 0.2
     t1 = 8.7
-    # ts = jrandom.uniform(sample_key, shape=(30,), minval=t0, maxval=t1)
+    boundary = 0.0
+    eval_t0 = t0 + boundary
+    # eval_t1 = t1 - boundary
+    # ts = jrandom.uniform(sample_key, shape=(30,), minval=eval_t0, maxval=eval_t1)
     ts = jnp.array([1.0, 3.0, 6.0, 7.0])
     sorted_ts = jnp.sort(ts)
     ts = []
     prev_ti = sorted_ts[0]
     ts.append(prev_ti)
     for ti in sorted_ts[1:]:
-        if ti < prev_ti + 2**-5:
+        if ti < prev_ti + 2**-7:
             continue
         prev_ti = ti
         ts.append(ti)
@@ -177,7 +179,7 @@ def conditional_statistics(levy_area):
 
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=2**-12, key=k, levy_area=levy_area
+            t0=t0, t1=t1, shape=(), tol=2**-15, key=k, levy_area=levy_area
         )
     )(bm_keys)
 
@@ -197,7 +199,6 @@ def conditional_statistics(levy_area):
         s = s - eval_t0
         r = r - eval_t0
         u = u - eval_t0
-        print(f"s {s}, r {r}, u {u}")
 
         assert jnp.allclose(s, bm_s.dt, atol=1e-3, rtol=1e-2)
         assert jnp.allclose(r, bm_r.dt, atol=1e-3, rtol=1e-2)
@@ -206,8 +207,6 @@ def conditional_statistics(levy_area):
         w_s, h_s = bm_s.W, bm_s.H
         w_r, h_r = bm_r.W, bm_r.H
         w_u, h_u = bm_u.W, bm_u.H
-        print(f"w_s shape {w_s.shape}, h_s shape {h_s.shape}")
-        print(f"w_s {jnp.mean(w_s)}, w_r {jnp.mean(w_r)}, w_u {jnp.mean(w_u)}")
         bh_s = s * h_s
         bh_r = r * h_r
         bh_u = u * h_u
@@ -282,10 +281,6 @@ def conditional_statistics(levy_area):
             w_mean = (sr / su) * (w_u - w_s) + bb_mean
             h_mean = (sr2 / su3) * bh_su + (30 * sr2 * ru / su5) * bk_su
             k_mean = (sr3 / su5) * bk_su
-            print(
-                f"w_mean {jnp.mean(w_mean)}, h_mean {jnp.mean(h_mean)},"
-                f" k_mean {jnp.mean(k_mean)}"
-            )
 
             mean = jnp.stack([w_mean, h_mean, k_mean], axis=0)
 
@@ -324,9 +319,6 @@ def conditional_statistics(levy_area):
                 - ((r - 2 * s) / 12) * r_bb_s
             )
             k_sr = bk_sr / sr2
-            print(
-                f"w_sr {jnp.mean(w_sr)}, h_sr {jnp.mean(h_sr)}, k_sr {jnp.mean(k_sr)}"
-            )
 
             stacked_sr = jnp.stack([w_sr, h_sr, k_sr], axis=0)
 
@@ -337,11 +329,15 @@ def conditional_statistics(levy_area):
             emp_mean = jnp.mean(centred, axis=1)
             emp_cov = jnp.cov(centred)
 
-            print(f"emp_cond_mean {emp_mean}")
-            print(f"emp_cov  {emp_cov}")
-            print(f"true_cov {cov}")
+            mean_err = jnp.sum(jnp.abs(emp_mean))
+            cov_err = jnp.sum(jnp.abs(emp_cov - cov))
 
-            pass
+            print(
+                f"s {s:.3f}, r {r:.3f}, u {u:.3f}, "
+                f"mean_err {mean_err:.4e}, cov_err {cov_err:.4e}"
+            )
+            assert mean_err < 1e-2
+            assert cov_err < 1e-2
 
 
 def test_reverse_time():
