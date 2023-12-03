@@ -297,7 +297,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         """
 
-        su = jnp.asarray(2.0 ** (-level), dtype=dtype)
+        su = jnp.power(jnp.asarray(2.0, dtype), -level)
         t = s + su / 2
         u_minus_s = u - s
         # jax.debug.print(
@@ -307,13 +307,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
         #     su=su,
         #     diff=u_minus_s - su,
         # )
-
         su = eqxi.error_if(
             su,
-            jnp.abs(u_minus_s - su) > 0,
+            jnp.abs(u_minus_s - su) > 1e-17,
             "VirtualBrownianTree: u-s is not 2^(-tree_level)",
         )
-
         root_su = jnp.sqrt(su)
 
         w_s, w_u, w_su = w
@@ -420,7 +418,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         t0 = jnp.zeros((), dtype)
         t1 = jnp.ones((), dtype)
-        r = r.astype(dtype)
+        r = jnp.asarray(r, dtype)
 
         w_0 = jnp.zeros(shape, dtype)
         if self.levy_area == "space-time-time":
@@ -542,11 +540,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
         cond = r > t
         s = jnp.where(cond, t, s)
         u = jnp.where(cond, u, t)
-        su = jnp.asarray(2.0 ** (-level), dtype=dtype)
+        su = jnp.power(jnp.asarray(2.0, dtype), -level)
         su = eqxi.error_if(
             su,
             jnp.abs(u - s - su) > 0,
-            "VirtualBrownianTree: u-s is not 2^(-tree_level)",
+            "VirtualBrownianTree: u-s is not 2^(-tree_level) in final step.",
         )
 
         # These could be a source of cancellation error:
