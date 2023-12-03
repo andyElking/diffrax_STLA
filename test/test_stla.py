@@ -158,9 +158,9 @@ def conditional_statistics(levy_area):
     t1 = 8.7
     boundary = 0.0
     eval_t0 = t0 + boundary
-    # eval_t1 = t1 - boundary
-    # ts = jrandom.uniform(sample_key, shape=(30,), minval=eval_t0, maxval=eval_t1)
-    ts = jnp.array([1.0, 3.0, 6.0, 7.0])
+    eval_t1 = t1 - boundary
+    ts = jrandom.uniform(sample_key, shape=(30,), minval=eval_t0, maxval=eval_t1)
+    # ts = jnp.array([1.0, 3.0, 6.0, 7.0])
     sorted_ts = jnp.sort(ts)
     ts = []
     prev_ti = sorted_ts[0]
@@ -171,11 +171,11 @@ def conditional_statistics(levy_area):
         prev_ti = ti
         ts.append(ti)
     ts = jnp.stack(ts)
-    # assert len(ts) > 10
+    assert len(ts) > 10
     ts = jrandom.permutation(permute_key, ts)
 
     # Get some random paths
-    bm_keys = jrandom.split(bm_key, 10000)
+    bm_keys = jrandom.split(bm_key, 100)
 
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
