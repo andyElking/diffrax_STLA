@@ -575,77 +575,84 @@ class VirtualBrownianTree(AbstractBrownianPath):
         su3 = jnp.power(su, 3)
 
         if self.levy_area == "space-time-time":
-            # print s, r, u
-            jax.debug.print("s {s}, r {r}, u {u}", s=s, r=r, u=u)
-
             bkk_s, bkk_u, bkk_su = split_interval(
                 cond, final_state.bkk_stu, final_state.bkk_st_tu
             )
 
-            su5 = jnp.power(su, 5)
-            sr5 = jnp.power(sr, 5)
-            sr2 = jnp.square(sr)
-            ru2 = jnp.square(ru)
+            # su5 = jnp.power(su, 5)
+            # sr5 = jnp.power(sr, 5)
+            # sr2 = jnp.square(sr)
+            # ru2 = jnp.square(ru)
+            #
+            # # compute the mean of (W_sr, H_sr, K_sr) conditioned on
+            # # (W_s, H_s, K_s, W_u, H_u, K_u)
+            # bb_mean = (6 * sr * ru / su3) * bhh_su + (
+            #     120 * sr * ru * (su / 2 - sr) / su5
+            # ) * bkk_su
+            # w_mean = (sr / su) * (w_u - w_s) + bb_mean
+            # h_mean = (sr2 / su3) * bhh_su + (30 * sr2 * ru / su5) * bkk_su
+            # k_mean = (sr3 / su5) * bkk_su
+            #
+            # # compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
+            # # (W_s, H_s, K_s, W_u, H_u, K_u)
+            # ww_cov = (sr * ru * ((sr - ru) ** 4 + 4 * (sr2 * ru2))) / su5
+            # wh_cov = -(sr3 * ru * (sr2 - 3 * sr * ru + 6 * ru2)) / (2 * su5)
+            # wk_cov = (sr**4 * ru * (sr - ru)) / (12 * su5)
+            # hh_cov = sr / 12 * (1 - (sr3 * (sr2 + 2 * sr * ru + 16 * ru2)) / su5)
+            # hk_cov = -(sr5 * ru) / (24 * su5)
+            # kk_cov = sr / 720 * (1 - sr5 / su5)
+            #
+            # cov = jnp.array(
+            #     [
+            #         [ww_cov, wh_cov, wk_cov],
+            #         [wh_cov, hh_cov, hk_cov],
+            #         [wk_cov, hk_cov, kk_cov],
+            #     ]
+            # )
+            #
+            # (hat_w_sr, hat_hh_sr, hat_kk_sr) = jrandom.multivariate_normal(
+            #     key,
+            #     jnp.zeros((3,), dtype),
+            #     cov,
+            #     shape=shape,
+            #     dtype=dtype,
+            #     method="eigh",
+            # )
+            #
+            # jax.debug.print(
+            #     "hat_w_sr {hat_w_sr}, hat_hh_sr {hat_hh_sr}, hat_kk_sr {hat_kk_sr}",
+            #     hat_w_sr=hat_w_sr,
+            #     hat_hh_sr=hat_hh_sr,
+            #     hat_kk_sr=hat_kk_sr,
+            # )
+            #
+            # w_sr = w_mean + hat_w_sr
+            # w_r = w_s + w_sr
+            #
+            # r_bb_s = r * w_s - s * w_r
+            #
+            # bhh_sr = h_mean + hat_hh_sr
+            # bhh_r = bhh_s + bhh_sr + 0.5 * r_bb_s
+            #
+            # bkk_sr = k_mean + hat_kk_sr
+            # bkk_r = (
+            #     bkk_s + bkk_sr + sr / 2 * bhh_s -
+            #     s * bhh_sr + (r - 2 * s) / 12 * r_bb_s
+            # )
+            #
+            # inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
+            # hh_r = inverse_r * bhh_r
+            # kk_r = inverse_r**2 * bkk_r
 
-            # compute the mean of (W_sr, H_sr, K_sr) conditioned on
-            # (W_s, H_s, K_s, W_u, H_u, K_u)
-            bb_mean = (6 * sr * ru / su3) * bhh_su + (
-                120 * sr * ru * (su / 2 - sr) / su5
-            ) * bkk_su
-            w_mean = (sr / su) * (w_u - w_s) + bb_mean
-            h_mean = (sr2 / su3) * bhh_su + (30 * sr2 * ru / su5) * bkk_su
-            k_mean = (sr3 / su5) * bkk_su
+            # The above code is slow, so we will instead just snap to either
+            # the left or right boundary of the interval, depending on whether
+            # r is closer to s or u.
 
-            # compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
-            # (W_s, H_s, K_s, W_u, H_u, K_u)
-            ww_cov = (sr * ru * ((sr - ru) ** 4 + 4 * (sr2 * ru2))) / su5
-            wh_cov = -(sr3 * ru * (sr2 - 3 * sr * ru + 6 * ru2)) / (2 * su5)
-            wk_cov = (sr**4 * ru * (sr - ru)) / (12 * su5)
-            hh_cov = sr / 12 * (1 - (sr3 * (sr2 + 2 * sr * ru + 16 * ru2)) / su5)
-            hk_cov = -(sr5 * ru) / (24 * su5)
-            kk_cov = sr / 720 * (1 - sr5 / su5)
-
-            cov = jnp.array(
-                [
-                    [ww_cov, wh_cov, wk_cov],
-                    [wh_cov, hh_cov, hk_cov],
-                    [wk_cov, hk_cov, kk_cov],
-                ]
-            )
-
-            # print cov and its cholesky decomposition
-            # chol = jnp.linalg.cholesky(cov)
-            # jax.debug.print("cov {cov}, cholesky {chol}",
-            #                 cov=cov, chol=chol)
-
-            (hat_w_sr, hat_hh_sr, hat_kk_sr) = jrandom.multivariate_normal(
-                key,
-                jnp.zeros((3,), dtype),
-                cov,
-                shape=shape,
-                dtype=dtype,
-                method="eigh",
-            )
-
-            jax.debug.print(
-                "hat_w_sr {hat_w_sr}, hat_hh_sr {hat_hh_sr}, hat_kk_sr {hat_kk_sr}",
-                hat_w_sr=hat_w_sr,
-                hat_hh_sr=hat_hh_sr,
-                hat_kk_sr=hat_kk_sr,
-            )
-
-            w_sr = w_mean + hat_w_sr
-            w_r = w_s + w_sr
-
-            r_bb_s = r * w_s - s * w_r
-
-            bhh_sr = h_mean + hat_hh_sr
-            bhh_r = bhh_s + bhh_sr + 0.5 * r_bb_s
-
-            bkk_sr = k_mean + hat_kk_sr
-            bkk_r = (
-                bkk_s + bkk_sr + sr / 2 * bhh_s - s * bhh_sr + (r - 2 * s) / 12 * r_bb_s
-            )
+            cond = jnp.abs(r - s) < jnp.abs(r - u)
+            r = jnp.where(cond, s, u)
+            w_r = jnp.where(cond, w_s, w_u)
+            bhh_r = jnp.where(cond, bhh_s, bhh_u)
+            bkk_r = jnp.where(cond, bkk_s, bkk_u)
 
             inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
             hh_r = inverse_r * bhh_r
