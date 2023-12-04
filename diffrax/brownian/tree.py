@@ -63,15 +63,20 @@ def _levy_diff(x0: LevyVal, x1: LevyVal) -> LevyVal:
 
     `LevyVal(W_su, H_su)` or `LevyVal(W_su, H_su, K_su)`
     """
+
     su = (x1.dt - x0.dt).astype(x0.W.dtype)
+    w_su = x1.W - x0.W
+    if x0.H is None or x1.H is None:  # BM only case
+        return LevyVal(dt=su, W=w_su, H=None, bar_H=None, K=None, bar_K=None)
+
+    # levy_area in ["space-time", "space-time-time"]
     _su = jnp.where(jnp.abs(su) < jnp.finfo(su).eps, jnp.inf, su)
     inverse_su = 1 / _su
     u_bb_s = x1.dt * x0.W - x0.dt * x1.W
-    w_su = x1.W - x0.W
     bhh_su = x1.bar_H - x0.bar_H - 0.5 * u_bb_s  # bhh_su = H_{s,u} * (u-s)
     hh_su = inverse_su * bhh_su
 
-    if x0.K is not None:
+    if x0.K is not None:  # levy_area == "space-time-time"
         assert x1.K is not None
         # bkk_su = K_{s,u} * (u-s)**2
         bkk_su = (
@@ -101,10 +106,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
     """Brownian simulation that discretises the interval `[t0, t1]` to tolerance `tol`,
     and is piecewise quadratic at that discretisation.
 
-    Can be initialised with `levy_area` set to `""`, or `"space-time"`.
-    If `levy_area=="space_time"`, then it also computes space-time Lévy area `H`.
-    This will impact the Brownian path, so even with the same key, the trajectory will
-    be different depending on the value of `levy_area`.
+    Can be initialised with `levy_area` set to `""`, `"space-time"`, or
+    `"space-time-time"`. If `levy_area=="space_time"`, then it also computes
+    space-time Lévy area `H`, and if `levy_area=="space-time-time"`, then it
+    also computes space-time-time Lévy area `K`.
+    This will impact the Brownian path, so even with the same key, the trajectory
+    will be different depending on the value of `levy_area`.
 
     ??? cite "Reference"
 
@@ -126,7 +133,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: Scalar = field(init=True)  # override init=False in AbstractPath
     tol: Scalar
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: Literal["", "space-time"] = eqx.field(static=True)
+    levy_area: Literal["", "space-time", "space-time-time"] = eqx.field(static=True)
     key: "jax.random.PRNGKey"  # noqa: F821
 
     def __init__(
@@ -134,9 +141,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t0: Scalar,
         t1: Scalar,
         tol: Scalar,
-        shape: Union[Tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
+        shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: "jax.random.PRNGKey",
-        levy_area: Literal["", "space-time"] = "",
+        levy_area: Literal["", "space-time", "space-time-time"] = "",
     ):
         (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
         self.t0 = t0
@@ -205,15 +212,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t0 = linear_rescale(self.t0, t0, self.t1)
         levy_0 = self._evaluate(t0)
         if t1 is None:
-
-            if self.levy_area in ["space-time", "space-time-time"]:
-                # set bhh_t and bkk_t to None
-                def remove_bhh_bkk(x):
-                    return dataclasses.replace(x, bar_H=None, bar_K=None)
-
-                levy_out = jtu.tree_map(remove_bhh_bkk, levy_0, is_leaf=_is_levy_val)
-            else:
-                levy_out = levy_0
+            levy_out = levy_0
 
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
@@ -221,14 +220,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             t1 = linear_rescale(self.t0, t1, self.t1)
             levy_1 = self._evaluate(t1)
 
-            if self.levy_area in ["space-time", "space-time-time"]:
-                levy_diff = _levy_diff
-            else:
-                levy_diff = lambda x, y: LevyVal(
-                    dt=y.dt - x.dt, W=y.W - x.W, H=None, bar_H=None, K=None, bar_K=None
-                )
-
-            levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
+            levy_out = jtu.tree_map(_levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
 
         levy_out = levy_tree_transpose(self.shape, self.levy_area, levy_out)
         # now map [0,1] back onto [self.t0, self.t1]
@@ -513,14 +505,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
 
-        # Based on the values of (W, H) at s<t<u (where t = (s+u)/2), we interpolate
-        # to obtain approximate values of (W_r, hh_r) for all r ∈ [s,u]. This is done
-        # in a way that gives (W_r, hh_r) all the correct first and second moments
-        # conditional on (W_s, H_s), and (W_u, H_u), where (W_t, H_t) is treated as
-        # the source of randomness.
-        # NOTE: this gives a different result than the original implementation of the
-        # VirtualBrownianTree by Patrick Kidger.
-
         level = final_state.level + 1
         s, t, u = final_state.stu
 
@@ -538,7 +522,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
             "VirtualBrownianTree: u-s is not 2^(-tree_level) in final step.",
         )
 
-        # These could be a source of cancellation error:
         sr = r - s
         ru = su - sr  # make sure su = sr + ru regardless of cancellation error
 

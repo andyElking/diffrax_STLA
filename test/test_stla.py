@@ -27,7 +27,7 @@ def _make_struct(shape, dtype):
 # )
 # @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 @pytest.mark.parametrize("ctr", [diffrax.VirtualBrownianTree])
-@pytest.mark.parametrize("levy_area", ["space-time-time"])
+@pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 def test_shape_and_dtype(ctr, levy_area, getkey):
     t0 = 0
     t1 = 2
@@ -115,7 +115,7 @@ def test_shape_and_dtype(ctr, levy_area, getkey):
 # )
 # @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 @pytest.mark.parametrize("ctr", [diffrax.VirtualBrownianTree])
-@pytest.mark.parametrize("levy_area", ["space-time-time"])
+@pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 def test_statistics(ctr, levy_area):
     # Deterministic key for this test; not using getkey()
     key = jrandom.PRNGKey(5678)
