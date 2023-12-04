@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 import equinox as eqx
 import jax
@@ -13,7 +13,7 @@ from ..brownian.base import AbstractBrownianPath
 from ..custom_types import Array, Bool, DenseInfo, LevyVal, PyTree, Scalar
 from ..local_interpolation import LocalLinearInterpolation
 from ..solution import RESULTS
-from ..term import _ControlTerm, AbstractTerm, MultiTerm, ODETerm
+from ..term import AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractStratonovichSolver
 
 
@@ -52,8 +52,6 @@ class StochasticButcherTableau:
         for i, (a_i, c_i) in enumerate(zip(self.a, self.c)):
             assert np.allclose(sum(a_i), c_i)
         assert np.allclose(sum(self.b_sol), 1.0)
-
-        # TODO: add checks for whether the method is FSAL
 
 
 StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
@@ -111,13 +109,13 @@ class AbstractAdditiveSRK(AbstractStratonovichSolver):
     in the `StochasticButcherTableau`.
     """
 
-    term_structure = MultiTerm[Tuple[ODETerm, _ControlTerm]]
+    term_structure = MultiTerm[tuple[ODETerm, AbstractTerm]]
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
 
     def init(
         self,
-        terms: MultiTerm[Tuple[ODETerm, _ControlTerm]],
+        terms: term_structure,
         t0: Scalar,
         t1: Scalar,
         y0: PyTree,
@@ -132,7 +130,7 @@ class AbstractAdditiveSRK(AbstractStratonovichSolver):
             if not path.levy_area == "space-time":
                 raise ValueError(
                     "The Brownian path controlling the diffusion "
-                    "should be initialised with `compute_stla=True`"
+                    "should be initialised with `levy_area='space-time'`"
                 )
 
         # check that the vector field of the diffusion term is constant
@@ -157,14 +155,14 @@ class AbstractAdditiveSRK(AbstractStratonovichSolver):
 
     def step(
         self,
-        terms: MultiTerm[Tuple[ODETerm, _ControlTerm]],
+        terms: term_structure,
         t0: Scalar,
         t1: Scalar,
         y0: PyTree,
         args: PyTree,
         solver_state: _SolverState,
         made_jump: Bool,
-    ) -> Tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+    ) -> tuple[PyTree, _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del solver_state, made_jump
 
         h = t1 - t0
