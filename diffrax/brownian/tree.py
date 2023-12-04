@@ -1,4 +1,3 @@
-import dataclasses
 from dataclasses import field
 from typing import Literal, Optional, Tuple, Union
 
@@ -127,11 +126,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
         key: "jax.random.PRNGKey",
         levy_area: Literal["", "space-time"] = "",
     ):
-        if t0 >= t1:
-            raise ValueError("t0 must be strictly less than t1.")
+        (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
         self.t0 = t0
         self.t1 = t1
+        # Since we rescale the interval to [0,1],
+        # we need to rescale the tolerance too.
         self.tol = tol / (self.t1 - self.t0)
+
         if levy_area not in ["", "space-time"]:
             raise ValueError(
                 f"levy_area must be one of '', 'space-time', but got {levy_area}."
@@ -192,15 +193,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t0 = linear_rescale(self.t0, t0, self.t1)
         levy_0 = self._evaluate(t0)
         if t1 is None:
-
-            if self.levy_area in ["space-time", "space-time-time"]:
-                # set bhh_t and bkk_t to None
-                def remove_bhh_bkk(x):
-                    return dataclasses.replace(x, bar_H=None, bar_K=None)
-
-                levy_out = jtu.tree_map(remove_bhh_bkk, levy_0, is_leaf=_is_levy_val)
-            else:
-                levy_out = levy_0
+            levy_out = levy_0
 
         else:
             t1 = eqxi.nondifferentiable(t1, name="t1")
@@ -208,14 +201,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             t1 = linear_rescale(self.t0, t1, self.t1)
             levy_1 = self._evaluate(t1)
 
-            if self.levy_area in ["space-time", "space-time-time"]:
-                levy_diff = _levy_diff
-            else:
-                levy_diff = lambda x, y: LevyVal(
-                    dt=y.dt - x.dt, W=y.W - x.W, H=None, bar_H=None, K=None, bar_K=None
-                )
-
-            levy_out = jtu.tree_map(levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
+            levy_out = jtu.tree_map(_levy_diff, levy_0, levy_1, is_leaf=_is_levy_val)
 
         levy_out = levy_tree_transpose(self.shape, self.levy_area, levy_out)
         # now map [0,1] back onto [self.t0, self.t1]
