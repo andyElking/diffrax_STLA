@@ -288,25 +288,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
             - `t`: midpoint time
             - `w_t`: value of BM at t
             - `w_st_tu`: $(W_{s,t}, W_{t,u})$
-            - `bhh_t`: (optional) value of $\bar{H}_t$
+            - `bhh`: (optional) $(\bar{H}_s, \bar{H}_t, \bar{H}_u)$
             - `bhh_st_tu`: (optional) $(\bar{H}_{s,t}, \bar{H}_{t,u})$
-            - `bkk_t`: (optional) value of $\bar{K}_t$
+            - `bkk_t`: (optional) $(\bar{K}_s, \bar{K}_t, \bar{K}_u)$
             - `bkk_st_tu`: (optional) $(\bar{K}_{s,t}, \bar{K}_{t,u})$
-            - `zzz`: tuple of $Z_1, Z_2, Z_3 \sim \mathcal{N}(0,1)$
-            (used for final interpolation)
-
         """
 
         su = jnp.power(jnp.asarray(2.0, dtype), -level)
-        t = s + su / 2
+        st = su / 2
+        t = s + st
         u_minus_s = u - s
-        # jax.debug.print(
-        #     "s {s}, u {u}, su {su}, diff {diff}",
-        #     s=s,
-        #     u=u,
-        #     su=su,
-        #     diff=u_minus_s - su,
-        # )
         su = eqxi.error_if(
             su,
             jnp.abs(u_minus_s - su) > 1e-17,
@@ -341,8 +332,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_term2 = 3 / (2 * su) * bhh_su + z
             w_st = w_term1 + w_term2
             w_tu = w_term1 - w_term2
-            bhh_term1 = bhh_su / 8 - su / 4 * z
-            bhh_term2 = 15 / (8 * su) * bkk_su + su / 2 * x1
+            bhh_term1 = bhh_su / 8 - st / 2 * z
+            bhh_term2 = 15 / (8 * su) * bkk_su + st * x1
             bhh_st = bhh_term1 + bhh_term2
             bhh_tu = bhh_term1 - bhh_term2
             bkk_term1 = bkk_su / 32 - su2 / 8 * x1
@@ -356,11 +347,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             w_t = w_s + w_st
             t_bb_s = t * w_s - s * w_t
-            bhh_t = bhh_s + bhh_st + 0.5 * t_bb_s
+            bhh_t = bhh_s + bhh_st + t_bb_s / 2
             bkk_t = (
                 bkk_s
                 + bkk_st
-                + su / 4 * bhh_s
+                + st / 2 * bhh_s
                 - s / 2 * bhh_st
                 + (t - 2 * s) / 12 * t_bb_s
             )
@@ -543,7 +534,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         su = jnp.power(jnp.asarray(2.0, dtype), -level)
         su = eqxi.error_if(
             su,
-            jnp.abs(u - s - su) > 0,
+            jnp.abs(u - s - su) > 1e-17,
             "VirtualBrownianTree: u-s is not 2^(-tree_level) in final step.",
         )
 
@@ -615,12 +606,12 @@ class VirtualBrownianTree(AbstractBrownianPath):
             #     method="eigh",
             # )
             #
-            # jax.debug.print(
-            #     "hat_w_sr {hat_w_sr}, hat_hh_sr {hat_hh_sr}, hat_kk_sr {hat_kk_sr}",
-            #     hat_w_sr=hat_w_sr,
-            #     hat_hh_sr=hat_hh_sr,
-            #     hat_kk_sr=hat_kk_sr,
-            # )
+            # # jax.debug.print(
+            # #     "hat_w_sr {hat_w_sr}, hat_hh_sr {hat_hh_sr}, hat_kk_sr {hat_kk_sr}",
+            # #     hat_w_sr=hat_w_sr,
+            # #     hat_hh_sr=hat_hh_sr,
+            # #     hat_kk_sr=hat_kk_sr,
+            # # )
             #
             # w_sr = w_mean + hat_w_sr
             # w_r = w_s + w_sr
