@@ -240,11 +240,10 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         return None
 
-    def _embed_a_lower(self, dtype):
+    def _embed_a_lower(self, _a, dtype):
         num_stages = len(self.tableau.b_sol)
-        a = self.tableau.a
         tab_a = np.zeros((num_stages, num_stages))
-        for i, a_i in enumerate(a):
+        for i, a_i in enumerate(_a):
             tab_a[i + 1, : i + 1] = a_i
         return jnp.asarray(tab_a, dtype=dtype)
 
@@ -266,6 +265,23 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         # time increment
         h = t1 - t0
+
+        # First all the drift related stuff
+        a = self._embed_a_lower(self.tableau.a, dtype)
+        c = jnp.asarray(np.insert(self.tableau.c, 0, 0.0), dtype=dtype)
+        b_sol = jnp.asarray(self.tableau.b_sol, dtype=dtype)
+
+        def make_zeros():
+            def make_zeros_aux(leaf):
+                jnp.zeros(shape=(len(b_sol),) + leaf.shape, dtype=leaf.dtype)
+
+            return jtu.tree_map(make_zeros_aux, y0)
+
+        # _tfs is a PyTree of the same shape as y0, except that the arrays inside
+        # have an additional batch dimension of size len(b_sol) (i.e. num stages)
+        tf_list = make_zeros()
+
+        # Now the diffusion related stuff
         # Brownian increment (and space-time Lévy area)
         bm_inc = diffusion.contr(t0, t1, use_levy=True)
         assert isinstance(bm_inc, LevyVal), (
@@ -274,14 +290,30 @@ class AbstractSRK(AbstractStratonovichSolver):
         )
         w = bm_inc.W
 
+        # b looks similar regardless of whether we have additive noise or not
+        b_w = jnp.asarray(self.tableau.bW, dtype=dtype)
+        b_levy_list = []
+
         levy_areas = []
-        if self.tableau.bH is not None:
-            assert bm_inc.H is not None, (
-                "The diffusion should be a ControlTerm controlled by either a"
-                "VirtualBrownianTree or an UnsafeBrownianPath with"
-                "`levy_area='space-time'`"
-            )
+        stla = self.tableau.bH is not None
+        sttla = self.tableau.bK is not None
+        if stla or sttla:
             levy_areas.append(bm_inc.H)
+            b_levy_list.append(jnp.asarray(self.tableau.bH, dtype=dtype))
+            if sttla:
+                assert bm_inc.K is not None, (
+                    "The diffusion should be a ControlTerm controlled by either a"
+                    "VirtualBrownianTree or an UnsafeBrownianPath with"
+                    "`levy_area='space-time-time'`"
+                )
+                levy_areas.append(bm_inc.K)
+                b_levy_list.append(jnp.asarray(self.tableau.bK, dtype=dtype))
+            else:
+                assert bm_inc.H is not None, (
+                    "The diffusion should be a ControlTerm controlled by either a"
+                    "VirtualBrownianTree or an UnsafeBrownianPath with"
+                    "`levy_area='space-time'` or `levy_area='space-time-time'`"
+                )
 
         def add_levy_to_w(_cw, *_c_levy):
             def aux_add_levy(w_leaf, *levy_leaves):
@@ -291,27 +323,10 @@ class AbstractSRK(AbstractStratonovichSolver):
 
             return aux_add_levy
 
-        a = self._embed_a_lower(dtype)
-        c = jnp.asarray(np.insert(self.tableau.c, 0, 0.0), dtype=dtype)
-        b_sol = jnp.asarray(self.tableau.b_sol, dtype=dtype)
-
-        # b looks similar regardless of whether we have additive noise or not
-        bW = jnp.asarray(self.tableau.bW, dtype=dtype)
-        b_levy = []
-        if self.tableau.bH is not None:
-            b_levy.append(jnp.asarray(self.tableau.bH, dtype=dtype))
-
-        # _tf_list is a PyTree of the same shape as y0, except that the arrays inside
-        # have an additional batch dimension of size len(b_sol) (i.e. num stages)
-        tf_list = jtu.tree_map(
-            lambda leaf: jnp.zeros(shape=(len(b_sol),) + leaf.shape, dtype=leaf.dtype),
-            y0,
-        )
-
         a_levy = []  # will contain cH if additive_noise=True, aH otherwise
         # later other kinds of Levy area will be added to this list
 
-        levy_g_list = []  # will contain levy * g(t0 + c_j * h, z_j) for each stage j
+        levy_gs_list = []  # will contain levy * g(t0 + c_j * h, z_j) for each stage j
         # and for each type of levy area (e.g. H, K, etc.)
 
         if additive_noise:
@@ -319,40 +334,41 @@ class AbstractSRK(AbstractStratonovichSolver):
             g0 = diffusion.vf(t0, y0, args)
             w_g_0 = diffusion.prod(g0, w)
             a_w = jnp.asarray(self.tableau.cW, dtype=dtype)
-            if self.tableau.bH is not None:
-                levy_g_list.append(diffusion.prod(g0, bm_inc.H))
+            if stla:
+                levy_gs_list.append(diffusion.prod(g0, bm_inc.H))
                 a_levy.append(jnp.asarray(self.tableau.cH, dtype=dtype))
+            if sttla:
+                levy_gs_list.append(diffusion.prod(g0, bm_inc.K))
+                a_levy.append(jnp.asarray(self.tableau.cK, dtype=dtype))
 
             carry_type = tuple[int, PyTree[Array]]
-            carry: carry_type = (0, tf_list)  # just the stage counter and _tf_list
+            carry: carry_type = (0, tf_list)  # just the stage counter and _tfs
 
         else:
             # g is not constant, so we need to compute it at each stage
             # we will carry the value of W * g(t0 + c_j * h, z_j)
-            wg_list = jtu.tree_map(
-                lambda leaf: jnp.zeros(
-                    shape=(len(b_sol),) + leaf.shape, dtype=leaf.dtype
-                ),
-                y0,
-            )
+            wg_list = make_zeros()
             # do the same for each type of Levy area
-            if self.tableau.bH is not None:
-                hh_g_list = jtu.tree_map(
-                    lambda leaf: jnp.zeros(
-                        shape=(len(b_sol),) + leaf.shape, dtype=leaf.dtype
-                    ),
-                    y0,
-                )
-                levy_g_list.append(hh_g_list)
+            if stla:
+                levy_gs_list.append(make_zeros())
+                a_levy.append(self._embed_a_lower(self.tableau.aH, dtype))
+            if sttla:
+                levy_gs_list.append(make_zeros())
+                a_levy.append(self._embed_a_lower(self.tableau.aK, dtype))
 
             carry_type = tuple[int, PyTree[Array], PyTree[Array], PyTree[Array]]
-            carry: carry_type = (0, tf_list, wg_list, levy_g_list)
+            carry: carry_type = (0, tf_list, wg_list, levy_gs_list)
 
-            a_w = jnp.asarray(self.tableau.aW, dtype=dtype)
+            a_w = self._embed_a_lower(self.tableau.aW, dtype)
 
         scan_inputs = (a, c, a_w, a_levy)
 
         # TODO: finish up and test. This is still a work in progress.
+
+        def sum_prev_stages(_stage_out_list, _a_j):
+            return jtu.tree_map(
+                lambda lf: jnp.tensordot(_a_j, lf, axes=1), _stage_out_list
+            )
 
         def stage(
             _carry: carry_type,
@@ -360,89 +376,99 @@ class AbstractSRK(AbstractStratonovichSolver):
         ):
             # Represents the jth stage of the SRK.
             a_j, c_j, a_w_j, a_levy_list_j = x
-            # for now a_levy_j is just [cH_j]
+            # a_levy_list_j = [aH_j, aK_j] (if those entries exist) where
+            # aH_j is the row in the aH matrix corresponding to stage j
+            # same for aK_j, but for space-time-time Lévy area K.
 
             if additive_noise:
-                # carry = (j, _tf_list) where
-                # _tf_list = [hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
+                # carry = (j, _tfs) where
+                # _tfs = Array[hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
                 # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
-                j, _tf_list = _carry
-                diffusion_result = jtu.tree_map(
-                    add_levy_to_w(a_w_j, *a_levy_list_j), w_g_0, *levy_g_list
+                j, _tfs = _carry
+                _diffusion_result = jtu.tree_map(
+                    add_levy_to_w(a_w_j, *a_levy_list_j), w_g_0, *levy_gs_list
                 )
             else:
-                # carry = (j, _tf_list, _wg_list, _levy_g_list) where
-                # _tf_list = [hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
-                # _wg_list = [wg1, wg2, ..., wg_{j-1}, 0, 0, ..., 0]
-                # _levy_g_list = [[levy_g1], ..., [levy_g_{j-1}], [0...], ..., [0...]]
-                # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
+                # carry = (j, _tfs, _wgs, _levy_gs_list) where
+                # _tfs = Array[tf1, tf2, ..., tf{j-1}, 0, 0, ..., 0]
+                # _wgs = Array[wg1, wg2, ..., wg{j-1}, 0, 0, ..., 0]
+                # _levy_gs_list = [H_gs, K_gs] (if those entries exist) where
+                # H_gs = Array[Hg1, Hg2, ..., Hg{j-1}, 0, 0, ..., 0]
+                # K_gs = Array[Kg1, Kg2, ..., Kg{j-1}, 0, 0, ..., 0]
+                # tfi = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
                 # wgi = diffusion.vf_prod(t0 + c_i*h, y_i, args, w) (i.e. wgi = w * g_i)
-                # levy_gi is a list over the different types of Levy area. Each entry is
-                # of the form levy_gi = diffusion.vf_prod(t0 + c_i*h, y_i, args, levy).
-                # For example levy can be H (the space-time Levy area) or K (the
-                # space-time-time Levy area).
-                j, _tf_list, _wg_list, _levy_g_list = _carry
-                wg_sum = jtu.tree_map(
-                    lambda lf: jnp.tensordot(a_w_j, lf, axes=1), _wg_list
-                )
-                levy_sum_list = []
-                for a_levy_j, levy_g in zip(a_levy_list_j, _levy_g_list):
-                    levy_g_sum = jtu.tree_map(
-                        lambda lf: jnp.tensordot(a_levy_j, lf, axes=1), levy_g
-                    )
-                    levy_sum_list.append(levy_g_sum)
+                j, _tfs, _wgs, _levy_gs_list = _carry
 
-                diffusion_result = jtu.tree_map(
+                wg_sum = sum_prev_stages(_wgs, a_w_j)
+                levy_sum_list = [
+                    sum_prev_stages(levy_gs, a_levy_j)
+                    for a_levy_j, levy_gs in zip(a_levy_list_j, _levy_gs_list)
+                ]
+
+                _diffusion_result = jtu.tree_map(
                     lambda _wg, *_levy_g: sum(_levy_g, _wg), wg_sum, *levy_sum_list
                 )
 
-            # compute Σ_{i=1}^{j-1} a_j_i hk_i
-
-            a_j_mult_k = jtu.tree_map(
-                lambda lf: jnp.tensordot(a_j, lf, axes=1), _tf_list
-            )
+            # compute Σ_{i=1}^{j-1} a_j_i tf_i
+            drift_result = sum_prev_stages(_tfs, a_j)
 
             # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (a_w_j * ΔW + cH_j * ΔH)
-            z_j = (y0**ω + a_j_mult_k**ω + diffusion_result**ω).ω
+            z_j = (y0**ω + drift_result**ω + _diffusion_result**ω).ω
 
             tf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
 
-            # wg_j = diffusion.vf_prod(t0 + c_j * h, z_j, args, w)
-            levy_g_j_list = []
-            if self.tableau.bH is not None:
-                levy_g_j_list.append(
-                    diffusion.vf_prod(t0 + c_j * h, z_j, args, bm_inc.H)
+            def insert_jth_stage(results, res_j):
+                return jtu.tree_map(
+                    lambda res_leaf, j_leaf: res_leaf.at[j].set(j_leaf), results, res_j
                 )
 
-            # TODO: finish the insertion of stage results into carry
+            _tfs = insert_jth_stage(_tfs, tf_j)
+            if additive_noise:
+                return (j + 1, _tfs), None
 
-            # insert the stage results into the list
-            _tf_list = jtu.tree_map(
-                lambda ks_leaf, k_j_leaf: ks_leaf.at[j].set(k_j_leaf), _tf_list, tf_j
+            wg_j = diffusion.vf_prod(t0 + c_j * h, z_j, args, w)
+            _wgs = insert_jth_stage(_wgs, wg_j)
+
+            levy_g_list_j = [
+                diffusion.vf_prod(t0 + c_j * h, z_j, args, levy) for levy in levy_areas
+            ]
+            _levy_gs_list = insert_jth_stage(_levy_gs_list, levy_g_list_j)
+
+            return (j + 1, _tfs, _wgs, _levy_gs_list), None
+
+        scan_out = lax.scan(stage, carry, scan_inputs, length=len(b_sol))
+
+        if additive_noise:
+            # output of lax.scan is ((num_stages, _tfs), None)
+            (_, tf_list), _ = scan_out
+            diffusion_result = jtu.tree_map(
+                add_levy_to_w(b_w, *b_levy_list), w_g_0, *levy_gs_list
             )
-            # note that carry will already contain the whole stack of
-            # k_js, so no need for second return value
-            return (j + 1, _tf_list), None
 
-        # output of lax.scan is ((num_stages, _tf_list), None)
-        (_, tf_list), _ = lax.scan(stage, carry, scan_inputs, length=len(b_sol))
+        else:
+            # output of lax.scan is ((num_stages, _tfs, _wgs, _levy_gs_list), None)
+            (_, tf_list, wgs, levy_gs_list), _ = scan_out
+            b_wgs = sum_prev_stages(wgs, b_w)
+            b_levy_gs_list = [
+                sum_prev_stages(levy_gs, b_levy)
+                for b_levy, levy_gs in zip(b_levy_list, levy_gs_list)
+            ]
+            diffusion_result = jtu.tree_map(
+                lambda b_wg, *b_levy_g: sum(b_levy_g, b_wg), b_wgs, *b_levy_gs_list
+            )
 
         # compute Σ_{j=1}^s b_j k_j
         if self.tableau.b_error is None:
             error = None
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
-            error = jtu.tree_map(
-                lambda lf: jnp.abs(jnp.tensordot(b_err, lf, axes=1)), tf_list
-            )
+            error = sum_prev_stages(tf_list, b_err)
 
-        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (bW * ΔW + bH * ΔH)
+        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (b_w * ΔW + bH * ΔH)
 
-        stages = jtu.tree_map(lambda lf: jnp.tensordot(b_sol, lf, axes=1), tf_list)
+        drift_result = sum_prev_stages(tf_list, b_sol)
 
-        diffusion_contr = jtu.tree_map(add_levy_to_w(bW, *b_levy), w, *levy_areas)
-
-        y1 = (y0**ω + stages**ω + (diffusion.prod(g0, diffusion_contr)) ** ω).ω
+        y1 = (y0**ω + drift_result**ω + diffusion_result**ω).ω
         dense_info = dict(y0=y0, y1=y1)
         return y1, error, dense_info, None, RESULTS.successful
 
