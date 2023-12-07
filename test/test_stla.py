@@ -152,26 +152,26 @@ def test_statistics(ctr, levy_area):
 def conditional_statistics(levy_area):
     key = jrandom.PRNGKey(5678)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
-    tol = 2 ** (-5)
+    tol = 2 ** (-12)
     # Get >80 randomly selected points; not too close to avoid discretisation error.
     t0 = 0.3
     t1 = 8.7
-    boundary = 0.1
+    boundary = 0.0
     eval_t0 = t0 + boundary
     eval_t1 = t1 - boundary
-    ts = jrandom.uniform(sample_key, shape=(30,), minval=eval_t0, maxval=eval_t1)
+    ts = jrandom.uniform(sample_key, shape=(100,), minval=eval_t0, maxval=eval_t1)
     # ts = jnp.array([1.0, 3.0, 6.0, 7.0])
     sorted_ts = jnp.sort(ts)
     ts = []
     prev_ti = sorted_ts[0]
     ts.append(prev_ti)
     for ti in sorted_ts[1:]:
-        if ti < prev_ti + 2**-3:
+        if ti < prev_ti + 2**-10:
             continue
         prev_ti = ti
         ts.append(ti)
     ts = jnp.stack(ts)
-    # assert len(ts) > 10
+    assert len(ts) > 80
     ts = jrandom.permutation(permute_key, ts)
 
     # Get some random paths

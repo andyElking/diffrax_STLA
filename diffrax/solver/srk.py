@@ -273,13 +273,13 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         def make_zeros():
             def make_zeros_aux(leaf):
-                jnp.zeros(shape=(len(b_sol),) + leaf.shape, dtype=leaf.dtype)
+                return jnp.zeros((len(b_sol),) + leaf.shape, dtype=leaf.dtype)
 
             return jtu.tree_map(make_zeros_aux, y0)
 
         # _tfs is a PyTree of the same shape as y0, except that the arrays inside
         # have an additional batch dimension of size len(b_sol) (i.e. num stages)
-        tf_list = make_zeros()
+        tfs = make_zeros()
 
         # Now the diffusion related stuff
         # Brownian increment (and space-time Lévy area)
@@ -342,7 +342,7 @@ class AbstractSRK(AbstractStratonovichSolver):
                 a_levy.append(jnp.asarray(self.tableau.cK, dtype=dtype))
 
             carry_type = tuple[int, PyTree[Array]]
-            carry: carry_type = (0, tf_list)  # just the stage counter and _tfs
+            carry: carry_type = (0, tfs)  # just the stage counter and _tfs
 
         else:
             # g is not constant, so we need to compute it at each stage
@@ -357,7 +357,7 @@ class AbstractSRK(AbstractStratonovichSolver):
                 a_levy.append(self._embed_a_lower(self.tableau.aK, dtype))
 
             carry_type = tuple[int, PyTree[Array], PyTree[Array], PyTree[Array]]
-            carry: carry_type = (0, tf_list, wg_list, levy_gs_list)
+            carry: carry_type = (0, tfs, wg_list, levy_gs_list)
 
             a_w = self._embed_a_lower(self.tableau.aW, dtype)
 
@@ -410,10 +410,10 @@ class AbstractSRK(AbstractStratonovichSolver):
                 )
 
             # compute Σ_{i=1}^{j-1} a_j_i tf_i
-            drift_result = sum_prev_stages(_tfs, a_j)
+            _drift_result = sum_prev_stages(_tfs, a_j)
 
             # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + σ * (a_w_j * ΔW + cH_j * ΔH)
-            z_j = (y0**ω + drift_result**ω + _diffusion_result**ω).ω
+            z_j = (y0**ω + _drift_result**ω + _diffusion_result**ω).ω
 
             tf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
 
@@ -440,14 +440,14 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         if additive_noise:
             # output of lax.scan is ((num_stages, _tfs), None)
-            (_, tf_list), _ = scan_out
+            (_, tfs), _ = scan_out
             diffusion_result = jtu.tree_map(
                 add_levy_to_w(b_w, *b_levy_list), w_g_0, *levy_gs_list
             )
 
         else:
             # output of lax.scan is ((num_stages, _tfs, _wgs, _levy_gs_list), None)
-            (_, tf_list, wgs, levy_gs_list), _ = scan_out
+            (_, tfs, wgs, levy_gs_list), _ = scan_out
             b_wgs = sum_prev_stages(wgs, b_w)
             b_levy_gs_list = [
                 sum_prev_stages(levy_gs, b_levy)
@@ -462,11 +462,11 @@ class AbstractSRK(AbstractStratonovichSolver):
             error = None
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
-            error = sum_prev_stages(tf_list, b_err)
+            error = sum_prev_stages(tfs, b_err)
 
         # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (b_w * ΔW + bH * ΔH)
 
-        drift_result = sum_prev_stages(tf_list, b_sol)
+        drift_result = sum_prev_stages(tfs, b_sol)
 
         y1 = (y0**ω + drift_result**ω + diffusion_result**ω).ω
         dense_info = dict(y0=y0, y1=y1)
