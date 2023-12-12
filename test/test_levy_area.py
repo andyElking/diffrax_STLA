@@ -7,6 +7,10 @@ import jax.random as jrandom
 import jax.tree_util as jtu
 import pytest
 import scipy.stats as stats
+from jax.config import config
+
+
+config.update("jax_enable_x64", True)
 
 
 _vals = {
@@ -76,7 +80,7 @@ def test_shape_and_dtype(ctr, levy_area, getkey):
             assert path.t0 is None
             assert path.t1 is None
         elif ctr is diffrax.VirtualBrownianTree:
-            tol = 2**-5
+            tol = 2**-3
             path = ctr(t0, t1, tol, shape, getkey(), levy_area=levy_area)
             assert path.t0 == 0
             assert path.t1 == 2
@@ -117,9 +121,10 @@ def test_shape_and_dtype(ctr, levy_area, getkey):
 @pytest.mark.parametrize("ctr", [diffrax.VirtualBrownianTree])
 @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 def test_statistics(ctr, levy_area):
+    num_samples = 100000
     # Deterministic key for this test; not using getkey()
     key = jrandom.PRNGKey(5678)
-    keys = jrandom.split(key, 10000)
+    keys = jrandom.split(key, num_samples)
 
     def _eval(key):
         if ctr is diffrax.UnsafeBrownianPath:
@@ -128,12 +133,12 @@ def test_statistics(ctr, levy_area):
             path = ctr(t0=0, t1=5, tol=2**-12, shape=(), key=key, levy_area=levy_area)
         else:
             assert False
-        return path.evaluate(1, 4, use_levy=True)
+        return path.evaluate(1.3, 4.3, use_levy=True)
 
     bm_inc = jax.vmap(_eval)(keys)
     values_w = bm_inc.W
     values_h = bm_inc.H
-    assert values_w.shape == (10000,) and values_h.shape == (10000,)
+    assert values_w.shape == (num_samples,) and values_h.shape == (num_samples,)
     ref_dist_w = stats.norm(loc=0, scale=math.sqrt(3))
     _, pval_w = stats.kstest(values_w, ref_dist_w.cdf)
     ref_dist_h = stats.norm(loc=0, scale=math.sqrt(3 / 12))
@@ -142,7 +147,7 @@ def test_statistics(ctr, levy_area):
     assert pval_h > 0.1
     if levy_area == "space-time-time":
         values_k = bm_inc.K
-        assert values_k.shape == (10000,)
+        assert values_k.shape == (num_samples,)
         ref_dist_k = stats.norm(loc=0, scale=math.sqrt(3 / 720))
         _, pval_k = stats.kstest(values_k, ref_dist_k.cdf)
         assert pval_k > 0.1
@@ -342,8 +347,8 @@ def conditional_statistics(levy_area):
 
             print(
                 f"s {s:.4f}, r {r:.4f}, u {u:.4f},  "
-                f"mean_err {mean_err:.3e}, cov_err {cov_err:.3e},  "
-                f"tilde_y mean {tilde_mean}, y mean {y_mean}"
+                f"mean_err {mean_err:.3e}, cov_err {cov_err:.3e}"
+                # f" ,tilde_y mean {tilde_mean}, y mean {y_mean}"
             )
             # assert jnp.allclose(0, emp_mean, atol=1e-2, rtol=1e-2)
             # assert jnp.allclose(cov, emp_cov, atol=1e-2, rtol=1e-2)
