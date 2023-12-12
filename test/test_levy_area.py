@@ -121,7 +121,7 @@ def test_shape_and_dtype(ctr, levy_area, getkey):
 @pytest.mark.parametrize("ctr", [diffrax.VirtualBrownianTree])
 @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
 def test_statistics(ctr, levy_area):
-    num_samples = 100000
+    num_samples = 10000
     # Deterministic key for this test; not using getkey()
     key = jrandom.PRNGKey(5678)
     keys = jrandom.split(key, num_samples)

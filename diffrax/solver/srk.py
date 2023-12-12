@@ -216,27 +216,40 @@ class AbstractSRK(AbstractStratonovichSolver):
         y0: PyTree,
         args: PyTree,
     ) -> _SolverState:
-        # Check that the diffusion has levy_area="space-time"
+        # Check that the diffusion has the correct Levy area
         _, diffusion = terms.terms
+
+        stla = self.tableau.bH is not None
+        sttla = self.tableau.bK is not None
+
         is_bm = lambda x: isinstance(x, AbstractBrownianPath)
         leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
         paths = [x for x in leaves if is_bm(x)]
         for path in paths:
-            if not path.levy_area == "space-time":
-                raise ValueError(
-                    "The Brownian path controlling the diffusion "
-                    "should be initialised with `levy_area='space-time'`"
-                )
+            if sttla:
+                if not path.levy_area == "space-time-time":
+                    raise ValueError(
+                        "The Brownian path controlling the diffusion "
+                        "should be initialised with `levy_area='space-time-time'`"
+                    )
+            elif stla:
+                if path.levy_area not in ["space-time", "space-time-time"]:
+                    raise ValueError(
+                        "The Brownian path controlling the diffusion "
+                        "should be initialised with `levy_area='space-time'`"
+                        "or `levy_area='space-time-time'`"
+                    )
 
-        # check that the vector field of the diffusion term is constant
-        sigma, (t_sigma, y_sigma) = eqx.filter_jvp(
-            lambda t, y: diffusion.vf(t, y, args), (t0, y0), (t0, y0)
-        )
-        if (t_sigma is not None) or (y_sigma is not None):
-            raise ValueError(
-                "Vector field of the diffusion term should be constant, "
-                "independent of t and y."
+        if self.tableau.additive_noise:
+            # check that the vector field of the diffusion term is constant
+            t_sigma, y_sigma = eqx.filter_jvp(
+                lambda t, y: diffusion.vf(t, y, args), (t0, y0), (t0, y0)
             )
+            if y_sigma is not None:
+                raise ValueError(
+                    "Vector field of the diffusion term should be constant, "
+                    "independent of y."
+                )
 
         return None
 
@@ -362,8 +375,6 @@ class AbstractSRK(AbstractStratonovichSolver):
             a_w = self._embed_a_lower(self.tableau.aW, dtype)
 
         scan_inputs = (a, c, a_w, a_levy)
-
-        # TODO: finish up and test. This is still a work in progress.
 
         def sum_prev_stages(_stage_out_list, _a_j):
             return jtu.tree_map(
