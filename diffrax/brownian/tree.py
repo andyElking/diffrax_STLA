@@ -493,7 +493,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             # compute the mean of (W_sr, H_sr, K_sr) conditioned on
             # (W_s, H_s, K_s, W_u, H_u, K_u)
             bb_mean = (6 * sr_ru_by_su2 / su) * bhh_su + (
-                120 * sr_ru_by_su2 * (su / 2 - sr) / su3
+                120 * sr_ru_by_su2 * (0.5 - sr_by_su) / su2
             ) * bkk_su
             w_mean = sr_by_su * w_su + bb_mean
             h_mean = (sr_by_su**2 / su) * (bhh_su + (30 * ru_by_su / su) * bkk_su)
