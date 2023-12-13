@@ -154,10 +154,9 @@ def test_statistics(ctr, levy_area):
 
 
 # @pytest.mark.parametrize("levy_area", ["space-time", "space-time-time"])
-def conditional_statistics(levy_area):
+def conditional_statistics(levy_area, tol=2**-12):
     key = jrandom.PRNGKey(5678)
     bm_key, sample_key, permute_key = jrandom.split(key, 3)
-    tol = 2 ** (-12)
     # Get >80 randomly selected points; not too close to avoid discretisation error.
     t0 = 0.3
     t1 = 8.7
@@ -171,7 +170,7 @@ def conditional_statistics(levy_area):
     prev_ti = sorted_ts[0]
     ts.append(prev_ti)
     for ti in sorted_ts[1:]:
-        if ti < prev_ti + 2**-10:
+        if ti < prev_ti + 2**-7:
             continue
         prev_ti = ti
         ts.append(ti)
@@ -194,6 +193,9 @@ def conditional_statistics(levy_area):
         vals = jax.vmap(lambda p: p.evaluate(eval_t0, ti, use_levy=True))(path)
         out.append((ti, vals))
     out = sorted(out, key=lambda x: x[0])
+
+    total_mean_err = 0.0
+    total_cov_err = 0.0
 
     # Test their conditional statistics
     for i in range(1, len(ts) - 1):
@@ -344,14 +346,19 @@ def conditional_statistics(levy_area):
 
             mean_err = jnp.sum(jnp.abs(mean_diff))
             cov_err = jnp.sum(jnp.abs(emp_cov - cov))
+            total_mean_err += mean_err / (len(ts) - 2)
+            total_cov_err += cov_err / (len(ts) - 2)
 
-            print(
-                f"s {s:.4f}, r {r:.4f}, u {u:.4f},  "
-                f"mean_err {mean_err:.3e}, cov_err {cov_err:.3e}"
-                # f" ,tilde_y mean {tilde_mean}, y mean {y_mean}"
-            )
-            # assert jnp.allclose(0, emp_mean, atol=1e-2, rtol=1e-2)
-            # assert jnp.allclose(cov, emp_cov, atol=1e-2, rtol=1e-2)
+            # print(
+            #     f"s {s:.4f}, r {r:.4f}, u {u:.4f},  "
+            #     f"mean_err {mean_err:.3e}, cov_err {cov_err:.3e}"
+            #     # f" ,tilde_y mean {tilde_mean}, y mean {y_mean}"
+            # )
+            # assert jnp.allclose(0, mean_diff, atol=1e-2, rtol=1e-2)
+            # assert jnp.allclose(cov, emp_cov, atol=1e-3, rtol=1e-3)
+
+    if levy_area == "space-time-time":
+        print(f"total_mean_err {total_mean_err:.3e}, total_cov_err {total_cov_err:.3e}")
 
 
 def test_reverse_time():

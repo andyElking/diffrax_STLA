@@ -159,26 +159,10 @@ def levy_tree_transpose(tree_shape, levy_area, tree):
     **Returns:**
         A `LevyVal` of PyTrees.
     """
-    if levy_area in ["space-time", "space-time-time"]:
-        hh_default_val = 0.0
-        if levy_area == "space-time-time":
-            kk_default_val = 0.0
-        else:
-            kk_default_val = None
-    else:
-        hh_default_val = None
-        kk_default_val = None
+    inner_tree = jtu.tree_leaves(tree, is_leaf=lambda x: isinstance(x, LevyVal))[0]
+    inner_tree_shape = jax.tree_structure(inner_tree)
     return jtu.tree_transpose(
         outer_treedef=jax.tree_structure(tree_shape),
-        inner_treedef=jax.tree_structure(
-            LevyVal(
-                dt=0.0,
-                W=0.0,
-                H=hh_default_val,
-                bar_H=None,
-                K=kk_default_val,
-                bar_K=None,
-            )
-        ),
+        inner_treedef=inner_tree_shape,
         pytree_to_transpose=tree,
     )

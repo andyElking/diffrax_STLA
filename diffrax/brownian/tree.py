@@ -464,15 +464,15 @@ class VirtualBrownianTree(AbstractBrownianPath):
         s = final_state.s
         su = 2.0**-final_state.level
 
-        sr = r - s
-        ru = su - sr  # make sure su = sr + ru regardless of cancellation error
+        sr = jnp.abs(r - s)
+        ru = jnp.abs(su - sr)  # make sure su = sr + ru regardless of cancellation error
 
         w_s, w_u, w_su = final_state.w_s_u_su
 
         # BM only case
         if self.levy_area == "":
             z = jrandom.normal(key, shape, dtype)
-            w_sr = sr / su * w_su + jnp.sqrt(jnp.abs(sr * ru / su)) * z
+            w_sr = sr / su * w_su + jnp.sqrt(sr * ru / su) * z
             w_r = w_s + w_sr
             return LevyVal(dt=r, W=w_r, H=None, bar_H=None, K=None, bar_K=None)
 
@@ -480,87 +480,85 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bhh_s, bhh_u, bhh_su = final_state.bhh_s_u_su
             bkk_s, bkk_u, bkk_su = final_state.bkk_s_u_su
 
-            # sr3 = jnp.power(sr, 3)
-            # su3 = jnp.power(su, 3)
-            # su5 = jnp.power(su, 5)
-            # sr5 = jnp.power(sr, 5)
-            # sr2 = jnp.square(sr)
-            # ru2 = jnp.square(ru)
-            #
-            # # compute the mean of (W_sr, H_sr, K_sr) conditioned on
-            # # (W_s, H_s, K_s, W_u, H_u, K_u)
-            # bb_mean = (6 * sr * ru / su3) * bhh_su + (
-            #     120 * sr * ru * (su / 2 - sr) / su5
-            # ) * bkk_su
-            # w_mean = (sr / su) * (w_u - w_s) + bb_mean
-            # h_mean = (sr2 / su3) * bhh_su + (30 * sr2 * ru / su5) * bkk_su
-            # k_mean = (sr3 / su5) * bkk_su
-            #
-            # # compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
-            # # (W_s, H_s, K_s, W_u, H_u, K_u)
-            # ww_cov = (sr * ru * ((sr - ru) ** 4 + 4 * (sr2 * ru2))) / su5
-            # wh_cov = -(sr3 * ru * (sr2 - 3 * sr * ru + 6 * ru2)) / (2 * su5)
-            # wk_cov = (sr**4 * ru * (sr - ru)) / (12 * su5)
-            # hh_cov = sr / 12 * (1 - (sr3 * (sr2 + 2 * sr * ru + 16 * ru2)) / su5)
-            # hk_cov = -(sr5 * ru) / (24 * su5)
-            # kk_cov = sr / 720 * (1 - sr5 / su5)
-            #
-            # cov = jnp.array(
-            #     [
-            #         [ww_cov, wh_cov, wk_cov],
-            #         [wh_cov, hh_cov, hk_cov],
-            #         [wk_cov, hk_cov, kk_cov],
-            #     ]
-            # )
-            #
-            # (hat_w_sr, hat_hh_sr, hat_kk_sr) = jrandom.multivariate_normal(
-            #     key,
-            #     jnp.zeros((3,), dtype),
-            #     cov,
-            #     shape=shape,
-            #     dtype=dtype,
-            #     method="eigh",
-            # )
-            #
-            # # jax.debug.print(
-            # #     "hat_w_sr {hat_w_sr}, hat_hh_sr {hat_hh_sr}, hat_kk_sr {hat_kk_sr}",
-            # #     hat_w_sr=hat_w_sr,
-            # #     hat_hh_sr=hat_hh_sr,
-            # #     hat_kk_sr=hat_kk_sr,
-            # # )
-            #
-            # w_sr = w_mean + hat_w_sr
-            # w_r = w_s + w_sr
-            #
-            # r_bb_s = r * w_s - s * w_r
-            #
-            # bhh_sr = h_mean + hat_hh_sr
-            # bhh_r = bhh_s + bhh_sr + 0.5 * r_bb_s
-            #
-            # bkk_sr = k_mean + hat_kk_sr
-            # bkk_r = (
-            #     bkk_s + bkk_sr + sr / 2 * bhh_s -
-            #     s * bhh_sr + (r - 2 * s) / 12 * r_bb_s
-            # )
-            #
-            # inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
-            # hh_r = inverse_r * bhh_r
-            # kk_r = inverse_r**2 * bkk_r
+            su3 = jnp.power(su, 3)
+            sr_by_su = sr / su
+            sr_by_su_3 = jnp.power(sr_by_su, 3)
+            sr_by_su_5 = jnp.power(sr_by_su, 5)
+            ru_by_su = ru / su
+            sr_ru_by_su2 = sr_by_su * ru_by_su
+            sr2 = jnp.square(sr)
+            ru2 = jnp.square(ru)
+            su2 = jnp.square(su)
+
+            # compute the mean of (W_sr, H_sr, K_sr) conditioned on
+            # (W_s, H_s, K_s, W_u, H_u, K_u)
+            bb_mean = (6 * sr_ru_by_su2 / su) * bhh_su + (
+                120 * sr_ru_by_su2 * (su / 2 - sr) / su3
+            ) * bkk_su
+            w_mean = sr_by_su * w_su + bb_mean
+            h_mean = (sr_by_su**2 / su) * (bhh_su + (30 * ru_by_su / su) * bkk_su)
+            k_mean = (sr_by_su_3 / su2) * bkk_su
+
+            # compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
+            # (W_s, H_s, K_s, W_u, H_u, K_u)
+            ww_cov = (sr_by_su * ru_by_su * ((sr - ru) ** 4 + 4 * (sr2 * ru2))) / su3
+            wh_cov = -(sr_by_su_3 * ru_by_su * (sr2 - 3 * sr * ru + 6 * ru2)) / (2 * su)
+            wk_cov = (sr_by_su**4) * ru_by_su * (sr - ru) / 12
+            hh_cov = sr / 12 * (1 - sr_by_su_3 * (sr2 + 2 * sr * ru + 16 * ru2) / su2)
+            hk_cov = -(ru / 24) * sr_by_su_5
+            kk_cov = (sr / 720) * (1 - sr_by_su_5)
+
+            cov = jnp.array(
+                [
+                    [ww_cov, wh_cov, wk_cov],
+                    [wh_cov, hh_cov, hk_cov],
+                    [wk_cov, hk_cov, kk_cov],
+                ]
+            )
+
+            hat_y = jrandom.multivariate_normal(
+                key,
+                jnp.zeros((3,), dtype),
+                cov,
+                shape=shape,
+                dtype=dtype,
+                method="eigh",
+            )
+            hat_w_sr, hat_hh_sr, hat_kk_sr = [
+                x.squeeze(axis=-1) for x in jnp.split(hat_y, 3, axis=-1)
+            ]
+
+            w_sr = w_mean + hat_w_sr
+            w_r = w_s + w_sr
+
+            r_bb_s = r * w_s - s * w_r
+
+            bhh_sr = sr * (h_mean + hat_hh_sr)
+            bhh_r = bhh_s + bhh_sr + 0.5 * r_bb_s
+
+            bkk_sr = sr2 * (k_mean + hat_kk_sr)
+            bkk_r = (
+                bkk_s + bkk_sr + sr / 2 * bhh_s - s * bhh_sr + (r - 2 * s) / 12 * r_bb_s
+            )
+
+            inverse_r = 1 / jnp.where(jnp.square(r) < jnp.finfo(r).eps, jnp.inf, r)
+            hh_r = inverse_r * bhh_r
+            kk_r = inverse_r**2 * bkk_r
 
             # The above code is slow, so we will instead just snap to either
             # the left or right boundary of the interval, depending on whether
             # r is closer to s or u.
 
-            cond = jnp.abs(sr) < jnp.abs(ru)
-            u = s + su
-            r = jnp.where(cond, s, u)
-            w_r = jnp.where(cond, w_s, w_u)
-            bhh_r = jnp.where(cond, bhh_s, bhh_u)
-            bkk_r = jnp.where(cond, bkk_s, bkk_u)
-
-            inverse_r = 1 / jnp.where(jnp.square(r) < jnp.finfo(r).eps, jnp.inf, r)
-            hh_r = inverse_r * bhh_r
-            kk_r = inverse_r**2 * bkk_r
+            # cond = jnp.abs(sr) < jnp.abs(ru)
+            # u = s + su
+            # r = jnp.where(cond, s, u)
+            # w_r = jnp.where(cond, w_s, w_u)
+            # bhh_r = jnp.where(cond, bhh_s, bhh_u)
+            # bkk_r = jnp.where(cond, bkk_s, bkk_u)
+            #
+            # inverse_r = 1 / jnp.where(jnp.square(r) < jnp.finfo(r).eps, jnp.inf, r)
+            # hh_r = inverse_r * bhh_r
+            # kk_r = inverse_r**2 * bkk_r
 
         elif self.levy_area == "space-time":
             bhh_s, bhh_u, bhh_su = final_state.bhh_s_u_su
@@ -571,19 +569,19 @@ class VirtualBrownianTree(AbstractBrownianPath):
             x1 = jrandom.normal(key1, shape, dtype)
             x2 = jrandom.normal(key2, shape, dtype)
 
-            sr_ru_half = jnp.sqrt(jnp.abs(sr * ru))
-            d = jnp.sqrt(jnp.abs(sr3 + ru3))
+            sr_ru_half = jnp.sqrt(sr * ru)
+            d = jnp.sqrt(sr3 + ru3)
             d_prime = 1 / (2 * su * d)
             a = d_prime * sr3 * sr_ru_half
             b = d_prime * ru3 * sr_ru_half
 
             w_sr = sr / su * w_su + 6 * sr * ru / su3 * bhh_su + 2 * (a + b) / su * x1
             w_r = w_s + w_sr
-            c = jnp.sqrt(jnp.abs(3 * sr3 * ru3)) / (6 * d)
+            c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
             bhh_sr = sr3 / su3 * bhh_su - a * x1 + c * x2
             bhh_r = bhh_s + bhh_sr + 0.5 * (r * w_s - s * w_r)
 
-            inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
+            inverse_r = 1 / jnp.where(jnp.square(r) < jnp.finfo(r).eps, jnp.inf, r)
             hh_r = inverse_r * bhh_r
 
             kk_r, bkk_r = None, None
