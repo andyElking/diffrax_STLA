@@ -9,12 +9,14 @@ x2 = np.sqrt(3) / 3
 tab = StochasticButcherTableau(
     c=np.array([0.5, 1.0]),
     b_sol=np.array([x1, x2, x1]),
-    b_error=None,
     a=[np.array([0.5]), np.array([0.0, 1.0])],
     aW=[np.array([0.5]), np.array([0.0, 1.0])],
     aH=[np.array([np.sqrt(3)]), np.array([0.0, 0.0])],
     bW=np.array([x1, x2, x1]),
     bH=np.array([1.0, 0.0, -1.0]),
+    b_error=np.array([x1 - 0.5, x2, x1 - 0.5]),
+    bW_error=np.array([x1 - 0.5, x2, x1 - 0.5]),
+    bH_error=np.array([1.0, 0.0, -1.0]),
     additive_noise=False,
 )
 

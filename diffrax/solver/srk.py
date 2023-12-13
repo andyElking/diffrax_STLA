@@ -33,9 +33,12 @@ class StochasticButcherTableau:
 
     # coefficients for W and H (of shape (len(c)+1,)
     bW: np.ndarray
+    bW_error: Optional[np.ndarray] = None
     # bH is None if spacetime_levyarea=False
     bH: Optional[np.ndarray] = None
+    bH_error: Optional[np.ndarray] = None
     bK: Optional[np.ndarray] = None
+    bK_error: Optional[np.ndarray] = None
 
     # assuming SDE has additive noise we only need a 1-dimensional array
     # for the coefficients in front of the Brownian increment and the
@@ -90,6 +93,8 @@ class StochasticButcherTableau:
             assert self.aW is None
             assert self.aH is None
             assert self.aK is None
+            assert self.bH_error is None
+            assert self.bK_error is None
 
         else:
             # Then we need a matrix of coefficients for the Brownian motion
@@ -119,6 +124,20 @@ class StochasticButcherTableau:
             assert self.cW is None
             assert self.cH is None
             assert self.cK is None
+
+            if self.b_error is not None:
+                assert self.bW_error is not None
+                assert self.bW_error.shape == self.b_error.shape
+                if self.bH is not None:
+                    assert self.bH_error is not None
+                    assert self.bH_error.shape == self.b_error.shape
+                else:
+                    assert self.bH_error is None
+                if self.bK is not None:
+                    assert self.bK_error is not None
+                    assert self.bK_error.shape == self.b_error.shape
+                else:
+                    assert self.bK_error is None
 
         for i, (a_i, c_i) in enumerate(zip(self.a, self.c)):
             assert np.allclose(sum(a_i), c_i)
@@ -473,7 +492,22 @@ class AbstractSRK(AbstractStratonovichSolver):
             error = None
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
-            error = sum_prev_stages(tfs, b_err)
+            drift_error = sum_prev_stages(tfs, b_err)
+            bw_err = jnp.asarray(self.tableau.bW_error, dtype=dtype)
+            w_err = sum_prev_stages(wgs, bw_err)
+            b_levy_err_list = []
+            if stla:
+                b_levy_err_list.append(jnp.asarray(self.tableau.bH_error, dtype=dtype))
+            if sttla:
+                b_levy_err_list.append(jnp.asarray(self.tableau.bK_error, dtype=dtype))
+            levy_err = [
+                sum_prev_stages(levy_gs, b_levy_err)
+                for b_levy_err, levy_gs in zip(b_levy_err_list, levy_gs_list)
+            ]
+            diffusion_error = jtu.tree_map(
+                lambda _w_err, *_levy_err: sum(_levy_err, _w_err), w_err, *levy_err
+            )
+            error = (drift_error**ω + diffusion_error**ω).ω
 
         # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (b_w * ΔW + bH * ΔH)
 
