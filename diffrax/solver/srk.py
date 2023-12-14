@@ -261,7 +261,7 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         if self.tableau.additive_noise:
             # check that the vector field of the diffusion term is constant
-            t_sigma, y_sigma = eqx.filter_jvp(
+            _, (t_sigma, y_sigma) = eqx.filter_jvp(
                 lambda t, y: diffusion.vf(t, y, args), (t0, y0), (t0, y0)
             )
             if y_sigma is not None:
@@ -493,21 +493,28 @@ class AbstractSRK(AbstractStratonovichSolver):
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
             drift_error = sum_prev_stages(tfs, b_err)
-            bw_err = jnp.asarray(self.tableau.bW_error, dtype=dtype)
-            w_err = sum_prev_stages(wgs, bw_err)
-            b_levy_err_list = []
-            if stla:
-                b_levy_err_list.append(jnp.asarray(self.tableau.bH_error, dtype=dtype))
-            if sttla:
-                b_levy_err_list.append(jnp.asarray(self.tableau.bK_error, dtype=dtype))
-            levy_err = [
-                sum_prev_stages(levy_gs, b_levy_err)
-                for b_levy_err, levy_gs in zip(b_levy_err_list, levy_gs_list)
-            ]
-            diffusion_error = jtu.tree_map(
-                lambda _w_err, *_levy_err: sum(_levy_err, _w_err), w_err, *levy_err
-            )
-            error = (drift_error**ω + diffusion_error**ω).ω
+            if additive_noise:
+                error = drift_error
+            else:
+                bw_err = jnp.asarray(self.tableau.bW_error, dtype=dtype)
+                w_err = sum_prev_stages(wgs, bw_err)
+                b_levy_err_list = []
+                if stla:
+                    b_levy_err_list.append(
+                        jnp.asarray(self.tableau.bH_error, dtype=dtype)
+                    )
+                if sttla:
+                    b_levy_err_list.append(
+                        jnp.asarray(self.tableau.bK_error, dtype=dtype)
+                    )
+                levy_err = [
+                    sum_prev_stages(levy_gs, b_levy_err)
+                    for b_levy_err, levy_gs in zip(b_levy_err_list, levy_gs_list)
+                ]
+                diffusion_error = jtu.tree_map(
+                    lambda _w_err, *_levy_err: sum(_levy_err, _w_err), w_err, *levy_err
+                )
+                error = (drift_error**ω + diffusion_error**ω).ω
 
         # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + σ * (b_w * ΔW + bH * ΔH)
 

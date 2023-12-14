@@ -14,8 +14,11 @@ from diffrax import (
     AbstractTerm,
     ALIGN,
     ConstantStepSize,
+    ControlTerm,
     diffeqsolve,
     LangevinTerm,
+    MultiTerm,
+    ODETerm,
     SaveAt,
     UnsafeBrownianPath,
     VirtualBrownianTree,
@@ -224,3 +227,47 @@ def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
         return LangevinTerm(args_hosc, bm)
 
     return SDE(get_terms_hosc, None, y0_hosc, t0, t1, w_shape_hosc)
+
+
+def _squareplus(x):
+    return 0.5 * (x + jnp.sqrt(x**2 + 4))
+
+
+def drift(t, y, args):
+    mlp, _, _ = args
+    return 0.5 * mlp(y)
+
+
+def diffusion(t, y, args):
+    _, mlp, noise_dim = args
+    return 0.25 * mlp(y).reshape(3, noise_dim)
+
+
+def get_mlp_sde(
+    t0=0.3, t1=15.0, dtype=jnp.float32, key=jrandom.PRNGKey(0), noise_dim=1
+):
+    driftkey, diffusionkey, ykey = jrandom.split(key, 3)
+    drift_mlp = eqx.nn.MLP(
+        in_size=3,
+        out_size=3,
+        width_size=8,
+        depth=1,
+        activation=_squareplus,
+        key=driftkey,
+    )
+    diffusion_mlp = eqx.nn.MLP(
+        in_size=3,
+        out_size=3 * noise_dim,
+        width_size=8,
+        depth=1,
+        activation=_squareplus,
+        final_activation=jnp.tanh,
+        key=diffusionkey,
+    )
+    args = (drift_mlp, diffusion_mlp, noise_dim)
+    y0 = jrandom.normal(ykey, (3,), dtype=jnp.float64)
+
+    def get_terms(bm):
+        return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
+
+    return SDE(get_terms, args, y0, t0, t1, (noise_dim,))

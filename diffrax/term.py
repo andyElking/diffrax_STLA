@@ -574,9 +574,6 @@ class LangevinDiffusionTerm(ControlTerm):
         def vector_field(_, y: tuple, ___):
             dtype = y[1].dtype
             d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[1].shape, dtype=dtype)
-            # if d_v.ndim > 0:
-            #     assert d_v.ndim == 1
-            #     d_v = jnp.diag(d_v)
             d_y = (0.0, d_v)
             return d_y
 

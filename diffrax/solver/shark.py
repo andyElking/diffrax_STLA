@@ -1,5 +1,6 @@
 import numpy as np
 
+from .additive_srk import AbstractAdditiveSRK
 from .srk import AbstractSRK, StochasticButcherTableau
 
 
@@ -35,6 +36,21 @@ class ShARK(AbstractSRK):
         ```
 
     """
+
+    tableau = tab
+
+    def __init__(self):
+        pass
+
+    def order(self, terms):
+        return 2
+
+    def strong_order(self, terms):
+        return 1.5
+
+
+# All the same, but using the additive SRK
+class AdditiveShARK(AbstractAdditiveSRK):
 
     tableau = tab
 

@@ -38,7 +38,7 @@ from .runge_kutta import (
 )
 from .sea import SEA
 from .semi_implicit_euler import SemiImplicitEuler
-from .shark import ShARK
+from .shark import AdditiveShARK, ShARK
 from .sil3 import Sil3
 from .sra1 import SRA1
 from .srk import AbstractSRK, StochasticButcherTableau
