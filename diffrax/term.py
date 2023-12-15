@@ -548,6 +548,10 @@ class AdjointTerm(AbstractTerm):
 
 def _langevin_drift(t, y, args):
     gamma, u, grad_f = args
+    if isinstance(gamma, Callable):
+        gamma = gamma(t)
+    if isinstance(u, Callable):
+        u = u(t)
     x, v = y
     d_x = v
     d_v = -gamma * v - u * grad_f(x)
@@ -571,9 +575,17 @@ class LangevinDiffusionTerm(ControlTerm):
     def __init__(self, gamma, u, control: AbstractBrownianPath):
         self.gamma, self.u, self.control = gamma, u, control
 
-        def vector_field(_, y: tuple, ___):
+        def vector_field(t, y: tuple, ___):
+            if isinstance(gamma, Callable):
+                gamma_ = gamma(t)
+            else:
+                gamma_ = gamma
+            if isinstance(u, Callable):
+                u_ = u(t)
+            else:
+                u_ = u
             dtype = y[1].dtype
-            d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[1].shape, dtype=dtype)
+            d_v = jnp.sqrt(2 * gamma_ * u_) * jnp.ones(y[1].shape, dtype=dtype)
             d_y = (0.0, d_v)
             return d_y
 

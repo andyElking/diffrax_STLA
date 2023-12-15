@@ -261,10 +261,12 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         if self.tableau.additive_noise:
             # check that the vector field of the diffusion term is constant
-            _, (t_sigma, y_sigma) = eqx.filter_jvp(
-                lambda t, y: diffusion.vf(t, y, args), (t0, y0), (t0, y0)
+            ones_like_y0 = jtu.tree_map(lambda x: jnp.ones_like(x), y0)
+            _, y_sigma = eqx.filter_jvp(
+                lambda y: diffusion.vf(t0, y, args), (y0,), (ones_like_y0,)
             )
-            if y_sigma is not None:
+            # check if the PyTree is just made of Nones (inside other containers)
+            if len(jtu.tree_leaves(y_sigma)) > 0:
                 raise ValueError(
                     "Vector field of the diffusion term should be constant, "
                     "independent of y."
@@ -360,11 +362,10 @@ class AbstractSRK(AbstractStratonovichSolver):
 
         levy_gs_list = []  # will contain levy * g(t0 + c_j * h, z_j) for each stage j
         # and for each type of levy area (e.g. H, K, etc.)
-
         if additive_noise:
             # compute g once since it is constant
             g0 = diffusion.vf(t0, y0, args)
-            w_g_0 = diffusion.prod(g0, w)
+            w_g = diffusion.prod(g0, w)
             a_w = jnp.asarray(self.tableau.cW, dtype=dtype)
             if stla:
                 levy_gs_list.append(diffusion.prod(g0, bm_inc.H))
@@ -416,7 +417,7 @@ class AbstractSRK(AbstractStratonovichSolver):
                 # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
                 j, _tfs = _carry
                 _diffusion_result = jtu.tree_map(
-                    add_levy_to_w(a_w_j, *a_levy_list_j), w_g_0, *levy_gs_list
+                    add_levy_to_w(a_w_j, *a_levy_list_j), w_g, *levy_gs_list
                 )
             else:
                 # carry = (j, _tfs, _wgs, _levy_gs_list) where
@@ -472,8 +473,16 @@ class AbstractSRK(AbstractStratonovichSolver):
             # output of lax.scan is ((num_stages, _tfs), None)
             (_, tfs), _ = scan_out
             diffusion_result = jtu.tree_map(
-                add_levy_to_w(b_w, *b_levy_list), w_g_0, *levy_gs_list
+                add_levy_to_w(b_w, *b_levy_list), w_g, *levy_gs_list
             )
+            g1 = diffusion.vf(t1, y0, args)
+            g_delta = (0.5 * (g1**ω - g0**ω)).ω
+            if stla:
+                time_var_contr = (bm_inc.W**ω - 2.0 * bm_inc.H**ω).ω
+                time_var_term = diffusion.prod(g_delta, time_var_contr)
+            else:
+                time_var_term = diffusion.prod(g_delta, bm_inc.W)
+            diffusion_result = (diffusion_result**ω + time_var_term**ω).ω
 
         else:
             # output of lax.scan is ((num_stages, _tfs, _wgs, _levy_gs_list), None)

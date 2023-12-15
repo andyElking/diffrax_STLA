@@ -214,9 +214,19 @@ def get_bqp(t0=0.3, t1=15.0, dtype=jnp.float32):
     return SDE(get_terms_bqp, None, y0_bqp, t0, t1, w_shape_bqp)
 
 
-def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
-    gamma_hosc = jnp.array([2, 0.5], dtype=dtype)
-    u_hosc = jnp.array([0.5, 2], dtype=dtype)
+def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32, time_dependent=False):
+    if time_dependent:
+
+        def gamma_hosc(t):
+            return (1.0 + 0.7 * jnp.sin(t)) * jnp.array([2, 0.5], dtype=dtype)
+
+        def u_hosc(t):
+            return (1.0 + 0.7 * jnp.sin(t)) * jnp.array([0.5, 2], dtype=dtype)
+
+    else:
+        gamma_hosc = jnp.array([2, 0.5], dtype=dtype)
+        u_hosc = jnp.array([0.5, 2], dtype=dtype)
+
     args_hosc = (gamma_hosc, u_hosc, lambda x: 2 * x)
     x0 = jnp.zeros((2,), dtype=dtype)
     v0 = jnp.zeros((2,), dtype=dtype)
