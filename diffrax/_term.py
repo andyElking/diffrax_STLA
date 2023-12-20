@@ -5,10 +5,10 @@ from typing import cast, Generic, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
+from jax import numpy as jnp
 from jaxtyping import Array, ArrayLike, PyTree, PyTreeDef
 
 from ._custom_types import Args, Control, IntScalarLike, RealScalarLike, VF, Y
@@ -46,7 +46,7 @@ class AbstractTerm(eqx.Module):
         pass
 
     @abc.abstractmethod
-    def contr(self, t0: RealScalarLike, t1: RealScalarLike) -> Control:
+    def contr(self, t0: RealScalarLike, t1: RealScalarLike, **kwargs) -> Control:
         r"""The control.
 
         Represents the $\mathrm{d}t$ in an ODE, or the $\mathrm{d}w(t)$ in an SDE, etc.
@@ -194,7 +194,7 @@ class ODETerm(AbstractTerm):
 
         return jtu.tree_map(_broadcast_and_upcast, out, y)
 
-    def contr(self, t0: RealScalarLike, t1: RealScalarLike) -> RealScalarLike:
+    def contr(self, t0: RealScalarLike, t1: RealScalarLike, **kwargs) -> RealScalarLike:
         return t1 - t0
 
     def prod(self, vf: VF, control: RealScalarLike) -> Y:
@@ -257,8 +257,8 @@ class _ControlTerm(AbstractTerm):
     def vf(self, t: RealScalarLike, y: Y, args: Args) -> VF:
         return self.vector_field(t, y, args)
 
-    def contr(self, t0: RealScalarLike, t1: RealScalarLike) -> Control:
-        return self.control.evaluate(t0, t1)
+    def contr(self, t0: RealScalarLike, t1: RealScalarLike, **kwargs) -> Control:
+        return self.control.evaluate(t0, t1, **kwargs)
 
     def to_ode(self) -> ODETerm:
         r"""If the control is differentiable then $f(t, y(t), args) \mathrm{d}x(t)$
@@ -400,9 +400,9 @@ class MultiTerm(AbstractTerm, Generic[_Terms]):
         return tuple(term.vf(t, y, args) for term in self.terms)
 
     def contr(
-        self, t0: RealScalarLike, t1: RealScalarLike
+        self, t0: RealScalarLike, t1: RealScalarLike, **kwargs
     ) -> tuple[PyTree[ArrayLike], ...]:
-        return tuple(term.contr(t0, t1) for term in self.terms)
+        return tuple(term.contr(t0, t1, **kwargs) for term in self.terms)
 
     def prod(
         self, vf: tuple[PyTree[ArrayLike], ...], control: tuple[PyTree[ArrayLike], ...]
@@ -444,10 +444,10 @@ class WrapTerm(AbstractTerm):
         t = t * self.direction
         return self.term.vf(t, y, args)
 
-    def contr(self, t0: RealScalarLike, t1: RealScalarLike) -> Control:
+    def contr(self, t0: RealScalarLike, t1: RealScalarLike, **kwargs) -> Control:
         _t0 = jnp.where(self.direction == 1, t0, -t1)
         _t1 = jnp.where(self.direction == 1, t1, -t0)
-        return (self.direction * self.term.contr(_t0, _t1) ** ω).ω
+        return (self.direction * self.term.contr(_t0, _t1, **kwargs) ** ω).ω
 
     def prod(self, vf: VF, control: Control) -> Y:
         return self.term.prod(vf, control)
@@ -547,8 +547,10 @@ class AdjointTerm(AbstractTerm):
             )
         return jtu.tree_transpose(vf_prod_tree, control_tree, jac)
 
-    def contr(self, t0: RealScalarLike, t1: RealScalarLike) -> PyTree[ArrayLike]:
-        return self.term.contr(t0, t1)
+    def contr(
+        self, t0: RealScalarLike, t1: RealScalarLike, **kwargs
+    ) -> PyTree[ArrayLike]:
+        return self.term.contr(t0, t1, **kwargs)
 
     def prod(
         self, vf: PyTree[ArrayLike], control: Control

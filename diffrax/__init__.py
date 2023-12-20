@@ -13,7 +13,10 @@ from ._brownian import (
     UnsafeBrownianPath as UnsafeBrownianPath,
     VirtualBrownianTree as VirtualBrownianTree,
 )
-from ._custom_types import LevyVal as LevyVal
+from ._custom_types import (
+    levy_tree_transpose as levy_tree_transpose,
+    LevyVal as LevyVal,
+)
 from ._event import (
     AbstractDiscreteTerminatingEvent as AbstractDiscreteTerminatingEvent,
     DiscreteTerminatingEvent as DiscreteTerminatingEvent,
@@ -59,6 +62,7 @@ from ._solver import (
     AbstractRungeKutta as AbstractRungeKutta,
     AbstractSDIRK as AbstractSDIRK,
     AbstractSolver as AbstractSolver,
+    AbstractSRK as AbstractSRK,
     AbstractStratonovichSolver as AbstractStratonovichSolver,
     AbstractWrappedSolver as AbstractWrappedSolver,
     Bosh3 as Bosh3,
@@ -83,8 +87,11 @@ from ._solver import (
     MultiButcherTableau as MultiButcherTableau,
     Ralston as Ralston,
     ReversibleHeun as ReversibleHeun,
+    SEA as SEA,
     SemiImplicitEuler as SemiImplicitEuler,
+    ShARK as ShARK,
     Sil3 as Sil3,
+    SRA1 as SRA1,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,
 )
