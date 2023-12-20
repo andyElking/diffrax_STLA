@@ -14,7 +14,7 @@ from ._brownian import (
     VirtualBrownianTree as VirtualBrownianTree,
 )
 from ._custom_types import (
-    AbstractBrownianReturn as AbstractBrownianReturn,
+    BrownianIncrement as BrownianIncrement,
     BrownianIncrement as BrownianIncrement,
     SpaceTimeLevyArea as SpaceTimeLevyArea,
 )
@@ -69,6 +69,7 @@ from ._solver import (
     AbstractRungeKutta as AbstractRungeKutta,
     AbstractSDIRK as AbstractSDIRK,
     AbstractSolver as AbstractSolver,
+    AbstractSRK as AbstractSRK,
     AbstractStratonovichSolver as AbstractStratonovichSolver,
     AbstractWrappedSolver as AbstractWrappedSolver,
     Bosh3 as Bosh3,
@@ -93,8 +94,11 @@ from ._solver import (
     MultiButcherTableau as MultiButcherTableau,
     Ralston as Ralston,
     ReversibleHeun as ReversibleHeun,
+    SEA as SEA,
     SemiImplicitEuler as SemiImplicitEuler,
+    ShARK as ShARK,
     Sil3 as Sil3,
+    SRA1 as SRA1,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,
 )

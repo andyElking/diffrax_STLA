@@ -4,23 +4,22 @@ import operator
 from typing import Any, cast
 
 import diffrax
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import pytest
 import scipy.stats
-from diffrax import ControlTerm, MultiTerm, ODETerm
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float
 
 from .helpers import (
     all_ode_solvers,
     all_split_solvers,
+    get_mlp_sde,
     implicit_tol,
     random_pytree,
-    sde_solver_strong_order,
+    sde_solver_order,
     tree_allclose,
     treedefs,
 )
@@ -193,10 +192,6 @@ def test_ode_order(solver):
     assert -0.9 < order - solver.order(term) < 0.9
 
 
-def _squareplus(x):
-    return 0.5 * (x + jnp.sqrt(x**2 + 4))
-
-
 def _solvers():
     # solver, commutative, order
     yield diffrax.Euler, False, 0.5
@@ -210,56 +205,19 @@ def _solvers():
     yield diffrax.StratonovichMilstein, True, 1
 
 
-def _drift(t, y, args):
-    drift_mlp, _, _ = args
-    return 0.5 * drift_mlp(y)
-
-
-def _diffusion(t, y, args):
-    _, diffusion_mlp, noise_dim = args
-    return 0.25 * diffusion_mlp(y).reshape(3, noise_dim)
-
-
 @pytest.mark.parametrize("solver_ctr,commutative,theoretical_order", _solvers())
 def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     key = jr.PRNGKey(5678)
-    driftkey, diffusionkey, ykey, bmkey = jr.split(key, 4)
+    sde_key, bmkey = jr.split(key, 2)
+    num_samples = 20
+    bmkeys = jr.split(bmkey, num=num_samples)
 
     if commutative:
         noise_dim = 1
     else:
         noise_dim = 5
 
-    key = jr.PRNGKey(5678)
-    driftkey, diffusionkey, ykey, bmkey = jr.split(key, 4)
-
-    drift_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3,
-        width_size=8,
-        depth=1,
-        activation=_squareplus,
-        key=driftkey,
-    )
-
-    diffusion_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3 * noise_dim,
-        width_size=8,
-        depth=1,
-        activation=_squareplus,
-        final_activation=jnp.tanh,
-        key=diffusionkey,
-    )
-
-    args = (drift_mlp, diffusion_mlp, noise_dim)
-
-    t0 = 0.0
-    t1 = 2.0
-    y0 = jr.normal(ykey, (3,), dtype=jnp.float64)
-
-    def get_terms(bm):
-        return MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, bm))
+    sde = get_mlp_sde(0.0, 2.0, jnp.float64, sde_key, noise_dim=noise_dim)
 
     # Reference solver is always an ODE-viable solver, so its implementation has been
     # verified by the ODE tests like test_ode_order.
@@ -270,19 +228,9 @@ def test_sde_strong_order(solver_ctr, commutative, theoretical_order):
     else:
         assert False
 
-    hs, errors, order = sde_solver_strong_order(
-        get_terms,
-        (noise_dim,),
-        solver_ctr(),
-        ref_solver,
-        t0,
-        t1,
-        dt_precise=2**-12,
-        y0=y0,
-        args=args,
-        num_samples=20,
-        num_levels=7,
-        key=bmkey,
+    dts = jnp.power(2.0, jnp.arange(-3, -9, -1, dtype=sde.get_dtype()))
+    hs, errors, order = sde_solver_order(
+        bmkeys, sde, solver_ctr(), ref_solver, 2**-10, dts
     )
     assert -0.2 < order - theoretical_order < 0.2
 

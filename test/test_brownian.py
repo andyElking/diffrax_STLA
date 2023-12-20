@@ -11,6 +11,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 import pytest
 import scipy.stats as stats
+from diffrax._custom_types import LevyArea
 
 
 _Spline: TypeAlias = Literal["quad", "sqrt", "zero"]
@@ -103,7 +104,7 @@ def test_shape_and_dtype(ctr, levy_area, use_levy, getkey):
                 with context:
                     out = path.evaluate(t0, t1, use_levy=use_levy)
                 if use_levy:
-                    assert isinstance(out, diffrax.AbstractBrownianReturn)
+                    assert isinstance(out, diffrax.BrownianIncrement)
                     w = out.W
                     if isinstance(out, diffrax.SpaceTimeLevyArea):
                         h = out.H
@@ -120,7 +121,7 @@ def test_shape_and_dtype(ctr, levy_area, use_levy, getkey):
     "levy_area", [diffrax.BrownianIncrement, diffrax.SpaceTimeLevyArea]
 )
 @pytest.mark.parametrize("use_levy", (False, True))
-def test_statistics(ctr, levy_area, use_levy):
+def test_statistics(ctr, levy_area: LevyArea, use_levy):
     # Deterministic key for this test; not using getkey()
     key = jr.PRNGKey(5678)
     keys = jr.split(key, 10000)
@@ -136,7 +137,7 @@ def test_statistics(ctr, levy_area, use_levy):
 
     values = jax.vmap(_eval)(keys)
     if use_levy:
-        assert isinstance(values, diffrax.AbstractBrownianReturn)
+        assert isinstance(values, diffrax.BrownianIncrement)
         w = values.W
 
         if isinstance(values, diffrax.SpaceTimeLevyArea):

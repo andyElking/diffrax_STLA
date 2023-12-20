@@ -13,7 +13,6 @@ import lineax.internal as lxi
 from jaxtyping import Array, Float, PRNGKeyArray, PyTree
 
 from .._custom_types import (
-    AbstractBrownianReturn,
     BoolScalarLike,
     BrownianIncrement,
     IntScalarLike,
@@ -59,7 +58,7 @@ FloatTriple: TypeAlias = tuple[
     Float[Array, " *shape"], Float[Array, " *shape"], Float[Array, " *shape"]
 ]
 _Spline: TypeAlias = Literal["sqrt", "quad", "zero"]
-_BrownianReturn = TypeVar("_BrownianReturn", bound=AbstractBrownianReturn)
+_BrownianReturn = TypeVar("_BrownianReturn", bound=BrownianIncrement)
 
 
 class _State(eqx.Module):
@@ -71,7 +70,7 @@ class _State(eqx.Module):
     bkk_s_u_su: Optional[FloatTriple]  # \bar{K}_s, _u, _{s,u}
 
 
-def _levy_diff(_, x0: tuple, x1: tuple) -> Union[BrownianIncrement, SpaceTimeLevyArea]:
+def _levy_diff(_, x0: tuple, x1: tuple) -> BrownianIncrement:
     r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, \bar{H}_{s,u})$ and
     $(W_u, \bar{H}_u)$, where $\bar{H}_u = u * H_u$.
 
@@ -105,18 +104,18 @@ def _levy_diff(_, x0: tuple, x1: tuple) -> Union[BrownianIncrement, SpaceTimeLev
         u_bb_s = dt1 * w0 - dt0 * w1
         bhh_su = bhh1 - bhh0 - 0.5 * u_bb_s  # bhh_su = H_{s,u} * (u-s)
         hh_su = inverse_su * bhh_su
-        return SpaceTimeLevyArea(dt=su, W=w_su, H=hh_su, K=None)
+        return SpaceTimeLevyArea(dt=su, W=w_su, H=hh_su)
     else:
         assert False
 
 
-def _make_levy_val(_, x: tuple) -> Union[BrownianIncrement, SpaceTimeLevyArea]:
+def _make_levy_val(_, x: tuple) -> BrownianIncrement:
     if len(x) == 2:
         dt, w = x
         return BrownianIncrement(dt=dt, W=w)
     elif len(x) == 4:
         dt, w, hh, bhh = x
-        return SpaceTimeLevyArea(dt=dt, W=w, H=hh, K=None)
+        return SpaceTimeLevyArea(dt=dt, W=w, H=hh)
     else:
         assert False
 
@@ -173,7 +172,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: RealScalarLike
     tol: RealScalarLike
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]] = eqx.field(
+    levy_area: type[BrownianIncrement] = eqx.field(
         static=True
     )
     key: PyTree[PRNGKeyArray]
@@ -188,7 +187,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
         levy_area: type[
-            Union[BrownianIncrement, SpaceTimeLevyArea]
+            BrownianIncrement
         ] = BrownianIncrement,
         _spline: _Spline = "sqrt",
     ):
@@ -440,6 +439,21 @@ class VirtualBrownianTree(AbstractBrownianPath):
          Note that the inputs and outputs already contain `bkk`. These values are
          there for the sake of a future extension with "space-time-time" Levy area
          and should be None for now.
+
+         ??? cite "Reference"
+
+            Based on section 6.1 of
+            ```bibtex
+            @phdthesis{foster2020a,
+              publisher = {University of Oxford},
+              school = {University of Oxford},
+              title = {Numerical approximations for stochastic differential equations},
+              author = {Foster, James M.},
+              year = {2020}
+            }
+
+            In particular see Theorem 6.1.6.
+        ```
 
         **Arguments:**
 

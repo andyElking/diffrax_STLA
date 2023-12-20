@@ -44,6 +44,35 @@ See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochast
 
 ---
 
+### Stochastic Runge--Kutta (SRK)
+
+::: diffrax.AbstractSRK
+    selection:
+        members: false
+
+::: diffrax.StochasticButcherTableau
+    selection:
+        members:
+            - __init__
+
+::: diffrax.ShARK
+    selection:
+        members: false
+
+::: diffrax.SRA1
+    selection:
+        members: false
+
+::: diffrax.SEA
+    selection:
+        members: false
+
+::: diffrax.FosterSRK
+    selection:
+        members: false
+
+---
+
 ### Reversible methods
 
 These are reversible in the same way as when applied to ODEs. [See here.](./ode_solvers.md#reversible-methods)
