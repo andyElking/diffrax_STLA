@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Literal, Optional, TypeAlias
+from typing import Literal, Optional
+from typing_extensions import TypeAlias
 
 import equinox as eqx
 import jax.lax as lax
@@ -13,6 +14,7 @@ from .._brownian.base import AbstractBrownianPath
 from .._custom_types import (
     BoolScalarLike,
     DenseInfo,
+    IntScalarLike,
     LevyVal,
     RealScalarLike,
     VF,
@@ -24,10 +26,19 @@ from .._term import AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractStratonovichSolver
 
 
-_ErrorEstimate: TypeAlias = None
+_ErrorEstimate: TypeAlias = Optional[Y]
 _SolverState: TypeAlias = None
-_CarryType: TypeAlias = tuple[int, PyTree[Array], PyTree[Array], PyTree[Array]]
-_LA: TypeAlias = Literal["", "space-time", "space-time-time"]
+_CarryType: TypeAlias = tuple[
+    IntScalarLike, PyTree[Array], PyTree[Array], PyTree[Array]
+]
+
+# To Patrick:
+# This is on purpose distinct from LevyArea in diffrax/_custom_types.py
+# because I think it is cleaner if this SRK is "perpendicular" to _brownian
+# in the sense that this can utilize sttla (which it can) even if _brownian
+# cannot generate it so far. And this allows me to later update _brownian
+# without having to update this SRK.
+MinimalLevyArea: TypeAlias = Literal["", "space-time", "space-time-time"]
 
 
 @dataclass(frozen=True)
@@ -240,15 +251,15 @@ class AbstractSRK(AbstractStratonovichSolver):
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
 
-    minimal_levy_area: _LA
+    minimal_levy_area: MinimalLevyArea
 
     def __init__(self):
         if self.tableau.bK is not None:
-            self.minimal_levy_area: _LA = "space-time-time"
+            self.minimal_levy_area: MinimalLevyArea = "space-time-time"
         elif self.tableau.bH is not None:
-            self.minimal_levy_area: _LA = "space-time"
+            self.minimal_levy_area: MinimalLevyArea = "space-time"
         else:
-            self.minimal_levy_area: _LA = ""
+            self.minimal_levy_area: MinimalLevyArea = ""
 
     def init(
         self,
@@ -283,7 +294,7 @@ class AbstractSRK(AbstractStratonovichSolver):
                     )
 
         if self.tableau.additive_noise:
-            # check that the vector field of the diffusion term is constant
+            # check that the vector field of the diffusion term does not depend on y
             ones_like_y0 = jtu.tree_map(lambda x: jnp.ones_like(x), y0)
             _, y_sigma = eqx.filter_jvp(
                 lambda y: diffusion.vf(t0, y, args), (y0,), (ones_like_y0,)
@@ -323,7 +334,7 @@ class AbstractSRK(AbstractStratonovichSolver):
         # time increment
         h = t1 - t0
 
-        # First all the drift related stuff
+        # First the drift related stuff
         a = self._embed_a_lower(self.tableau.a, dtype)
         c = jnp.asarray(np.insert(self.tableau.c, 0, 0.0), dtype=dtype)
         b_sol = jnp.asarray(self.tableau.b_sol, dtype=dtype)
@@ -385,11 +396,13 @@ class AbstractSRK(AbstractStratonovichSolver):
 
             return aux_add_levy
 
-        a_levy = []  # will contain cH if additive_noise=True, aH otherwise
-        # later other kinds of Levy area will be added to this list
+        a_levy = []  # if noise is additive this is [cH, cK] (if those entries exist)
+        # otherwise this is [aH, aK] (if those entries exist)
 
         levy_gs_list = []  # will contain levy * g(t0 + c_j * h, z_j) for each stage j
-        # and for each type of levy area (e.g. H, K, etc.)
+        # where levy is either H or K (if those entries exist)
+        # this is similar to tfs or wgs, but for the Levy area(s)
+
         if additive_noise:
             # compute g once since it is constant
             g0 = diffusion.vf(t0, y0, args)
@@ -410,7 +423,7 @@ class AbstractSRK(AbstractStratonovichSolver):
             # Since the carry of lax.scan needs to have constant shape,
             # we initialise a list of zeros of the same shape as y0, which will get
             # filled with the values of W * g(t0 + c_j * h, z_j) at each stage
-            wg_list = make_zeros()
+            wgs = make_zeros()
             # do the same for each type of Levy area
             if stla:
                 levy_gs_list.append(make_zeros())
@@ -419,7 +432,7 @@ class AbstractSRK(AbstractStratonovichSolver):
                 levy_gs_list.append(make_zeros())
                 a_levy.append(self._embed_a_lower(self.tableau.aK, dtype))
 
-            carry: _CarryType = (0, tfs, wg_list, levy_gs_list)
+            carry: _CarryType = (0, tfs, wgs, levy_gs_list)
 
             a_w = self._embed_a_lower(self.tableau.aW, dtype)
 
@@ -435,6 +448,7 @@ class AbstractSRK(AbstractStratonovichSolver):
             x: tuple[Array, Array, Array, list[Array]],
         ):
             # Represents the jth stage of the SRK.
+
             a_j, c_j, a_w_j, a_levy_list_j = x
             # a_levy_list_j = [aH_j, aK_j] (if those entries exist) where
             # aH_j is the row in the aH matrix corresponding to stage j
@@ -443,8 +457,8 @@ class AbstractSRK(AbstractStratonovichSolver):
 
             if additive_noise:
                 # carry = (j, _tfs) where
-                # _tfs = Array[hk1, hk2, ..., hk_{j-1}, 0, 0, ..., 0]
-                # hki = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
+                # _tfs = Array[tf_1, tf_2, ..., hk_{j-1}, 0, 0, ..., 0]
+                # tf_i = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. tf_i = h * f_i)
                 assert _wgs is None and _levy_gs_list is None
                 assert isinstance(levy_gs_list, list)
                 _diffusion_result = jtu.tree_map(

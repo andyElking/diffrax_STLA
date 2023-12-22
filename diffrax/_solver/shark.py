@@ -17,7 +17,8 @@ tab = StochasticButcherTableau(
 
 class ShARK(AbstractSRK):
     r"""Shifted Additive-noise Runge-Kutta method for SDEs by James Foster.
-    Applied to SDEs with additive noise, it converges strongly with order 1.5.
+    Applied to SDEs with additive noise, it has strong order 1.5.
+    Uses two evaluations of the vector field per step.
 
     Based on equation $(6.1)$ in
 

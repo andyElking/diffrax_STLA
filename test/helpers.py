@@ -18,7 +18,9 @@ from diffrax import (
     UnsafeBrownianPath,
     VirtualBrownianTree,
 )
-from diffrax._custom_types import _LA, RealScalarLike
+
+# I'm not sure if this is the right way to import these types
+from diffrax._custom_types import LevyArea, RealScalarLike
 from jax import numpy as jnp
 from jaxtyping import PyTree
 
@@ -97,7 +99,7 @@ def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8, equal_nan=False):
 def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
     # first compute the square of the difference and sum over
     # all but the first two axes (which represent the number of samples
-    # and the length of saveat). Also sum all the PyTree leaves
+    # and the length of saveat). Also sum all the PyTree leaves.
     def sum_square_diff(y1, y2):
         square_diff = jnp.square(y1 - y2)
         # sum all but the first two axes
@@ -134,7 +136,7 @@ class SDE:
     def get_bm(
         self,
         key,
-        levy_area: _LA = "space-time",
+        levy_area: LevyArea = "space-time",
         use_tree=True,
         tol=2**-14,
     ):
@@ -157,10 +159,12 @@ def _batch_sde_solve(
     sde: SDE,
     dt0,
     solver,
-    levy_area: _LA,
+    levy_area: LevyArea,
 ):
     _saveat = SaveAt(ts=[sde.t1])
 
+    @jax.jit
+    @jax.vmap
     def end_value(key):
         path = sde.get_bm(key, levy_area=levy_area, use_tree=True)
         terms = sde.get_terms(path)
@@ -177,11 +181,10 @@ def _batch_sde_solve(
         )
         return sol.ys
 
-    return jax.vmap(end_value)(keys)
+    return end_value(keys)
 
 
-def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, dts):
-    # TODO: remove this once we have a better way to handle this
+def sde_solver_strong_order(keys, sde: SDE, solver, ref_solver, dt_precise, dts):
     if hasattr(solver, "minimal_levy_area"):
         levy_area = solver.minimal_levy_area
     else:
@@ -189,6 +192,7 @@ def sde_solver_order(keys, sde: SDE, solver, ref_solver, dt_precise, dts):
 
     # Stricter levy_area requirements are a longer string, so only override
     # solver's levy_area if the ref_solver requires more levy area
+    # TODO: this is a bit hacky, but I'm not sure how else to do it
     if hasattr(ref_solver, "minimal_levy_area") and len(
         ref_solver.minimal_levy_area
     ) > len(levy_area):
@@ -223,13 +227,16 @@ def diffusion(t, y, args):
     return 0.25 * mlp(y).reshape(3, noise_dim)
 
 
-def get_mlp_sde(t0=0.3, t1=15.0, dtype=jnp.float32, key=jr.PRNGKey(0), noise_dim=1):
+def get_mlp_sde(t0, t1, dtype, key, noise_dim):
     driftkey, diffusionkey, ykey = jr.split(key, 3)
+    # To Patrick: I had to increase the depth of these MLPs, otherwise many SDE
+    # solvers had order ~0.72 which is more than 0.5 + 0.2, which is the maximal
+    # tolerated order. I think the issue was that it was too linear and too easy.
     drift_mlp = eqx.nn.MLP(
         in_size=3,
         out_size=3,
         width_size=8,
-        depth=1,
+        depth=2,
         activation=_squareplus,
         key=driftkey,
     )
@@ -237,7 +244,7 @@ def get_mlp_sde(t0=0.3, t1=15.0, dtype=jnp.float32, key=jr.PRNGKey(0), noise_dim
         in_size=3,
         out_size=3 * noise_dim,
         width_size=8,
-        depth=1,
+        depth=2,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=diffusionkey,
@@ -251,13 +258,13 @@ def get_mlp_sde(t0=0.3, t1=15.0, dtype=jnp.float32, key=jr.PRNGKey(0), noise_dim
     return SDE(get_terms, args, y0, t0, t1, (noise_dim,))
 
 
-def get_time_sde(t0=0.3, t1=15.0, dtype=jnp.float32, key=jr.PRNGKey(5678), noise_dim=1):
+def get_time_sde(t0, t1, dtype, key, noise_dim):
     driftkey, diffusionkey, ykey = jr.split(key, 3)
     drift_mlp = eqx.nn.MLP(
         in_size=3,
         out_size=3,
         width_size=8,
-        depth=1,
+        depth=2,
         activation=_squareplus,
         key=driftkey,
     )
