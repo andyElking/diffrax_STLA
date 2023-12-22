@@ -79,6 +79,7 @@ from ._solver import (
     Dopri8 as Dopri8,
     Euler as Euler,
     EulerHeun as EulerHeun,
+    FosterSRK as FosterSRK,
     HalfSolver as HalfSolver,
     Heun as Heun,
     ImplicitEuler as ImplicitEuler,

@@ -17,6 +17,8 @@ tab = StochasticButcherTableau(
 
 class SRA1(AbstractSRK):
     r"""Based on the SRA1 method by Andreas Rößler.
+    Works only for SDEs with additive noise, applied to whichit has strong order 1.5.
+    Uses two evaluations of the vector field per step.
 
     ??? cite "Reference"
 

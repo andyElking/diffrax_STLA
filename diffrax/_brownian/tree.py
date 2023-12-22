@@ -440,21 +440,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
          there for the sake of a future extension with "space-time-time" Levy area
          and should be None for now.
 
-         ??? cite "Reference"
-
-            Based on section 6.1 of
-            ```bibtex
-            @phdthesis{foster2020a,
-              publisher = {University of Oxford},
-              school = {University of Oxford},
-              title = {Numerical approximations for stochastic differential equations},
-              author = {Foster, James M.},
-              year = {2020}
-            }
-
-            In particular see Theorem 6.1.6.
-        ```
-
         **Arguments:**
 
         - `_state`: The state of the Brownian tree

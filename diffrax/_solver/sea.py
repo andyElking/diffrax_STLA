@@ -19,6 +19,8 @@ class SEA(AbstractSRK):
     r"""Shifted Euler method for SDEs with additive noise.
      It has a local error of $O(h^2)$ compared to
      standard Euler-Maruyama, which has $O(h^{1.5})$.
+     Uses one evaluation of the vector field per step and
+     has order 1 for additive noise SDEs.
 
     Based on equation $(5.8)$ in
     ??? cite "Reference"
@@ -44,4 +46,4 @@ class SEA(AbstractSRK):
         return 1
 
     def strong_order(self, terms):
-        return 0.5
+        return 1
