@@ -99,6 +99,7 @@ from ._solver import (
     SemiImplicitEuler as SemiImplicitEuler,
     ShARK as ShARK,
     Sil3 as Sil3,
+    SLOW_RK as SLOW_RK,
     SRA1 as SRA1,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,

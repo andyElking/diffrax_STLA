@@ -214,12 +214,12 @@ def _squareplus(x):
 
 def drift(t, y, args):
     mlp, _, _ = args
-    return 0.5 * mlp(y)
+    return 0.25 * mlp(y)
 
 
 def diffusion(t, y, args):
     _, mlp, noise_dim = args
-    return 0.25 * mlp(y).reshape(3, noise_dim)
+    return 1.0 * mlp(y).reshape(3, noise_dim)
 
 
 def get_mlp_sde(t0, t1, dtype, key, noise_dim):
@@ -233,6 +233,7 @@ def get_mlp_sde(t0, t1, dtype, key, noise_dim):
         width_size=8,
         depth=2,
         activation=_squareplus,
+        final_activation=jnp.tanh,
         key=driftkey,
     )
     diffusion_mlp = eqx.nn.MLP(

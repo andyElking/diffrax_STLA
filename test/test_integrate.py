@@ -209,6 +209,7 @@ def _solvers():
     yield diffrax.ReversibleHeun, "com", 1
     yield diffrax.StratonovichMilstein, "com", 1
     yield diffrax.FosterSRK, "com", 1
+    yield diffrax.SLOW_RK, "com", 1.5
     yield diffrax.FosterSRK, "add", 2
     yield diffrax.ShARK, "add", 2
     yield diffrax.SRA1, "add", 2
@@ -256,7 +257,7 @@ def test_sde_strong_order(
         if noise == "any":
             ref_solver = diffrax.Heun()
         elif noise == "com":
-            ref_solver = diffrax.ReversibleHeun()
+            ref_solver = diffrax.FosterSRK()
         elif noise == "add":
             ref_solver = diffrax.FosterSRK()
         else:
