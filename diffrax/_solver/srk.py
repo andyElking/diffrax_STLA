@@ -76,6 +76,11 @@ class StochasticButcherTableau:
 
     additive_noise: bool = True
 
+    # For some stages we may not need to evaluate the vector field for both
+    # the drift and the diffusion. This avoids unnecessary computations.
+    ignore_stage_f: Optional[np.ndarray] = None
+    ignore_stage_g: Optional[np.ndarray] = None
+
     def __post_init__(self):
         assert self.c.ndim == 1
         for a_i in self.a:
@@ -159,9 +164,12 @@ class StochasticButcherTableau:
                 else:
                     assert self.bK_error is None
 
-        for i, (a_i, c_i) in enumerate(zip(self.a, self.c)):
-            assert np.allclose(sum(a_i), c_i)
         assert np.allclose(sum(self.b_sol), 1.0)
+
+        if self.ignore_stage_f is not None:
+            assert len(self.ignore_stage_f) == len(self.b_sol)
+        if self.ignore_stage_g is not None:
+            assert len(self.ignore_stage_g) == len(self.b_sol)
 
 
 StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
@@ -251,6 +259,12 @@ class AbstractSRK(AbstractStratonovichSolver):
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
 
+    # Indicates the type of Levy area used by the solver.
+    # The BM must generate at least this type of Levy area, but can generate
+    # more. E.g. if the solver uses space-time Levy area, then the BM generates
+    # space-time-time Levy area as well that is fine. The other way around would
+    # not work. This is mostly an easily readable indicator so that methods know
+    # what kind of BM to use.
     minimal_levy_area: MinimalLevyArea
 
     def __init__(self):
@@ -330,6 +344,10 @@ class AbstractSRK(AbstractStratonovichSolver):
         dtype = jnp.result_type(*jtu.tree_leaves(y0))
         drift, diffusion = terms.terms
         additive_noise = self.tableau.additive_noise
+        if self.tableau.ignore_stage_f is not None:
+            ignore_stage_f = jnp.array(self.tableau.ignore_stage_f)
+        if self.tableau.ignore_stage_g is not None:
+            ignore_stage_g = jnp.array(self.tableau.ignore_stage_g)
 
         # time increment
         h = t1 - t0
@@ -492,24 +510,46 @@ class AbstractSRK(AbstractStratonovichSolver):
             # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + g * (a_w_j * ΔW + cH_j * ΔH)
             z_j = (y0**ω + _drift_result**ω + _diffusion_result**ω).ω
 
-            tf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
-
             def insert_jth_stage(results, res_j):
                 return jtu.tree_map(
                     lambda res_leaf, j_leaf: res_leaf.at[j].set(j_leaf), results, res_j
                 )
 
-            _tfs = insert_jth_stage(_tfs, tf_j)
+            def compute_and_insert_tfj(_tfs_in):
+                tf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
+                return insert_jth_stage(_tfs_in, tf_j)
+
+            if self.tableau.ignore_stage_f is None:
+                _tfs = compute_and_insert_tfj(_tfs)
+            else:
+                drift_pred = jnp.logical_not(ignore_stage_f[j])
+                _tfs = lax.cond(drift_pred, compute_and_insert_tfj, lambda x: x, _tfs)
+
             if additive_noise:
                 return (j + 1, _tfs, None, None), None
 
-            wg_j = diffusion.vf_prod(t0 + c_j * h, z_j, args, w)
-            _wgs = insert_jth_stage(_wgs, wg_j)
+            def compute_and_insert_gj(_wgs_in, _levy_gs_list_in):
+                wg_j = diffusion.vf_prod(t0 + c_j * h, z_j, args, w)
+                new_wgs = insert_jth_stage(_wgs_in, wg_j)
 
-            levy_g_list_j = [
-                diffusion.vf_prod(t0 + c_j * h, z_j, args, levy) for levy in levy_areas
-            ]
-            _levy_gs_list = insert_jth_stage(_levy_gs_list, levy_g_list_j)
+                levy_g_list_j = [
+                    diffusion.vf_prod(t0 + c_j * h, z_j, args, levy)
+                    for levy in levy_areas
+                ]
+                new_levy_gs_list = insert_jth_stage(_levy_gs_list_in, levy_g_list_j)
+                return new_wgs, new_levy_gs_list
+
+            if self.tableau.ignore_stage_g is None:
+                _wgs, _levy_gs_list = compute_and_insert_gj(_wgs, _levy_gs_list)
+            else:
+                diffusion_pred = jnp.logical_not(ignore_stage_g[j])
+                _wgs, _levy_gs_list = lax.cond(
+                    diffusion_pred,
+                    compute_and_insert_gj,
+                    lambda x, y: (x, y),
+                    _wgs,
+                    _levy_gs_list,
+                )
 
             return (j + 1, _tfs, _wgs, _levy_gs_list), None
 
