@@ -254,26 +254,66 @@ def get_mlp_sde(t0, t1, dtype, key, noise_dim):
     return SDE(get_terms, args, y0, t0, t1, (noise_dim,))
 
 
+# This is needed for time_sde (i.e. the additive noise SDE) because initializing
+# the weights in the drift MLP with a Gaussian makes the SDE too linear and nice,
+# so we need to use a Laplace distribution, which is heavier-tailed.
+def lap_init(weight: jax.Array, key) -> jax.Array:
+    out, in_ = weight.shape
+    stddev = jnp.sqrt(1 / in_)
+    return stddev * jax.random.laplace(key, shape=(out, in_), dtype=weight.dtype)
+
+
+def init_linear_weight(model, init_fn, key):
+    is_linear = lambda x: isinstance(x, eqx.nn.Linear)
+    get_weights = lambda m: [
+        x.weight
+        for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear)
+        if is_linear(x)
+    ]
+    weights = get_weights(model)
+    new_weights = [
+        init_fn(weight, subkey)
+        for weight, subkey in zip(weights, jax.random.split(key, len(weights)))
+    ]
+    new_model = eqx.tree_at(get_weights, model, new_weights)
+    return new_model
+
+
 def get_time_sde(t0, t1, dtype, key, noise_dim):
+    y_dim = 7
     driftkey, diffusionkey, ykey = jr.split(key, 3)
+
+    def ft(t):
+        return jnp.array(
+            [jnp.sin(t), jnp.cos(4 * t), 1.0, 1.0 / (t + 0.5)], dtype=dtype
+        )
+
     drift_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3,
+        in_size=y_dim + 4,
+        out_size=y_dim,
         width_size=8,
-        depth=2,
+        depth=3,
         activation=_squareplus,
         key=driftkey,
     )
-    diffusion_mx = jr.normal(diffusionkey, (3, 3, noise_dim), dtype=dtype)
+
+    # The drift weights must be Laplace-distributed,
+    # otherwise the SDE is too linear and nice.
+    drift_mlp = init_linear_weight(drift_mlp, lap_init, driftkey)
+
+    def _drift(t, y, _):
+        return 0.25 * drift_mlp(jnp.concatenate([y, ft(t)]))
+
+    diffusion_mx = jr.normal(diffusionkey, (4, y_dim, noise_dim), dtype=dtype)
 
     def _diffusion(t, _, __):
-        ft = jnp.array([jnp.sin(t), jnp.cos(2 * t), 1.0], dtype=dtype)
-        return jnp.tensordot(ft, diffusion_mx, axes=1)
+        # This needs a large coefficient to make the SDE not too easy.
+        return 1000.0 * jnp.tensordot(ft(t), diffusion_mx, axes=1)
 
     args = (drift_mlp, None, None)
-    y0 = jr.normal(ykey, (3,), dtype=dtype)
+    y0 = jr.normal(ykey, (y_dim,), dtype=dtype)
 
     def get_terms(bm):
-        return MultiTerm(ODETerm(drift), ControlTerm(_diffusion, bm))
+        return MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, bm))
 
     return SDE(get_terms, args, y0, t0, t1, (noise_dim,))
