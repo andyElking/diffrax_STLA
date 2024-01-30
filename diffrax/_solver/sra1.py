@@ -1,9 +1,10 @@
 import numpy as np
 
+from .base import AbstractStratonovichSolver
 from .srk import AbstractSRK, StochasticButcherTableau
 
 
-tab = StochasticButcherTableau(
+_tab = StochasticButcherTableau(
     c=np.array([3 / 4]),
     b_sol=np.array([1 / 3, 2 / 3]),
     b_error=np.array([-2 / 3, 2 / 3]),
@@ -15,33 +16,28 @@ tab = StochasticButcherTableau(
 )
 
 
-class SRA1(AbstractSRK):
+class SRA1(AbstractSRK, AbstractStratonovichSolver):
     r"""Based on the SRA1 method by Andreas Rößler.
-    Works only for SDEs with additive noise, applied to whichit has strong order 1.5.
-    Uses two evaluations of the vector field per step.
+    Works only for SDEs with additive noise, applied to which, it has
+    strong order 1.5. Uses two evaluations of the vector field per step.
 
     ??? cite "Reference"
 
         ```bibtex
-        @article{doi:10.1137/09076636X,
+        @article{rossler2010runge
             author = {R\"{o}\ss{}ler, Andreas},
             title = {Runge–Kutta Methods for the Strong Approximation of
                 Solutions of Stochastic Differential Equations},
             journal = {SIAM Journal on Numerical Analysis},
             volume = {48},
             number = {3},
-            pages = {922-952},
+            pages = {922--952},
             year = {2010},
             doi = {10.1137/09076636X},
-            URL = {https://doi.org/10.1137/09076636X},
-            eprint = {https://doi.org/10.1137/09076636X}
         ```
     """
 
-    tableau = tab
-
-    def __init__(self):
-        super().__init__()
+    tableau: StochasticButcherTableau = _tab
 
     def order(self, terms):
         return 2

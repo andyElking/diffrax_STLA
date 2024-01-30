@@ -1,9 +1,10 @@
 import numpy as np
 
+from .base import AbstractStratonovichSolver
 from .srk import AbstractSRK, StochasticButcherTableau
 
 
-tab = StochasticButcherTableau(
+_tab = StochasticButcherTableau(
     c=np.array([0.5, 0.5, 0.5, 0.5, 0.75, 1.0]),
     b_sol=np.array([1 / 3, 0, 0, 0, 0, 2 / 3, 0]),
     b_error=None,
@@ -39,7 +40,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class SLOW_RK(AbstractSRK):
+class SlowRK(AbstractSRK, AbstractStratonovichSolver):
     r"""SLOW-RK method for SDEs by James Foster.
     Applied to SDEs with commutative noise, it converges strongly with order 1.5.
     Can be used for SDEs with non-commutative noise, but then it only converges
@@ -47,10 +48,7 @@ class SLOW_RK(AbstractSRK):
 
     """
 
-    tableau = tab
-
-    def __init__(self):
-        super().__init__()
+    tableau: StochasticButcherTableau = _tab
 
     def order(self, terms):
         return 2

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import ClassVar, Literal, Optional
 from typing_extensions import TypeAlias
 
 import equinox as eqx
@@ -10,7 +10,7 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
-from .._brownian.base import AbstractBrownianPath
+from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     BoolScalarLike,
     DenseInfo,
@@ -23,7 +23,7 @@ from .._custom_types import (
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
 from .._term import AbstractTerm, MultiTerm, ODETerm
-from .base import AbstractStratonovichSolver
+from .base import AbstractSolver
 
 
 _ErrorEstimate: TypeAlias = Optional[Y]
@@ -208,7 +208,7 @@ Let `k` denote the number of stages of the solver.
 """
 
 
-class AbstractSRK(AbstractStratonovichSolver):
+class AbstractSRK(AbstractSolver[_SolverState]):
     r"""A general Stochastic Runge-Kutta method.
 
     The second term in the MultiTerm must be a `ControlTerm` with
@@ -238,7 +238,7 @@ class AbstractSRK(AbstractStratonovichSolver):
     A similar term can also be added for the space-time-time Lévy area, K.
 
     In the special case, when the SDE has additive noise, i.e. when g is
-    indepnedent of y (but can still depend on t), then the SDE can be written as
+    independent of y (but can still depend on t), then the SDE can be written as
     $dX_t = f(t, X_t) dt + g(t) \, dW_t$, and we can simplify the above to
 
     $y_{n+1} = y_n + h \Big(\sum_{j=1}^s b_j k_j \Big) + g(t_n) \, (b^W
@@ -255,7 +255,7 @@ class AbstractSRK(AbstractStratonovichSolver):
     The coefficients are provided in the `StochasticButcherTableau`.
     """
 
-    term_structure = MultiTerm[tuple[ODETerm, AbstractTerm]]
+    term_structure: ClassVar = MultiTerm[tuple[ODETerm, AbstractTerm]]
     interpolation_cls = LocalLinearInterpolation
     tableau: StochasticButcherTableau
 

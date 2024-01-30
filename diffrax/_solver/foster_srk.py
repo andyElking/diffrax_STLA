@@ -1,28 +1,35 @@
 import numpy as np
 
+from .base import AbstractStratonovichSolver
 from .srk import AbstractSRK, StochasticButcherTableau
 
 
-x1 = (3 - np.sqrt(3)) / 6
-x2 = np.sqrt(3) / 3
+_x1 = (3 - np.sqrt(3)) / 6
+_x2 = np.sqrt(3) / 3
 
-tab = StochasticButcherTableau(
+_tab = StochasticButcherTableau(
     c=np.array([0.5, 1.0]),
-    b_sol=np.array([x1, x2, x1]),
+    b_sol=np.array([_x1, _x2, _x1]),
     a=[np.array([0.5]), np.array([0.0, 1.0])],
     aW=[np.array([0.5]), np.array([0.0, 1.0])],
     aH=[np.array([np.sqrt(3)]), np.array([0.0, 0.0])],
-    bW=np.array([x1, x2, x1]),
+    bW=np.array([_x1, _x2, _x1]),
     bH=np.array([1.0, 0.0, -1.0]),
-    b_error=np.array([x1 - 0.5, x2, x1 - 0.5]),
-    bW_error=np.array([x1 - 0.5, x2, x1 - 0.5]),
+    b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
+    bW_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
     bH_error=np.array([1.0, 0.0, -1.0]),
     additive_noise=False,
 )
 
 
-class FosterSRK(AbstractSRK):
-    r"""A Stochastic Runge-Kutta method based on equation Definition $1.6$ from
+class FosterSRK(AbstractSRK, AbstractStratonovichSolver):
+    r"""A Stochastic Runge-Kutta method with three evaluations of the vector field
+    per step. Has the following strong orders of convergence:
+    - 1.5 for SDEs with additive noise
+    - 1.0 for SDEs with commutative noise
+    - 0.5 for general SDEs.
+    Despite being slower than methods like ShARK or SRA1, it works for a wider class
+    of SDEs. It is based on Definition 1.6 from
 
     ??? cite "Reference"
 
@@ -32,18 +39,13 @@ class FosterSRK(AbstractSRK):
             for stochastic differential equations},
             author={James Foster},
             year={2023},
-            eprint={2311.14201},
             archivePrefix={arXiv},
             primaryClass={math.NA}
         }
         ```
-
     """
 
-    tableau = tab
-
-    def __init__(self):
-        super().__init__()
+    tableau: StochasticButcherTableau = _tab
 
     def order(self, terms):
         return 2

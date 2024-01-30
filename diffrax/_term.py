@@ -5,10 +5,10 @@ from typing import cast, Generic, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jax import numpy as jnp
 from jaxtyping import Array, ArrayLike, PyTree, PyTreeDef
 
 from ._custom_types import Args, Control, IntScalarLike, RealScalarLike, VF, Y

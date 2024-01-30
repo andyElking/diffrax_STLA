@@ -1,9 +1,10 @@
 import numpy as np
 
+from .base import AbstractStratonovichSolver
 from .srk import AbstractSRK, StochasticButcherTableau
 
 
-tab = StochasticButcherTableau(
+_tab = StochasticButcherTableau(
     c=np.array([]),
     b_sol=np.array([1.0]),
     b_error=None,
@@ -15,7 +16,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class SEA(AbstractSRK):
+class SEA(AbstractSRK, AbstractStratonovichSolver):
     r"""Shifted Euler method for SDEs with additive noise.
      It has a local error of $O(h^2)$ compared to
      standard Euler-Maruyama, which has $O(h^{1.5})$.
@@ -37,10 +38,7 @@ class SEA(AbstractSRK):
         ```
     """
 
-    tableau = tab
-
-    def __init__(self):
-        super().__init__()
+    tableau: StochasticButcherTableau = _tab
 
     def order(self, terms):
         return 1

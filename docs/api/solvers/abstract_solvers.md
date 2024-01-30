@@ -84,3 +84,13 @@ In addition [`diffrax.AbstractSolver`][] has several subclasses that you can use
 ::: diffrax.CalculateJacobian
     selection:
         members: false
+
+
+::: diffrax.AbstractSRK
+    selection:
+        members: false
+
+::: diffrax.StochasticButcherTableau
+    selection:
+        members:
+            - __init__
