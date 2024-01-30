@@ -198,18 +198,18 @@ def _solvers():
     # solver, noise, order
     # noise is "any" or "com" or "add" where "com" means commutative and "add" means
     # additive.
-    # yield diffrax.Euler, "any", 0.5
-    # yield diffrax.EulerHeun, "any", 0.5
-    # yield diffrax.Heun, "any", 0.5
-    # yield diffrax.ItoMilstein, "any", 0.5
-    # yield diffrax.Midpoint, "any", 0.5
-    # yield diffrax.ReversibleHeun, "any", 0.5
-    # yield diffrax.StratonovichMilstein, "any", 0.5
-    # yield diffrax.FosterSRK, "any", 0.5
-    # yield diffrax.ReversibleHeun, "com", 1
-    # yield diffrax.StratonovichMilstein, "com", 1
-    # yield diffrax.FosterSRK, "com", 1
-    # yield diffrax.SLOW_RK, "com", 1.5
+    yield diffrax.Euler, "any", 0.5
+    yield diffrax.EulerHeun, "any", 0.5
+    yield diffrax.Heun, "any", 0.5
+    yield diffrax.ItoMilstein, "any", 0.5
+    yield diffrax.Midpoint, "any", 0.5
+    yield diffrax.ReversibleHeun, "any", 0.5
+    yield diffrax.StratonovichMilstein, "any", 0.5
+    yield diffrax.FosterSRK, "any", 0.5
+    yield diffrax.ReversibleHeun, "com", 1
+    yield diffrax.StratonovichMilstein, "com", 1
+    yield diffrax.FosterSRK, "com", 1
+    yield diffrax.SlowRK, "com", 1.5
     yield diffrax.FosterSRK, "add", 1.5
     yield diffrax.ShARK, "add", 1.5
     yield diffrax.SRA1, "add", 1.5
@@ -220,16 +220,16 @@ def _solvers():
 def test_sde_strong_order(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order
 ):
-    key = jr.PRNGKey(5678)
-    sde_key, bmkey = jr.split(key, 2)
-    num_samples = 30
+    bmkey = jr.PRNGKey(5678)
+    sde_key = jr.PRNGKey(11)
+    num_samples = 100
     bmkeys = jr.split(bmkey, num=num_samples)
 
     t0 = 0.3
     t1 = 5.3
 
     if noise == "add":
-        sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=5)
+        sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=7)
     else:
         if noise == "com":
             noise_dim = 1
@@ -257,9 +257,9 @@ def test_sde_strong_order(
         if noise == "any":
             ref_solver = diffrax.Heun()
         elif noise == "com":
-            ref_solver = diffrax.FosterSRK()
+            ref_solver = diffrax.FosterSRK()  # type: ignore
         elif noise == "add":
-            ref_solver = diffrax.FosterSRK()
+            ref_solver = diffrax.FosterSRK()  # type: ignore
         else:
             assert False
     else:

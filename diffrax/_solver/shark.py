@@ -1,9 +1,10 @@
 import numpy as np
 
+from .base import AbstractStratonovichSolver
 from .srk import AbstractSRK, StochasticButcherTableau
 
 
-tab = StochasticButcherTableau(
+_tab = StochasticButcherTableau(
     c=np.array([5 / 6]),
     b_sol=np.array([0.4, 0.6]),
     b_error=np.array([-0.6, 0.6]),
@@ -15,7 +16,7 @@ tab = StochasticButcherTableau(
 )
 
 
-class ShARK(AbstractSRK):
+class ShARK(AbstractSRK, AbstractStratonovichSolver):
     r"""Shifted Additive-noise Runge-Kutta method for SDEs by James Foster.
     Applied to SDEs with additive noise, it has strong order 1.5.
     Uses two evaluations of the vector field per step.
@@ -34,13 +35,9 @@ class ShARK(AbstractSRK):
           archivePrefix={arXiv},
           primaryClass={math.NA}
         ```
-
     """
 
-    tableau = tab
-
-    def __init__(self):
-        super().__init__()
+    tableau: StochasticButcherTableau = _tab
 
     def order(self, terms):
         return 2

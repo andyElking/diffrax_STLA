@@ -46,15 +46,6 @@ See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochast
 
 ### Stochastic Runge--Kutta (SRK)
 
-::: diffrax.AbstractSRK
-    selection:
-        members: false
-
-::: diffrax.StochasticButcherTableau
-    selection:
-        members:
-            - __init__
-
 ::: diffrax.ShARK
     selection:
         members: false

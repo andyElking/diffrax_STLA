@@ -291,8 +291,8 @@ def get_time_sde(t0, t1, dtype, key, noise_dim):
     drift_mlp = eqx.nn.MLP(
         in_size=y_dim + 4,
         out_size=y_dim,
-        width_size=8,
-        depth=3,
+        width_size=16,
+        depth=4,
         activation=_squareplus,
         key=driftkey,
     )
@@ -308,7 +308,7 @@ def get_time_sde(t0, t1, dtype, key, noise_dim):
 
     def _diffusion(t, _, __):
         # This needs a large coefficient to make the SDE not too easy.
-        return 1000.0 * jnp.tensordot(ft(t), diffusion_mx, axes=1)
+        return 10000.0 * jnp.tensordot(ft(t), diffusion_mx, axes=1)
 
     args = (drift_mlp, None, None)
     y0 = jr.normal(ykey, (y_dim,), dtype=dtype)
