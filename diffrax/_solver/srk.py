@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Optional
+from typing import ClassVar, Optional
 from typing_extensions import TypeAlias
 
 import equinox as eqx
@@ -31,14 +31,6 @@ _SolverState: TypeAlias = None
 _CarryType: TypeAlias = tuple[
     IntScalarLike, PyTree[Array], PyTree[Array], PyTree[Array]
 ]
-
-# To Patrick:
-# This is on purpose distinct from LevyArea in diffrax/_custom_types.py
-# because I think it is cleaner if this SRK is "perpendicular" to _brownian
-# in the sense that this can utilize sttla (which it can) even if _brownian
-# cannot generate it so far. And this allows me to later update _brownian
-# without having to update this SRK.
-MinimalLevyArea: TypeAlias = Literal["", "space-time", "space-time-time"]
 
 
 @dataclass(frozen=True)
@@ -265,15 +257,16 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     # space-time-time Levy area as well that is fine. The other way around would
     # not work. This is mostly an easily readable indicator so that methods know
     # what kind of BM to use.
-    minimal_levy_area: MinimalLevyArea
+    def minimal_levy_area(self):
+        if self.tableau.bK is not None:
+            return "space-time-time"
+        elif self.tableau.bH is not None:
+            return "space-time"
+        else:
+            return ""
 
     def __init__(self):
-        if self.tableau.bK is not None:
-            self.minimal_levy_area: MinimalLevyArea = "space-time-time"
-        elif self.tableau.bH is not None:
-            self.minimal_levy_area: MinimalLevyArea = "space-time"
-        else:
-            self.minimal_levy_area: MinimalLevyArea = ""
+        pass
 
     def init(
         self,

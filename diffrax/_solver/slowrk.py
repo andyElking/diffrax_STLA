@@ -5,7 +5,7 @@ from .srk import AbstractSRK, StochasticButcherTableau
 
 
 _tab = StochasticButcherTableau(
-    c=np.array([0.5, 0.5, 0.5, 0.5, 0.75, 1.0]),
+    c=np.array([0.5, 0.5, 0.5, 0.5, 0.75, 1.5]),
     b_sol=np.array([1 / 3, 0, 0, 0, 0, 2 / 3, 0]),
     b_error=None,
     a=[
