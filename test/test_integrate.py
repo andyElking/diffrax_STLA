@@ -205,12 +205,15 @@ def _solvers():
     yield diffrax.Midpoint, "any", 0.5
     yield diffrax.ReversibleHeun, "any", 0.5
     yield diffrax.StratonovichMilstein, "any", 0.5
-    yield diffrax.FosterSRK, "any", 0.5
+    yield diffrax.STORK, "any", 0.5
+    yield diffrax.GeneralShARK, "any", 0.5
     yield diffrax.ReversibleHeun, "com", 1
     yield diffrax.StratonovichMilstein, "com", 1
-    yield diffrax.FosterSRK, "com", 1
+    yield diffrax.STORK, "com", 1
+    yield diffrax.GeneralShARK, "com", 1
     yield diffrax.SlowRK, "com", 1.5
-    yield diffrax.FosterSRK, "add", 1.5
+    yield diffrax.STORK, "add", 1.5
+    yield diffrax.GeneralShARK, "add", 1.5
     yield diffrax.ShARK, "add", 1.5
     yield diffrax.SRA1, "add", 1.5
     yield diffrax.SEA, "add", 1.0
@@ -257,9 +260,9 @@ def test_sde_strong_order(
         if noise == "any":
             ref_solver = diffrax.Heun()
         elif noise == "com":
-            ref_solver = diffrax.FosterSRK()  # type: ignore
+            ref_solver = diffrax.STORK()
         elif noise == "add":
-            ref_solver = diffrax.FosterSRK()  # type: ignore
+            ref_solver = diffrax.STORK()
         else:
             assert False
     else:

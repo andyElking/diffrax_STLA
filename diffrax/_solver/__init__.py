@@ -12,7 +12,6 @@ from .dopri5 import Dopri5 as Dopri5
 from .dopri8 import Dopri8 as Dopri8
 from .euler import Euler as Euler
 from .euler_heun import EulerHeun as EulerHeun
-from .foster_srk import FosterSRK as FosterSRK
 from .heun import Heun as Heun
 from .implicit_euler import ImplicitEuler as ImplicitEuler
 from .kencarp3 import KenCarp3 as KenCarp3
@@ -42,8 +41,10 @@ from .runge_kutta import (
 from .sea import SEA as SEA
 from .semi_implicit_euler import SemiImplicitEuler as SemiImplicitEuler
 from .shark import ShARK as ShARK
+from .shark_general import GeneralShARK as GeneralShARK
 from .sil3 import Sil3 as Sil3
 from .slowrk import SlowRK as SlowRK
 from .sra1 import SRA1 as SRA1
 from .srk import AbstractSRK as AbstractSRK
+from .stork import STORK as STORK
 from .tsit5 import Tsit5 as Tsit5

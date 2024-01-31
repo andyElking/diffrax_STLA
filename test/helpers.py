@@ -181,17 +181,19 @@ def _batch_sde_solve(
     return end_value(keys)
 
 
-def sde_solver_strong_order(keys, sde: SDE, solver, ref_solver, dt_precise, dts):
-    if hasattr(solver, "minimal_levy_area"):
-        levy_area = solver.minimal_levy_area
+def get_minimal_la(solver):
+    la = getattr(solver, "minimal_levy_area", None)
+    if callable(la):
+        return la()
     else:
-        levy_area = diffrax.BrownianIncrement
+        return diffrax.BrownianIncrement
 
-    # Pick the common descendant of the minimal levy area of both solvers
-    if hasattr(ref_solver, "minimal_levy_area") and issubclass(
-        ref_solver.minimal_levy_area, levy_area
-    ):
-        levy_area = ref_solver.minimal_levy_area
+
+def sde_solver_strong_order(keys, sde: SDE, solver, ref_solver, dt_precise, dts):
+    levy_area1 = get_minimal_la(solver)
+    levy_area2 = get_minimal_la(ref_solver)
+    # Stricter levy_area requirements are subclasses of looser ones
+    levy_area = levy_area1 if issubclass(levy_area1, levy_area2) else levy_area2
 
     correct_sols = _batch_sde_solve(
         keys, sde, dt_precise, ref_solver, levy_area=levy_area

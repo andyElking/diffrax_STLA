@@ -79,7 +79,7 @@ from ._solver import (
     Dopri8 as Dopri8,
     Euler as Euler,
     EulerHeun as EulerHeun,
-    FosterSRK as FosterSRK,
+    GeneralShARK as GeneralShARK,
     HalfSolver as HalfSolver,
     Heun as Heun,
     ImplicitEuler as ImplicitEuler,
@@ -101,6 +101,7 @@ from ._solver import (
     Sil3 as Sil3,
     SlowRK as SlowRK,
     SRA1 as SRA1,
+    STORK as STORK,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,
 )

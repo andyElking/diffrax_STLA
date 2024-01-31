@@ -22,9 +22,10 @@ _tab = StochasticButcherTableau(
 )
 
 
-class FosterSRK(AbstractSRK, AbstractStratonovichSolver):
-    r"""A Stochastic Runge-Kutta method with three evaluations of the vector field
-    per step. Has the following strong orders of convergence:
+class STORK(AbstractSRK, AbstractStratonovichSolver):
+    r"""The Space-Time Optimal Runge-Kutta method by James Foster.
+    It uses three evaluations of the vector field per step and
+    has the following strong orders of convergence:
     - 1.5 for SDEs with additive noise
     - 1.0 for SDEs with commutative noise
     - 0.5 for general SDEs.
