@@ -50,6 +50,10 @@ See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochast
     selection:
         members: false
 
+::: diffrax.GeneralShARK
+    selection:
+        members: false
+
 ::: diffrax.SRA1
     selection:
         members: false
@@ -58,7 +62,11 @@ See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochast
     selection:
         members: false
 
-::: diffrax.FosterSRK
+::: diffrax.SPaRK
+    selection:
+        members: false
+
+::: diffrax.SlowRK
     selection:
         members: false
 

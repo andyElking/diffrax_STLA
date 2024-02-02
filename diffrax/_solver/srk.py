@@ -7,6 +7,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+from equinox import AbstractClassVar
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 
@@ -249,7 +250,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     term_structure: ClassVar = MultiTerm[tuple[ODETerm, AbstractTerm]]
     interpolation_cls = LocalLinearInterpolation
-    tableau: StochasticButcherTableau
+    tableau: AbstractClassVar[StochasticButcherTableau]
 
     # Indicates the type of Levy area used by the solver.
     # The BM must generate at least this type of Levy area, but can generate
@@ -264,9 +265,6 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             return "space-time"
         else:
             return ""
-
-    def __init__(self):
-        pass
 
     def init(
         self,

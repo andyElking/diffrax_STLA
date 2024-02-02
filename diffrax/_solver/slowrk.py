@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import numpy as np
 
 from .base import AbstractStratonovichSolver
@@ -5,7 +7,7 @@ from .srk import AbstractSRK, StochasticButcherTableau
 
 
 _tab = StochasticButcherTableau(
-    c=np.array([0.5, 0.5, 0.5, 0.5, 0.75, 1.5]),
+    c=np.array([0.5, 0.5, 0.5, 0.5, 0.75, 1.0]),
     b_sol=np.array([1 / 3, 0, 0, 0, 0, 2 / 3, 0]),
     b_error=None,
     a=[
@@ -14,7 +16,7 @@ _tab = StochasticButcherTableau(
         np.array([0.5, 0.0, 0.0]),
         np.array([0.5, 0.0, 0.0, 0.0]),
         np.array([0.75, 0.0, 0.0, 0.0, 0.0]),
-        np.array([1.5, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ],
     aW=[
         np.array([0]),
@@ -33,7 +35,7 @@ _tab = StochasticButcherTableau(
         np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ],
     bW=np.array([0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0, 0]),
-    bH=np.array([0, 0, 0, 1, 0, 0, -1]),
+    bH=np.array([0, 0, 0, 2, 0, 0, -2]),
     additive_noise=False,
     ignore_stage_f=np.array([False, True, True, True, True, False, True]),
     ignore_stage_g=np.array([True, False, False, False, False, True, False]),
@@ -48,7 +50,7 @@ class SlowRK(AbstractSRK, AbstractStratonovichSolver):
 
     """
 
-    tableau: StochasticButcherTableau = _tab
+    tableau: ClassVar[StochasticButcherTableau] = _tab
 
     def order(self, terms):
         return 2

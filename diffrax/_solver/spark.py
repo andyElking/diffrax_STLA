@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import numpy as np
 
 from .base import AbstractStratonovichSolver
@@ -22,8 +24,8 @@ _tab = StochasticButcherTableau(
 )
 
 
-class STORK(AbstractSRK, AbstractStratonovichSolver):
-    r"""The Space-Time Optimal Runge-Kutta method by James Foster.
+class SPaRK(AbstractSRK, AbstractStratonovichSolver):
+    r"""The Splitting Path Runge-Kutta method by James Foster.
     It uses three evaluations of the vector field per step and
     has the following strong orders of convergence:
     - 1.5 for SDEs with additive noise
@@ -46,7 +48,7 @@ class STORK(AbstractSRK, AbstractStratonovichSolver):
         ```
     """
 
-    tableau: StochasticButcherTableau = _tab
+    tableau: ClassVar[StochasticButcherTableau] = _tab
 
     def order(self, terms):
         return 2

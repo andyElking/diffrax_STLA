@@ -136,7 +136,7 @@ class SDE:
     def get_bm(
         self,
         key,
-        levy_area: LevyArea = "space-time",
+        levy_area: LevyArea,
         use_tree=True,
         tol=2**-14,
     ):
