@@ -100,8 +100,8 @@ from ._solver import (
     ShARK as ShARK,
     Sil3 as Sil3,
     SlowRK as SlowRK,
+    SPaRK as SPaRK,
     SRA1 as SRA1,
-    STORK as STORK,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,
 )

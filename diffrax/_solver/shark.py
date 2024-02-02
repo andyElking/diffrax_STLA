@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import numpy as np
 
 from .base import AbstractStratonovichSolver
@@ -37,7 +39,7 @@ class ShARK(AbstractSRK, AbstractStratonovichSolver):
         ```
     """
 
-    tableau: StochasticButcherTableau = _tab
+    tableau: ClassVar[StochasticButcherTableau] = _tab
 
     def order(self, terms):
         return 2
