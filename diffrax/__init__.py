@@ -14,6 +14,7 @@ from ._brownian import (
     VirtualBrownianTree as VirtualBrownianTree,
 )
 from ._custom_types import (
+    LevyArea as LevyArea,
     LevyVal as LevyVal,
 )
 from ._event import (

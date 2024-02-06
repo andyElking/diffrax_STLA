@@ -85,6 +85,9 @@ In addition [`diffrax.AbstractSolver`][] has several subclasses that you can use
     selection:
         members: false
 
+---
+
+### Abstract Stochastic Runge--Kutta (SRK) solvers
 
 ::: diffrax.AbstractSRK
     selection:

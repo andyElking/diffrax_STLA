@@ -3,18 +3,26 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, StochasticButcherTableau
+from .srk import AbstractSRK, GeneralNoiseCoefficients, StochasticButcherTableau
 
+
+cfs_w = GeneralNoiseCoefficients(
+    a=(np.array([0.0]), np.array([0.0, 5 / 6])),
+    b=np.array([0.0, 0.4, 0.6]),
+)
+
+cfs_hh = GeneralNoiseCoefficients(
+    a=(np.array([1.0]), np.array([1.0, 0.0])),
+    b=np.array([0.0, 1.2, -1.2]),
+)
 
 _tab = StochasticButcherTableau(
     c=np.array([0.0, 5 / 6]),
     b_sol=np.array([0.0, 0.4, 0.6]),
     b_error=None,
     a=[np.array([0.0]), np.array([0.0, 5 / 6])],
-    aW=[np.array([0.0]), np.array([0.0, 5 / 6])],
-    aH=[np.array([1.0]), np.array([1.0, 0.0])],
-    bW=np.array([0.0, 0.4, 0.6]),
-    bH=np.array([0.0, 1.2, -1.2]),
+    cfs_w=cfs_w,
+    cfs_hh=cfs_hh,
     additive_noise=False,
     ignore_stage_f=np.array([True, False, False]),
 )
