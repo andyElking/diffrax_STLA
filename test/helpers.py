@@ -1,5 +1,7 @@
 import dataclasses
-from typing import Callable
+from typing import Callable, Optional
+
+from jax import Array
 
 import diffrax
 import equinox as eqx
@@ -12,15 +14,11 @@ from diffrax import (
     AbstractBrownianPath,
     AbstractTerm,
     ControlTerm,
-    diffeqsolve,
     MultiTerm,
     ODETerm,
-    SaveAt,
-    UnsafeBrownianPath,
     VirtualBrownianTree,
 )
-from jaxtyping import PyTree
-
+from jaxtyping import PyTree, Shaped, PRNGKeyArray
 
 all_ode_solvers = (
     diffrax.Bosh3(),
@@ -93,7 +91,10 @@ def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8, equal_nan=False):
     return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
-def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
+def path_l2_dist(
+    ys1: PyTree[Shaped[Array, "repeats times ?*channels"], " T"],
+    ys2: PyTree[Shaped[Array, "repeats times ?*channels"], " T"],
+):
     # first compute the square of the difference and sum over
     # all but the first two axes (which represent the number of samples
     # and the length of saveat). Also sum all the PyTree leaves.
@@ -111,6 +112,133 @@ def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
     return dist
 
 
+def get_minimal_la(solver):
+    while isinstance(solver, diffrax.HalfSolver):
+        solver = solver.solver
+    la = getattr(solver, "minimal_levy_area", None)
+    if callable(la):
+        return la()
+    else:
+        return ""
+
+
+@eqx.filter_jit
+@eqx.filter_vmap(
+    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None)
+)
+def _batch_sde_solve(
+    key: PRNGKeyArray,
+    get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
+    w_shape: tuple[int, ...],
+    t0: float,
+    t1: float,
+    y0: PyTree[Array],
+    args: PyTree,
+    solver: diffrax.AbstractSolver,
+    levy_area: Optional[type[diffrax.BrownianIncrement]],
+    dt0: Optional[float],
+    controller: Optional[diffrax.AbstractStepSizeController],
+    bm_tol: float,
+    saveat: diffrax.SaveAt,
+):
+    if levy_area is None:
+        levy_area = get_minimal_la(solver)
+    dtype = jnp.result_type(*jtu.tree_leaves(y0))
+    struct = jax.ShapeDtypeStruct(w_shape, dtype)
+    bm = diffrax.VirtualBrownianTree(
+        t0=t0,
+        t1=t1,
+        shape=struct,
+        tol=bm_tol,
+        key=key,
+        levy_area=levy_area,
+    )
+    terms = get_terms(bm)
+    if controller is None:
+        controller = diffrax.ConstantStepSize()
+    sol = diffrax.diffeqsolve(
+        terms,
+        solver,
+        t0,
+        t1,
+        dt0=dt0,
+        y0=y0,
+        args=args,
+        max_steps=2**19,
+        stepsize_controller=controller,
+        saveat=saveat,
+    )
+    return sol.ys, sol.stats["num_accepted_steps"]
+
+
+@eqx.filter_jit
+def sde_solver_strong_order(
+    keys: PRNGKeyArray,
+    get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
+    w_shape: tuple[int, ...],
+    t0: float,
+    t1: float,
+    y0: PyTree[Array],
+    args: PyTree,
+    solver: diffrax.AbstractSolver,
+    ref_solver: diffrax.AbstractSolver,
+    levels: tuple[int, int],
+    get_step_controller: Callable[[int], diffrax.AbstractStepSizeController],
+    saveat: diffrax.SaveAt,
+    bm_tol: float,
+):
+    levy_area1 = get_minimal_la(solver)
+    levy_area2 = get_minimal_la(ref_solver)
+    # Stricter levy_area requirements are a longer string, so only override
+    # solver's levy_area if the ref_solver requires more levy area
+    # TODO: this is a bit hacky, but I'm not sure how else to do it
+    levy_area = levy_area1 if len(levy_area1) > len(levy_area2) else levy_area2
+
+    level_coarse, level_fine = levels
+    level_ref = 2 + level_fine
+
+    correct_sols, _ = _batch_sde_solve(
+        keys,
+        get_terms,
+        w_shape,
+        t0,
+        t1,
+        y0,
+        args,
+        ref_solver,
+        levy_area,
+        None,
+        get_step_controller(level_ref),
+        bm_tol,
+        saveat,
+    )
+
+    errs_list, steps_list = [], []
+    for level in range(level_coarse, level_fine + 1):
+        sols, steps = _batch_sde_solve(
+            keys,
+            get_terms,
+            w_shape,
+            t0,
+            t1,
+            y0,
+            args,
+            solver,
+            levy_area,
+            None,
+            get_step_controller(level),
+            bm_tol,
+            saveat,
+        )
+        errs = path_l2_dist(sols, correct_sols)
+        errs_list.append(errs)
+        steps_list.append(jnp.average(steps))
+    errs_arr = jnp.array(errs_list)
+    steps_arr = jnp.array(steps_list)
+    order, _ = jnp.polyfit(jnp.log(1 / steps_arr), jnp.log(errs_arr), 1)
+    return steps_arr, errs_arr, order
+
+
 # TODO: remove this once we have a better way to handle this
 # I understand you'd prefer not to have this in the library and
 # I agree this is somewhat hacky, but I think passing each of
@@ -122,92 +250,70 @@ def path_l2_dist(ys1: PyTree[jax.Array], ys2: PyTree[jax.Array]):
 class SDE:
     get_terms: Callable[[AbstractBrownianPath], AbstractTerm]
     args: PyTree
-    y0: PyTree
+    y0: PyTree[Array]
     t0: float
     t1: float
-    w_shape: tuple
+    w_shape: tuple[int, ...]
 
     def get_dtype(self):
         return jnp.result_type(*jtu.tree_leaves(self.y0))
 
     def get_bm(
         self,
-        key,
+        bm_key,
         levy_area: type[diffrax.BrownianIncrement],
-        use_tree=True,
         tol=2**-14,
     ):
         shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())
-        if use_tree:
-            return VirtualBrownianTree(
-                t0=self.t0,
-                t1=self.t1,
-                shape=shp_dtype,
-                tol=tol,
-                key=key,
-                levy_area=levy_area,
-            )
-        else:
-            return UnsafeBrownianPath(shape=shp_dtype, key=key, levy_area=levy_area)
+        return VirtualBrownianTree(self.t0, self.t1, tol, shp_dtype, bm_key, levy_area)
 
 
-def _batch_sde_solve(
+# A more concise function for use in the examples
+def simple_sde_order(
     keys,
     sde: SDE,
-    dt0,
     solver,
-    levy_area: type[diffrax.BrownianIncrement],
+    ref_solver,
+    levels,
+    get_step_controller,
+    saveat,
+    bm_tol,
 ):
-    _saveat = SaveAt(ts=[sde.t1])
-
-    @jax.jit
-    @jax.vmap
-    def end_value(key):
-        path = sde.get_bm(key, levy_area=levy_area, use_tree=True)
-        terms = sde.get_terms(path)
-
-        sol = diffeqsolve(
-            terms,
-            solver,
-            sde.t0,
-            sde.t1,
-            dt0=dt0,
-            y0=sde.y0,
-            args=sde.args,
-            max_steps=None,
-        )
-        return sol.ys
-
-    return end_value(keys)
-
-
-def get_minimal_la(solver):
-    la = getattr(solver, "minimal_levy_area", None)
-    if callable(la):
-        return la()
-    else:
-        return diffrax.BrownianIncrement
-
-
-def sde_solver_strong_order(keys, sde: SDE, solver, ref_solver, dt_precise, dts):
-    levy_area1 = get_minimal_la(solver)
-    levy_area2 = get_minimal_la(ref_solver)
-    # Stricter levy_area requirements are subclasses of looser ones
-    levy_area = levy_area1 if issubclass(levy_area1, levy_area2) else levy_area2
-
-    correct_sols = _batch_sde_solve(
-        keys, sde, dt_precise, ref_solver, levy_area=levy_area
+    return sde_solver_strong_order(
+        keys,
+        sde.get_terms,
+        sde.w_shape,
+        sde.t0,
+        sde.t1,
+        sde.y0,
+        sde.args,
+        solver,
+        ref_solver,
+        levels,
+        get_step_controller,
+        saveat,
+        bm_tol,
     )
 
-    @jax.jit
-    @jax.vmap
-    def get_single_err(h):
-        sols = _batch_sde_solve(keys, sde, h, solver, levy_area=levy_area)
-        return path_l2_dist(sols, correct_sols)
 
-    errs = get_single_err(dts)
-    order, _ = jnp.polyfit(jnp.log(dts), jnp.log(errs), 1)
-    return dts, errs, order
+def simple_batch_sde_solve(
+    keys, sde: SDE, solver, levy_area, dt0, controller, bm_tol, saveat
+):
+    return _batch_sde_solve(
+        keys,
+        sde.get_terms,
+        sde.w_shape,
+        sde.t0,
+        sde.t1,
+        sde.y0,
+        sde.args,
+        solver,
+        levy_area,
+        dt0,
+        controller,
+        bm_tol,
+        saveat,
+    )
 
 
 def _squareplus(x):
@@ -260,18 +366,20 @@ def get_mlp_sde(t0, t1, dtype, key, noise_dim):
 # the weights in the drift MLP with a Gaussian makes the SDE too linear and nice,
 # so we need to use a Laplace distribution, which is heavier-tailed.
 def lap_init(weight: jax.Array, key) -> jax.Array:
-    out, in_ = weight.shape
-    stddev = jnp.sqrt(1 / in_)
-    return stddev * jax.random.laplace(key, shape=(out, in_), dtype=weight.dtype)
+    stddev = 1.0
+    return stddev * jax.random.laplace(key, shape=weight.shape, dtype=weight.dtype)
 
 
 def init_linear_weight(model, init_fn, key):
     is_linear = lambda x: isinstance(x, eqx.nn.Linear)
-    get_weights = lambda m: [
-        x.weight
-        for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear)
-        if is_linear(x)
-    ]
+
+    def get_weights(model):
+        list = []
+        for x in jax.tree_util.tree_leaves(model, is_leaf=is_linear):
+            if is_linear(x):
+                list.extend([x.weight, x.bias])
+        return list
+
     weights = get_weights(model)
     new_weights = [
         init_fn(weight, subkey)
@@ -294,7 +402,7 @@ def get_time_sde(t0, t1, dtype, key, noise_dim):
         in_size=y_dim + 4,
         out_size=y_dim,
         width_size=16,
-        depth=4,
+        depth=5,
         activation=_squareplus,
         key=driftkey,
     )
@@ -304,13 +412,14 @@ def get_time_sde(t0, t1, dtype, key, noise_dim):
     drift_mlp = init_linear_weight(drift_mlp, lap_init, driftkey)
 
     def _drift(t, y, _):
-        return 0.25 * drift_mlp(jnp.concatenate([y, ft(t)]))
+        mlp_out = drift_mlp(jnp.concatenate([y, ft(t)]))
+        return (0.01 * mlp_out - 0.5 * y**3) / (jnp.sum(y**2) + 1)
 
     diffusion_mx = jr.normal(diffusionkey, (4, y_dim, noise_dim), dtype=dtype)
 
     def _diffusion(t, _, __):
         # This needs a large coefficient to make the SDE not too easy.
-        return 10000.0 * jnp.tensordot(ft(t), diffusion_mx, axes=1)
+        return 1.0 * jnp.tensordot(ft(t), diffusion_mx, axes=1)
 
     args = (drift_mlp, None, None)
     y0 = jr.normal(ykey, (y_dim,), dtype=dtype)

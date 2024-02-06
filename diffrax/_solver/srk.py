@@ -1,20 +1,22 @@
+import abc
 from dataclasses import dataclass
-from typing import ClassVar, Optional
+from typing import ClassVar, Optional, TYPE_CHECKING, Union
 from typing_extensions import TypeAlias
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-from equinox import AbstractClassVar
 from equinox.internal import ω
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, Float, PyTree
 
 from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     BoolScalarLike,
     DenseInfo,
+    FloatScalarLike,
     IntScalarLike,
     LevyVal,
     RealScalarLike,
@@ -27,11 +29,83 @@ from .._term import AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractSolver
 
 
+if TYPE_CHECKING:
+    from typing import ClassVar as AbstractClassVar
+else:
+    from equinox import AbstractClassVar
+
 _ErrorEstimate: TypeAlias = Optional[Y]
 _SolverState: TypeAlias = None
-_CarryType: TypeAlias = tuple[
-    IntScalarLike, PyTree[Array], PyTree[Array], PyTree[Array]
-]
+_CarryType: TypeAlias = tuple[PyTree[Array], PyTree[Array], PyTree[Array]]
+
+
+@dataclass(frozen=True)
+class AbstractNoiseCoefficients:
+    """Abstract base class for noise coefficients."""
+
+    a: Union[Float[np.ndarray, " s"], tuple[np.ndarray, ...]]
+    b: Union[FloatScalarLike, Float[np.ndarray, " s"]]
+    # b_error: Optional[Union[FloatScalarLike, Float[np.ndarray, " s"]]]
+
+    @abc.abstractmethod
+    def check(self) -> int:
+        ...
+
+
+@dataclass(frozen=True)
+class AdditiveNoiseCoefficients(AbstractNoiseCoefficients):
+    """
+    Class representing the noise coefficients for additive noise.
+
+    **Arguments:**
+
+    - `b`: The coefficient for the Brownian increment when computing the output.
+    - `a`: The coefficients in front of the Brownian increment at each stage.
+    - `b_error`: The coefficient for the Brownian increment when computing the
+        error estimate.
+    """
+
+    b: FloatScalarLike
+    # assuming SDE has additive noise we only need a 1-dimensional array
+    # of length s for the coefficients in front of the Brownian increment
+    # and/or Lévy areas (where s is the number of stages of the solver).
+    # This is the equivalent of the matrix a for the Brownian motion and
+    # its Lévy areas.
+    a: Float[np.ndarray, " s"]
+    # b_error: Optional[FloatScalarLike] = None
+
+    def check(self):
+        assert self.a.ndim == 1
+        return self.a.shape[0]  # return the number of stages
+
+
+@dataclass(frozen=True)
+class GeneralNoiseCoefficients(AbstractNoiseCoefficients):
+    """Class representing the noise coefficients for general (non-additive) noise.
+
+    **Arguments:**
+
+    - `b`: The coefficient for the Brownian increment when computing the output.
+    - `a`: The coefficients in front of the Brownian increment at each stage.
+    - `b_error`: The coefficient for the Brownian increment when computing the
+        error estimate.
+    """
+
+    b: Float[np.ndarray, " s"]
+    # If the SDE has non-additive noise, we need an equivalent of the
+    # matrix a, one for the Brownian motion and one for each type of
+    # Lévy area.
+    a: tuple[np.ndarray, ...]
+    b_error: Optional[Float[np.ndarray, " s"]] = None
+
+    def check(self):
+        assert self.b.ndim == 1
+        assert all((i + 1,) == a_i.shape for i, a_i in enumerate(self.a))
+        if self.b_error is not None:
+            assert self.b_error.ndim == 1
+            assert self.b_error.shape == self.b.shape
+        assert self.b.shape[0] == len(self.a) + 1
+        return self.b.shape[0]  # return the number of stages
 
 
 @dataclass(frozen=True)
@@ -44,28 +118,12 @@ class StochasticButcherTableau:
     b_error: Optional[np.ndarray]
     a: list[np.ndarray]
 
-    # coefficients for W and H (of shape (len(c)+1,)
-    bW: np.ndarray
-    bW_error: Optional[np.ndarray] = None
-    # bH is None if spacetime_levyarea=False
-    bH: Optional[np.ndarray] = None
-    bH_error: Optional[np.ndarray] = None
-    bK: Optional[np.ndarray] = None
-    bK_error: Optional[np.ndarray] = None
-
-    # assuming SDE has additive noise we only need a 1-dimensional array
-    # for the coefficients in front of the Brownian increment and the
-    # space-time Lévy area.
-    cW: Optional[np.ndarray] = None
-    cH: Optional[np.ndarray] = None
-    cK: Optional[np.ndarray] = None
-
-    # If the SDE has non-additive noise, we need an equivalent of the
-    # matrix a, one for the Brownian motion and one for each type of
-    # Lévy area.
-    aW: Optional[list[np.ndarray]] = None
-    aH: Optional[list[np.ndarray]] = None
-    aK: Optional[list[np.ndarray]] = None
+    # Coefficients for the Brownian increment
+    cfs_w: AbstractNoiseCoefficients
+    # Optional coefficients for the space-time Lévy area
+    cfs_hh: Optional[AbstractNoiseCoefficients] = None
+    # Optional coefficients for the space-time-time Lévy area
+    cfs_kk: Optional[AbstractNoiseCoefficients] = None
 
     additive_noise: bool = True
 
@@ -85,79 +143,24 @@ class StochasticButcherTableau:
         assert (self.b_error is None) or self.b_error.shape[0] == self.b_sol.shape[0]
         assert self.c.shape[0] + 1 == self.b_sol.shape[0]
 
-        if self.additive_noise:
-            # Then we need one coefficient for the Brownian motion per stage
-            # and one for the final output.
-            assert self.cW is not None
-            assert self.cW.shape[0] == self.b_sol.shape[0]
-            assert self.bW.ndim == 0  # only one coefficient for the final output
-
-            if self.bH is not None:  # i.e. if we use space-time Lévy area
-                assert self.bH.ndim == 0  # only one coefficient for the final output
-                assert self.cH is not None
-                assert self.cH.shape[0] == self.b_sol.shape[0]
-            else:
-                assert self.cH is None
-
-            if self.bK is not None:  # i.e. if we use space-time-time Lévy area
-                assert self.bH is not None  # can only use K if we also use H
-                assert self.bK.ndim == 0
-                assert self.cK is not None
-                assert self.cK.shape[0] == self.b_sol.shape[0]
-            else:
-                assert self.cK is None
-
-            # check that all a are None
-            assert self.aW is None
-            assert self.aH is None
-            assert self.aK is None
-            assert self.bH_error is None
-            assert self.bK_error is None
-
-        else:
-            # Then we need a matrix of coefficients for the Brownian motion
-            assert self.aW is not None
-            assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.aW))
-            assert (
-                self.bW.shape == self.b_sol.shape
-            )  # one coefficient per output of each stage
-            if self.bH is not None:
-                assert self.aH is not None
-                assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.aH))
-                assert (
-                    self.bH.shape == self.b_sol.shape
-                )  # one coefficient per output of each stage
-            else:
-                assert self.aH is None
-
-            if self.bK is not None:
-                assert self.bH is not None  # can only use K if we also use H
-                assert self.aK is not None
-                assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.aK))
-                assert self.bK.shape == self.b_sol.shape
-            else:
-                assert self.aK is None
-
-            # check that all c are None
-            assert self.cW is None
-            assert self.cH is None
-            assert self.cK is None
-
-            if self.b_error is not None:
-                assert self.bW_error is not None
-                assert self.bW_error.shape == self.b_error.shape
-                if self.bH is not None:
-                    assert self.bH_error is not None
-                    assert self.bH_error.shape == self.b_error.shape
-                else:
-                    assert self.bH_error is None
-                if self.bK is not None:
-                    assert self.bK_error is not None
-                    assert self.bK_error.shape == self.b_error.shape
-                else:
-                    assert self.bK_error is None
-
         assert np.allclose(sum(self.b_sol), 1.0)
+
+        stochastic_coeffs = [self.cfs_w]
+        if self.cfs_hh is not None:
+            stochastic_coeffs.append(self.cfs_hh)
+        if self.cfs_kk is not None:
+            assert self.cfs_hh is not None
+            stochastic_coeffs.append(self.cfs_kk)
+
+        for cfs in stochastic_coeffs:
+            assert cfs.check() == self.b_sol.shape[0]
+            if self.additive_noise:
+                assert isinstance(cfs, AdditiveNoiseCoefficients)
+            else:
+                assert isinstance(cfs, GeneralNoiseCoefficients)
+
+            if self.b_error is not None and isinstance(cfs, GeneralNoiseCoefficients):
+                assert cfs.b_error is not None
 
         if self.ignore_stage_f is not None:
             assert len(self.ignore_stage_f) == len(self.b_sol)
@@ -167,37 +170,31 @@ class StochasticButcherTableau:
 
 StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
 
-Let `k` denote the number of stages of the solver.
+Let `s` denote the number of stages of the solver.
 
-- `a`: the lower triangle (without the diagonal) of the Butcher tableau. Should
+- `s`: The number of stages of the solver.
+- `a`: The lower triangle (without the diagonal) of the Butcher tableau. Should
     be a tuple of NumPy arrays, corresponding to the rows of this lower triangle. The
-    first array represents the should be of shape `(1,)`. Each subsequent array should
-    be of shape `(2,)`, `(3,)` etc. The final array should have shape `(k - 1,)`.
-- `b_sol`: the linear combination of stages to take to produce the output at each step.
-    Should be a NumPy array of shape `(k,)`.
-- `b_error`: the linear combination of stages to take to produce the error estimate at
-    each step. Should be a NumPy array of shape `(k,)`. Note that this is *not*
+    first array should be of shape `(1,)`. Each subsequent array should
+    be of shape `(2,)`, `(3,)` etc. The final array should have shape `(s - 1,)`.
+- `b_sol`: The linear combination of stages to take to produce the output at each step.
+    Should be a NumPy array of shape `(s,)`.
+- `b_error`: The linear combination of stages to take to produce the error estimate at
+    each step. Should be a NumPy array of shape `(s,)`. Note that this is *not*
     differenced against `b_sol` prior to evaluation. (i.e. `b_error` gives the linear
     combination for producing the error estimate directly, not for producing some
     alternate solution that is compared against the main solution).
-- `c`: the time increments used in the Butcher tableau.
-    Should be a NumPy array of shape `(k-1,)`, as the first stage has time increment 0
-- `cW`: The coefficients in front of the Brownian increment at each stage.
-    Should be a NumPy array of shape `(k,)`. Only used when `additive_noise=True`.
-- `cH`: The coefficients in front of the space-time Lévy area at each stage.
-    Should be a NumPy array of shape `(k,)`. Only used when `additive_noise=True`.
-- `bW`: Coefficient for the Brownian increment when computing the
-    output $y_{n+1}$. Should be a `Scalar`.
-- `bH`: Coefficient for the space-time Lévy area when computing the
-    output $y_{n+1}$. Should be a `Scalar`.
-- `aW`: The coefficients in front of the Brownian increment at each stage.
-    Should be of the same shape as `a`. Only used when `additive_noise=False`.
-- `aH`: The coefficients in front of the space-time Lévy area at each stage.
-    Should be of the same shape as `a`. Only used when `additive_noise=False`.
-- `additive_noise`: Whether the SDE has additive noise. If `True`, then `bW` and `bH`
-    should be scalars, and `cW` and `cH` should be arrays of shape `(k,)`. If `False`,
-    then `bW` and `bH` should be arrays of shape `(k,)`, `cW` and `cH` should be `None`,
-    and `aW` and `aH` should be lists of arrays of the same shape as `a`.
+- `c`: The time increments used in the Butcher tableau.
+    Should be a NumPy array of shape `(s-1,)`, as the first stage has time increment 0.
+- `cfs_w`: An instance of `AbstractNoiseCoefficients` representing the coefficients for
+    the Brownian increment.
+- `cfs_hh`: An optional instance of `AbstractNoiseCoefficients` representing the 
+    coefficients for the space-time Lévy area.
+- `cfs_kk`: An optional instance of `AbstractNoiseCoefficients` representing the 
+    coefficients for the space-time-time Lévy area.
+- `additive_noise`: Whether the SDE has additive noise.
+    If `True`, then `cfs_w` should be an instance of `AdditiveNoiseCoefficients`.
+    If `False`, then `cfs_w` should be an instance of `GeneralNoiseCoefficients`.
 """
 
 
@@ -210,7 +207,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     or 'levy_area="space-time-time"'.
 
     Given the Stratonovich SDE
-    $dX_t = f(t, X_t) dt + g(t, X_t) \circ dW_t$
+    $dy(t) = f(t, y(t)) dt + g(t, y(t)) \circ dw(t)$
 
     We construct the SRK with $s$ stages as follows:
 
@@ -232,7 +229,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     In the special case, when the SDE has additive noise, i.e. when g is
     independent of y (but can still depend on t), then the SDE can be written as
-    $dX_t = f(t, X_t) dt + g(t) \, dW_t$, and we can simplify the above to
+    $dy(t) = f(t, y(t)) dt + g(t) \, dw(t)$, and we can simplify the above to
 
     $y_{n+1} = y_n + h \Big(\sum_{j=1}^s b_j k_j \Big) + g(t_n) \, (b^W
     \, W_n + b^H \, H_n)$
@@ -240,12 +237,15 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     $f_j = f(t_n + c_j h , z_j)$
 
     $z_j = y_n + h \Big(\sum_{i=1}^{j-1} a_{j,i} f_i \Big) + g(t_n)
-    \, (c^W_j W_n + c^H_j H_n)$
+    \, (a^W_j W_n + a^H_j H_n)$
 
     When g depends on t, we need to add a correction term to $y_{n+1}$ of
     the form $(g(t_{n+1}) - g(t_n)) \, (1/2 W_n - H_n)$.
 
     The coefficients are provided in the `StochasticButcherTableau`.
+    In particular the coefficients b^W, and a^W are provided in `tableau.cfs_w`,
+    and similarly b^H, a^H in `tableau.cfs_hh`, and b^K, a^K in `tableau.cfs_kk`.
+    `cfs_hh` and/or `cfs_kk` can be `None` if the solver does not use Levy areas.
     """
 
     term_structure: ClassVar = MultiTerm[tuple[ODETerm, AbstractTerm]]
@@ -259,9 +259,9 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     # not work. This is mostly an easily readable indicator so that methods know
     # what kind of BM to use.
     def minimal_levy_area(self):
-        if self.tableau.bK is not None:
+        if self.tableau.cfs_kk is not None:
             return "space-time-time"
-        elif self.tableau.bH is not None:
+        elif self.tableau.cfs_hh is not None:
             return "space-time"
         else:
             return ""
@@ -277,8 +277,8 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # Check that the diffusion has the correct Levy area
         _, diffusion = terms.terms
 
-        stla = self.tableau.bH is not None
-        sttla = self.tableau.bK is not None
+        stla = self.tableau.cfs_hh is not None
+        sttla = self.tableau.cfs_kk is not None
 
         is_bm = lambda x: isinstance(x, AbstractBrownianPath)
         leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
@@ -354,14 +354,14 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
             return jtu.tree_map(make_zeros_aux, y0)
 
-        # _tfs is a PyTree of the same shape as y0, except that the arrays inside
+        # h_kfs is a PyTree of the same shape as y0, except that the arrays inside
         # have an additional batch dimension of size len(b_sol) (i.e. num stages)
         # This will be one of the entries of the carry of lax.scan. In each stage
         # one of the zeros will get replaced by the value of
-        # h * f(t0 + c_j * h, z_j) where z_j is the jth stage of the SRK.
-        # The name tf is because the value of f(t0 + c_j * h, z_j) is already
-        # multiplied by the time increment h.
-        tfs = make_zeros()
+        # h_kf_j := h * f(t0 + c_j * h, z_j) where z_j is the jth stage of the SRK.
+        # The name h_kf_j is because it refers to the values of f (as opposed to g)
+        # at stage j, which has already been multiplied by the time increment h.
+        h_kfs = make_zeros()
 
         # Now the diffusion related stuff
         # Brownian increment (and space-time Lévy area)
@@ -373,15 +373,16 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         w = bm_inc.W
 
         # b looks similar regardless of whether we have additive noise or not
-        b_w = jnp.asarray(self.tableau.bW, dtype=dtype)
+        b_w = jnp.asarray(self.tableau.cfs_w.b, dtype=dtype)
         b_levy_list = []
 
         levy_areas = []
-        stla = self.tableau.bH is not None
-        sttla = self.tableau.bK is not None
-        if stla or sttla:
+        stla = self.tableau.cfs_hh is not None
+        sttla = self.tableau.cfs_kk is not None
+
+        if stla:
             levy_areas.append(bm_inc.H)
-            b_levy_list.append(jnp.asarray(self.tableau.bH, dtype=dtype))
+            b_levy_list.append(jnp.asarray(self.tableau.cfs_hh.b, dtype=dtype))  # type: ignore
             if sttla:
                 assert bm_inc.K is not None, (
                     "The diffusion should be a ControlTerm controlled by either a"
@@ -389,7 +390,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                     "`levy_area='space-time-time'`"
                 )
                 levy_areas.append(bm_inc.K)
-                b_levy_list.append(jnp.asarray(self.tableau.bK, dtype=dtype))
+                b_levy_list.append(jnp.asarray(self.tableau.cfs_kk.b, dtype=dtype))  # type: ignore
             else:
                 assert bm_inc.H is not None, (
                     "The diffusion should be a ControlTerm controlled by either a"
@@ -408,23 +409,23 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         a_levy = []  # if noise is additive this is [cH, cK] (if those entries exist)
         # otherwise this is [aH, aK] (if those entries exist)
 
-        levy_gs_list = []  # will contain levy * g(t0 + c_j * h, z_j) for each stage j
+        levylist_kgs = []  # will contain levy * g(t0 + c_j * h, z_j) for each stage j
         # where levy is either H or K (if those entries exist)
-        # this is similar to tfs or wgs, but for the Levy area(s)
+        # this is similar to h_kfs or w_kgs, but for the Levy area(s)
 
         if additive_noise:
             # compute g once since it is constant
             g0 = diffusion.vf(t0, y0, args)
-            w_g = diffusion.prod(g0, w)
-            a_w = jnp.asarray(self.tableau.cW, dtype=dtype)
+            w_kg = diffusion.prod(g0, w)
+            a_w = jnp.asarray(self.tableau.cfs_w.a, dtype=dtype)
             if stla:
-                levy_gs_list.append(diffusion.prod(g0, bm_inc.H))
-                a_levy.append(jnp.asarray(self.tableau.cH, dtype=dtype))
+                levylist_kgs.append(diffusion.prod(g0, bm_inc.H))
+                a_levy.append(jnp.asarray(self.tableau.cfs_hh.a, dtype=dtype))  # type: ignore
             if sttla:
-                levy_gs_list.append(diffusion.prod(g0, bm_inc.K))
-                a_levy.append(jnp.asarray(self.tableau.cK, dtype=dtype))
+                levylist_kgs.append(diffusion.prod(g0, bm_inc.K))
+                a_levy.append(jnp.asarray(self.tableau.cfs_kk.a, dtype=dtype))  # type: ignore
 
-            carry: _CarryType = (0, tfs, None, None)  # just the stage counter and _tfs
+            carry: _CarryType = (h_kfs, None, None)
 
         else:
             # g is not constant, so we need to compute it at each stage
@@ -432,125 +433,147 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # Since the carry of lax.scan needs to have constant shape,
             # we initialise a list of zeros of the same shape as y0, which will get
             # filled with the values of W * g(t0 + c_j * h, z_j) at each stage
-            wgs = make_zeros()
+            w_kgs = make_zeros()
             # do the same for each type of Levy area
             if stla:
-                levy_gs_list.append(make_zeros())
-                a_levy.append(self._embed_a_lower(self.tableau.aH, dtype))
+                levylist_kgs.append(make_zeros())
+                a_levy.append(self._embed_a_lower(self.tableau.cfs_hh.a, dtype))  # type: ignore
             if sttla:
-                levy_gs_list.append(make_zeros())
-                a_levy.append(self._embed_a_lower(self.tableau.aK, dtype))
+                levylist_kgs.append(make_zeros())
+                a_levy.append(self._embed_a_lower(self.tableau.cfs_kk.a, dtype))  # type: ignore
 
-            carry: _CarryType = (0, tfs, wgs, levy_gs_list)
+            carry: _CarryType = (h_kfs, w_kgs, levylist_kgs)
 
-            a_w = self._embed_a_lower(self.tableau.aW, dtype)
+            a_w = self._embed_a_lower(self.tableau.cfs_w.a, dtype)
 
-        scan_inputs = (a, c, a_w, a_levy)
+        stage_nums = jnp.arange(len(self.tableau.b_sol))
 
-        def sum_prev_stages(_stage_out_list, _a_j):
+        scan_inputs = (stage_nums, a, c, a_w, a_levy)
+
+        def sum_prev_stages(_stage_out_buff, _a_j):
+            # Unwrap the buffer
+            _stage_out_view = jtu.tree_map(
+                lambda _, _buff: _buff[...], y0, _stage_out_buff
+            )
+            # Sum up the previous stages weighted by the coefficients in the tableau
             return jtu.tree_map(
-                lambda lf: jnp.tensordot(_a_j, lf, axes=1), _stage_out_list
+                lambda lf: jnp.tensordot(_a_j, lf, axes=1), _stage_out_view
+            )
+
+        def insert_jth_stage(results, k_j, j):
+            # Insert the result of the jth stage into the buffer
+            return jtu.tree_map(
+                lambda k_j_leaf, res_leaf: res_leaf.at[j].set(k_j_leaf), k_j, results
             )
 
         def stage(
             _carry: _CarryType,
-            x: tuple[Array, Array, Array, list[Array]],
+            x: tuple[IntScalarLike, Array, Array, Array, list[Array]],
         ):
             # Represents the jth stage of the SRK.
 
-            a_j, c_j, a_w_j, a_levy_list_j = x
+            j, a_j, c_j, a_w_j, a_levy_list_j = x
             # a_levy_list_j = [aH_j, aK_j] (if those entries exist) where
             # aH_j is the row in the aH matrix corresponding to stage j
             # same for aK_j, but for space-time-time Lévy area K.
-            j, _tfs, _wgs, _levy_gs_list = _carry
+            _h_kfs, _w_kgs, _levylist_kgs = _carry
 
             if additive_noise:
-                # carry = (j, _tfs) where
-                # _tfs = Array[tf_1, tf_2, ..., hk_{j-1}, 0, 0, ..., 0]
-                # tf_i = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. tf_i = h * f_i)
-                assert _wgs is None and _levy_gs_list is None
-                assert isinstance(levy_gs_list, list)
+                # carry = (_h_kfs, None, None) where
+                # _h_kfs = Array[h_kf_1, h_kf_2, ..., hk_{j-1}, 0, 0, ..., 0]
+                # h_kf_i = drift.vf_prod(t0 + c_i*h, y_i, args, h)
+                assert _w_kgs is None and _levylist_kgs is None
+                assert isinstance(levylist_kgs, list)
                 _diffusion_result = jtu.tree_map(
                     add_levy_to_w(a_w_j, *a_levy_list_j),  # type: ignore
-                    w_g,
-                    *levy_gs_list,
+                    w_kg,
+                    *levylist_kgs,
                 )
             else:
-                # carry = (j, _tfs, _wgs, _levy_gs_list) where
-                # _tfs = Array[tf1, tf2, ..., tf{j-1}, 0, 0, ..., 0]
-                # _wgs = Array[wg1, wg2, ..., wg{j-1}, 0, 0, ..., 0]
-                # _levy_gs_list = [H_gs, K_gs] (if those entries exist) where
+                # carry = (_h_kfs, _w_kgs, _levylist_kgs) where
+                # _h_kfs = Array[h_kf_1, h_kf_2, ..., h_kf_{j-1}, 0, 0, ..., 0]
+                # _w_kgs = Array[w_kg_1, w_kg_2, ..., w_kg_{j-1}, 0, 0, ..., 0]
+                # _levylist_kgs = [H_gs, K_gs] (if those entries exist) where
                 # H_gs = Array[Hg1, Hg2, ..., Hg{j-1}, 0, 0, ..., 0]
                 # K_gs = Array[Kg1, Kg2, ..., Kg{j-1}, 0, 0, ..., 0]
-                # tfi = drift.vf_prod(t0 + c_i*h, y_i, args, h) (i.e. hki = h * k_i)
-                # wgi = diffusion.vf_prod(t0 + c_i*h, y_i, args, w) (i.e. wgi = w * g_i)
-
-                wg_sum = sum_prev_stages(_wgs, a_w_j)
+                # h_kf_i = drift.vf_prod(t0 + c_i*h, y_i, args, h)
+                # w_kg_i = diffusion.vf_prod(t0 + c_i*h, y_i, args, w)
+                w_kg_sum = sum_prev_stages(_w_kgs, a_w_j)
                 levy_sum_list = [
                     sum_prev_stages(levy_gs, a_levy_j)
-                    for a_levy_j, levy_gs in zip(a_levy_list_j, _levy_gs_list)
+                    for a_levy_j, levy_gs in zip(a_levy_list_j, _levylist_kgs)
                 ]
 
                 _diffusion_result = jtu.tree_map(
-                    lambda _wg, *_levy_g: sum(_levy_g, _wg), wg_sum, *levy_sum_list
+                    lambda _w_kg, *_levy_g: sum(_levy_g, _w_kg),
+                    w_kg_sum,
+                    *levy_sum_list,
                 )
 
-            # compute Σ_{i=1}^{j-1} a_j_i tf_i
-            _drift_result = sum_prev_stages(_tfs, a_j)
+            # compute Σ_{i=1}^{j-1} a_j_i h_kf_i
+            _drift_result = sum_prev_stages(_h_kfs, a_j)
 
             # z_j = y_0 + h (Σ_{i=1}^{j-1} a_j_i k_i) + g * (a_w_j * ΔW + cH_j * ΔH)
             z_j = (y0**ω + _drift_result**ω + _diffusion_result**ω).ω
 
-            def insert_jth_stage(results, res_j):
-                return jtu.tree_map(
-                    lambda res_leaf, j_leaf: res_leaf.at[j].set(j_leaf), results, res_j
-                )
-
-            def compute_and_insert_tfj(_tfs_in):
-                tf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
-                return insert_jth_stage(_tfs_in, tf_j)
+            def compute_and_insert_kf_j(_h_kfs_in):
+                h_kf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
+                return insert_jth_stage(_h_kfs_in, h_kf_j, j)
 
             if self.tableau.ignore_stage_f is None:
-                _tfs = compute_and_insert_tfj(_tfs)
+                _h_kfs = compute_and_insert_kf_j(_h_kfs)
             else:
                 drift_pred = jnp.logical_not(ignore_stage_f[j])
-                _tfs = lax.cond(drift_pred, compute_and_insert_tfj, lambda x: x, _tfs)
+                _h_kfs = lax.cond(
+                    eqxi.nonbatchable(drift_pred),
+                    compute_and_insert_kf_j,
+                    lambda what: what,
+                    _h_kfs,
+                )
 
             if additive_noise:
-                return (j + 1, _tfs, None, None), None
+                return (_h_kfs, None, None), None
 
-            def compute_and_insert_gj(_wgs_in, _levy_gs_list_in):
-                wg_j = diffusion.vf_prod(t0 + c_j * h, z_j, args, w)
-                new_wgs = insert_jth_stage(_wgs_in, wg_j)
+            def compute_and_insert_kg_j(_w_kgs_in, _levylist_kgs_in):
+                _w_kg_j = diffusion.vf_prod(t0 + c_j * h, z_j, args, w)
+                new_w_kgs = insert_jth_stage(_w_kgs_in, _w_kg_j, j)
 
-                levy_g_list_j = [
+                _levylist_kg_j = [
                     diffusion.vf_prod(t0 + c_j * h, z_j, args, levy)
                     for levy in levy_areas
                 ]
-                new_levy_gs_list = insert_jth_stage(_levy_gs_list_in, levy_g_list_j)
-                return new_wgs, new_levy_gs_list
+                new_levylist_kgs = insert_jth_stage(_levylist_kgs_in, _levylist_kg_j, j)
+                return new_w_kgs, new_levylist_kgs
 
             if self.tableau.ignore_stage_g is None:
-                _wgs, _levy_gs_list = compute_and_insert_gj(_wgs, _levy_gs_list)
+                _w_kgs, _levylist_kgs = compute_and_insert_kg_j(_w_kgs, _levylist_kgs)
             else:
                 diffusion_pred = jnp.logical_not(ignore_stage_g[j])
-                _wgs, _levy_gs_list = lax.cond(
-                    diffusion_pred,
-                    compute_and_insert_gj,
+                _w_kgs, _levylist_kgs = lax.cond(
+                    eqxi.nonbatchable(diffusion_pred),
+                    compute_and_insert_kg_j,
                     lambda x, y: (x, y),
-                    _wgs,
-                    _levy_gs_list,
+                    _w_kgs,
+                    _levylist_kgs,
                 )
 
-            return (j + 1, _tfs, _wgs, _levy_gs_list), None
+            return (_h_kfs, _w_kgs, _levylist_kgs), None
 
-        scan_out = lax.scan(stage, carry, scan_inputs, length=len(b_sol))
+        scan_out = eqxi.scan(
+            stage,
+            carry,
+            scan_inputs,
+            len(b_sol),
+            buffers=lambda x: x,
+            kind="checkpointed",
+            checkpoints="all",
+        )
 
         if additive_noise:
-            # output of lax.scan is ((num_stages, _tfs), None)
-            (_, tfs, _, _), _ = scan_out
+            # output of lax.scan is ((num_stages, _h_kfs), None)
+            (h_kfs, _, _), _ = scan_out
             diffusion_result = jtu.tree_map(
-                add_levy_to_w(b_w, *b_levy_list), w_g, *levy_gs_list
+                add_levy_to_w(b_w, *b_levy_list), w_kg, *levylist_kgs
             )
 
             # In the additive noise case (i.e. when g is independent of y),
@@ -566,15 +589,17 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             diffusion_result = (diffusion_result**ω + time_var_term**ω).ω
 
         else:
-            # output of lax.scan is ((num_stages, _tfs, _wgs, _levy_gs_list), None)
-            (_, tfs, wgs, levy_gs_list), _ = scan_out
-            b_wgs = sum_prev_stages(wgs, b_w)
-            b_levy_gs_list = [
+            # output of lax.scan is ((num_stages, _h_kfs, _w_kgs, _levylist_kgs), None)
+            (h_kfs, w_kgs, levylist_kgs), _ = scan_out
+            b_w_kgs = sum_prev_stages(w_kgs, b_w)
+            b_levylist_kgs = [
                 sum_prev_stages(levy_gs, b_levy)
-                for b_levy, levy_gs in zip(b_levy_list, levy_gs_list)
+                for b_levy, levy_gs in zip(b_levy_list, levylist_kgs)  # type: ignore
             ]
             diffusion_result = jtu.tree_map(
-                lambda b_wg, *b_levy_g: sum(b_levy_g, b_wg), b_wgs, *b_levy_gs_list
+                lambda b_w_kg, *b_levy_g: sum(b_levy_g, b_w_kg),
+                b_w_kgs,
+                *b_levylist_kgs,
             )
 
         # compute Σ_{j=1}^s b_j k_j
@@ -582,33 +607,33 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             error = None
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
-            drift_error = sum_prev_stages(tfs, b_err)
+            drift_error = sum_prev_stages(h_kfs, b_err)
             if additive_noise:
                 error = drift_error
             else:
-                bw_err = jnp.asarray(self.tableau.bW_error, dtype=dtype)
-                w_err = sum_prev_stages(wgs, bw_err)  # type: ignore
+                bw_err = jnp.asarray(self.tableau.cfs_w.b_error, dtype=dtype)  # type: ignore
+                w_err = sum_prev_stages(w_kgs, bw_err)  # type: ignore
                 b_levy_err_list = []
                 if stla:
                     b_levy_err_list.append(
-                        jnp.asarray(self.tableau.bH_error, dtype=dtype)
+                        jnp.asarray(self.tableau.cfs_hh.b_error, dtype=dtype)  # type: ignore
                     )
                 if sttla:
                     b_levy_err_list.append(
-                        jnp.asarray(self.tableau.bK_error, dtype=dtype)
+                        jnp.asarray(self.tableau.cfs_kk.b_error, dtype=dtype)  # type: ignore
                     )
                 levy_err = [
                     sum_prev_stages(levy_gs, b_levy_err)
-                    for b_levy_err, levy_gs in zip(b_levy_err_list, levy_gs_list)
+                    for b_levy_err, levy_gs in zip(b_levy_err_list, levylist_kgs)  # type: ignore
                 ]
                 diffusion_error = jtu.tree_map(
                     lambda _w_err, *_levy_err: sum(_levy_err, _w_err), w_err, *levy_err
                 )
                 error = (drift_error**ω + diffusion_error**ω).ω
 
-        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + g * (b_w * ΔW + bH * ΔH)
+        # y1 = y0 + (Σ_{i=1}^{s} b_j * h*k_j) + g * (b_w * ΔW + b_H * ΔH)
 
-        drift_result = sum_prev_stages(tfs, b_sol)
+        drift_result = sum_prev_stages(h_kfs, b_sol)
 
         y1 = (y0**ω + drift_result**ω + diffusion_result**ω).ω
         dense_info = dict(y0=y0, y1=y1)

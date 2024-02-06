@@ -20,8 +20,10 @@ from .helpers import (
     get_mlp_sde,
     get_time_sde,
     implicit_tol,
+    path_l2_dist,
     random_pytree,
-    sde_solver_strong_order,
+    simple_batch_sde_solve,
+    simple_sde_order,
     tree_allclose,
     treedefs,
 )
@@ -219,6 +221,17 @@ def _solvers():
     yield diffrax.SEA, "add", 1.0
 
 
+# TODO: For solvers of high order, comparing to Euler or Heun is not good,
+# because they are waaaay worse than for example ShARK. ShARK is more precise
+# at dt=2**-4 than Euler is at dt=2**-14 (and it takes forever to run at such
+# a small dt). Hence , the order of convergence of ShARK seems to plateau at
+# discretisations finer than 2**-4.
+# I propose the following:
+# We can sparate this test into two. First we determine how fast the solver
+# converges to its own limit (i.e. using itself as reference), and then
+# check whether that limit is the same as the Euler/Heun limit.
+# For the second, I would like to make a separate check, where the "correct"
+# solution is computed only once and then all solvers are compared to it.
 @pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers())
 def test_sde_strong_order(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order
@@ -227,7 +240,6 @@ def test_sde_strong_order(
     sde_key = jr.PRNGKey(11)
     num_samples = 100
     bmkeys = jr.split(bmkey, num=num_samples)
-
     t0 = 0.3
     t1 = 5.3
 
@@ -236,48 +248,114 @@ def test_sde_strong_order(
     else:
         if noise == "com":
             noise_dim = 1
-        else:
+        elif noise == "any":
             noise_dim = 5
-        sde = get_mlp_sde(t0, t1, jnp.float64, sde_key, noise_dim=noise_dim)
-
-    # Reference solver is always an ODE-viable solver, so its implementation has been
-    # verified by the ODE tests like test_ode_order.
-    if issubclass(solver_ctr, diffrax.AbstractItoSolver):
-        ref_solver = diffrax.Euler()
-    elif issubclass(solver_ctr, diffrax.AbstractStratonovichSolver):
-        # TODO: figure out how to deal with solvers of high orders, for which we need
-        # a better reference solver than Euler/Heun. Here I use a temporary solution:
-        # We test FosterSRK on general SDEs vs Euler, and then we use FosterSRK as the
-        # reference solver for the other high-order additive noise solvers.
-        # Similarly we use StratonovichMilstein for commutative noise.
-        # This is still not really sufficient, as StratonovichMilstein is less precise
-        # at dt=2**-12 than FosterSRK is at dt=2**-8 (for commutative noise).
-        # In addition, the simpler methods are so bad at dt>0.25, that they have a
-        # massive slope at the start which artificially inflates their order.
-        # In short, for bad methods we cannot use big discretisations because they are
-        # too bad, and for good methods we cannot use small discretisations because
-        # they are way better than reference solvers.
-        if noise == "any":
-            ref_solver = diffrax.Heun()
-        elif noise == "com":
-            ref_solver = diffrax.SPaRK()
-        elif noise == "add":
-            ref_solver = diffrax.SPaRK()
         else:
             assert False
-    else:
-        assert False
+        sde = get_mlp_sde(t0, t1, jnp.float64, sde_key, noise_dim=noise_dim)
 
-    dts = jnp.power(2.0, jnp.arange(-2, -8, -1, dtype=sde.get_dtype()))
-    ref_precision = 2**-12
-    hs, errors, order = sde_solver_strong_order(
-        bmkeys, sde, solver_ctr(), ref_solver, ref_precision, dts
+    ref_solver = solver_ctr()
+    level_coarse, level_fine = 4, 10
+
+    # We specify the times to which we step in way that each level contains all the
+    # steps of the previous level. This is so that we can compare the solutions at
+    # all the times in saveat, and not just at the end time.
+    def get_step_controller(level):
+        step_ts = jnp.linspace(t0, t1, 2**level + 1, endpoint=True)
+        return diffrax.StepTo(ts=step_ts)
+
+    saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True))
+
+    hs, errors, order = simple_sde_order(
+        bmkeys,
+        sde,
+        solver_ctr(),
+        ref_solver,
+        (level_coarse, level_fine),
+        get_step_controller,
+        saveat,
+        bm_tol=2**-14,
     )
     # The upper bound needs to be 0.25, otherwise we fail.
     # This still preserves a 0.05 buffer between the intervals
     # corresponding to the different orders.
     print(order)
     assert -0.2 < order - theoretical_order < 0.25
+
+
+# Make variables to store the correct solutions in.
+# This is to avoid recomputing the correct solutions for every solver.
+solutions = {
+    "Ito": {
+        "any": None,
+        "com": None,
+        "add": None,
+    },
+    "Stratonovich": {
+        "any": None,
+        "com": None,
+        "add": None,
+    },
+}
+
+
+# Now compare the limit of Euler/Heun to the limit of the other solvers,
+# using a single reference solution. We use Euler if the solver is Ito
+# and Heun if the solver is Stratonovich.
+@pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers())
+def test_sde_strong_limit(
+    solver_ctr, noise: Literal["any", "com", "add"], theoretical_order
+):
+    bmkey = jr.PRNGKey(5678)
+    sde_key = jr.PRNGKey(11)
+    num_samples = 100
+    bmkeys = jr.split(bmkey, num=num_samples)
+    t0 = 0.3
+    t1 = 5.3
+
+    if noise == "add":
+        sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=7)
+    else:
+        if noise == "com":
+            noise_dim = 1
+        elif noise == "any":
+            noise_dim = 5
+        else:
+            assert False
+        sde = get_mlp_sde(t0, t1, jnp.float64, sde_key, noise_dim=noise_dim)
+
+    # Reference solver is always an ODE-viable solver, so its implementation has been
+    # verified by the ODE tests like test_ode_order.
+    if issubclass(solver_ctr, diffrax.AbstractItoSolver):
+        sol_type = "Ito"
+        ref_solver = diffrax.Euler()
+    elif issubclass(solver_ctr, diffrax.AbstractStratonovichSolver):
+        sol_type = "Stratonovich"
+        ref_solver = diffrax.Heun()
+    else:
+        assert False
+
+    ts_fine = jnp.linspace(t0, t1, 2**14 + 1, endpoint=True)
+    ts_coarse = jnp.linspace(t0, t1, 2**11 + 1, endpoint=True)
+    contr_fine = diffrax.StepTo(ts=ts_fine)
+    contr_coarse = diffrax.StepTo(ts=ts_coarse)
+    saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**6 + 1, endpoint=True))
+    levy_area = "space-time"  # must be common for all solvers
+
+    if solutions[sol_type][noise] is None:
+        correct_sol, _ = simple_batch_sde_solve(
+            bmkeys, sde, ref_solver, levy_area, None, contr_fine, 2**-14, saveat
+        )
+        solutions[sol_type][noise] = correct_sol
+    else:
+        correct_sol = solutions[sol_type][noise]
+
+    sol, _ = simple_batch_sde_solve(
+        bmkeys, sde, solver_ctr(), levy_area, None, contr_coarse, 2**-14, saveat
+    )
+    error = path_l2_dist(correct_sol, sol)
+    print(f"Error: {error}")
+    assert error < 0.02
 
 
 # Step size deliberately chosen not to divide the time interval

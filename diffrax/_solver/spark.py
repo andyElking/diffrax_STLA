@@ -3,23 +3,31 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, StochasticButcherTableau
+from .srk import AbstractSRK, GeneralNoiseCoefficients, StochasticButcherTableau
 
 
 _x1 = (3 - np.sqrt(3)) / 6
 _x2 = np.sqrt(3) / 3
 
+cfs_w = GeneralNoiseCoefficients(
+    a=(np.array([0.5]), np.array([0.0, 1.0])),
+    b=np.array([_x1, _x2, _x1]),
+    b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
+)
+
+cfs_hh = GeneralNoiseCoefficients(
+    a=(np.array([np.sqrt(3.0)]), np.array([0.0, 0.0])),
+    b=np.array([1.0, 0.0, -1.0]),
+    b_error=np.array([1.0, 0.0, -1.0]),
+)
+
 _tab = StochasticButcherTableau(
     c=np.array([0.5, 1.0]),
     b_sol=np.array([_x1, _x2, _x1]),
     a=[np.array([0.5]), np.array([0.0, 1.0])],
-    aW=[np.array([0.5]), np.array([0.0, 1.0])],
-    aH=[np.array([np.sqrt(3)]), np.array([0.0, 0.0])],
-    bW=np.array([_x1, _x2, _x1]),
-    bH=np.array([1.0, 0.0, -1.0]),
     b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
-    bW_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
-    bH_error=np.array([1.0, 0.0, -1.0]),
+    cfs_w=cfs_w,
+    cfs_hh=cfs_hh,
     additive_noise=False,
 )
 
