@@ -1,3 +1,4 @@
+from .align import ALIGN as ALIGN
 from .base import (
     AbstractAdaptiveSolver as AbstractAdaptiveSolver,
     AbstractImplicitSolver as AbstractImplicitSolver,
@@ -8,10 +9,12 @@ from .base import (
     HalfSolver as HalfSolver,
 )
 from .bosh3 import Bosh3 as Bosh3
+from .cir_die import DriftImplicitEulerCIR as DriftImplicitEulerCIR
 from .dopri5 import Dopri5 as Dopri5
 from .dopri8 import Dopri8 as Dopri8
 from .euler import Euler as Euler
 from .euler_heun import EulerHeun as EulerHeun
+from .foster_cir import FosterCIR as FosterCIR
 from .heun import Heun as Heun
 from .implicit_euler import ImplicitEuler as ImplicitEuler
 from .kencarp3 import KenCarp3 as KenCarp3
@@ -42,8 +45,10 @@ from .sea import SEA as SEA
 from .semi_implicit_euler import SemiImplicitEuler as SemiImplicitEuler
 from .shark import ShARK as ShARK
 from .shark_general import GeneralShARK as GeneralShARK
+from .should import ShOULD as ShOULD
 from .sil3 import Sil3 as Sil3
 from .slowrk import SlowRK as SlowRK
+from .sort_uld import SORT as SORT
 from .spark import SPaRK as SPaRK
 from .sra1 import SRA1 as SRA1
 from .srk import AbstractSRK as AbstractSRK

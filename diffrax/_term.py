@@ -11,6 +11,7 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, PyTree, PyTreeDef
 
+from ._brownian.base import AbstractBrownianPath
 from ._custom_types import Args, Control, IntScalarLike, RealScalarLike, VF, Y
 from ._misc import upcast_or_raise
 from ._path import AbstractPath
@@ -614,3 +615,97 @@ class AdjointTerm(AbstractTerm):
         dy, vjp = jax.vjp(_to_vjp, y, diff_args, diff_term)
         da_y, da_diff_args, da_diff_term = vjp((-(a_y**ω)).ω)
         return dy, da_y, da_diff_args, da_diff_term
+
+
+def _langevin_drift(t, y, args):
+    gamma, u, grad_f = args
+    x, v = y
+    d_x = v
+    d_v = -gamma * v - u * grad_f(x)
+    d_y = (d_x, d_v)
+    return d_y
+
+
+class _LangevinDiffusionTerm(ControlTerm):
+    r"""Represents the diffusion term in the Langevin SDE:
+
+    $d \mathbf{x}_t = \mathbf{v}_t \, dt$
+
+    $d \mathbf{v}_t = - \gamma \, \mathbf{v}_t \, dt - u \,
+    \nabla \! f( \mathbf{x}_t ) \, dt + \sqrt{2 \gamma u} \, d W_t.$
+    """
+
+    gamma: Array
+    u: Array
+    control: AbstractBrownianPath
+
+    def __init__(self, gamma, u, control: AbstractBrownianPath):
+        assert gamma.shape == u.shape
+        self.gamma = gamma
+        self.u = u
+        self.control = control
+
+        def vector_field(_, y: tuple, ___) -> tuple[Array, VF]:
+            dtype = y[1].dtype
+            d_v = jnp.sqrt(2 * gamma * u) * jnp.ones(y[1].shape, dtype=dtype)
+            d_y = (jnp.zeros_like(d_v), d_v)
+            return d_y
+
+        super().__init__(vector_field, control)
+
+    def contr(
+        self, t0: RealScalarLike, t1: RealScalarLike, **kwargs
+    ) -> PyTree[ArrayLike]:
+        # Since the vector field is of the form (dx, dv) and since x is
+        # not influenced by the Brownian motion, the PyTree structure of
+        # the control must also be a tuple, with an arbitrary first entry.
+        # Hence, this replaces all entries in the output of control with.
+        if "use_levy" in kwargs and kwargs["use_levy"]:
+            contr_out = self.control.evaluate(t0, t1, **kwargs)
+            # for each entry of LevyVal, replace it with a tuple(0, entry)
+            return jtu.tree_map(
+                lambda lf: (jnp.zeros_like(lf), lf),
+                contr_out,
+            )
+        else:
+            contr_out = self.control.evaluate(t0, t1, **kwargs)
+            assert isinstance(contr_out, Array)
+            return jnp.zeros_like(contr_out), contr_out
+
+    def prod(
+        self, vf: tuple[ArrayLike, VF], control: tuple[ArrayLike, Control]
+    ) -> tuple[Array, Y]:
+        _, dv = vf
+        _, dw = control
+        out = dv * dw
+        return jnp.zeros_like(out), out
+
+
+class LangevinTerm(MultiTerm[tuple[ODETerm, ControlTerm]]):
+    r"""Used to represent the Langevin SDE, given by:
+
+    $d \mathbf{x}_t = \mathbf{v}_t \, dt$
+
+    $d \mathbf{v}_t = - \gamma \, \mathbf{v}_t \, dt - u \,
+    \nabla \! f( \mathbf{x}_t ) \, dt + \sqrt{2 \gamma u} \, d W_t.$
+
+    where $\mathbf{x}_t, \mathbf{v}_t \in \mathbb{R}^d$ represent the position
+    and velocity, $W$ is a Brownian motion in $\mathbb{R}^d$,
+    $f: \mathbb{R}^d \rightarrow \mathbb{R}$ is a potential function, and
+    $ \gamma,\, u\in\mathbb{R}^{d\times d}$ are diagonal matrices representing
+    friction and a dampening parameter.
+    """
+
+    args: tuple[Array, Array, Callable[[Array], Array]] = eqx.field(static=True)
+
+    def __init__(self, args, bm: AbstractBrownianPath):
+        r"""**Arguments:**
+
+        - `args`: a tuple of the form $(\gamma, \, u, \, \nabla \! f)$
+        """
+        g1, u1, grad_f = args
+        gamma, u = jnp.broadcast_arrays(jnp.asarray(g1), jnp.asarray(u1))
+        self.args = (gamma, u, grad_f)
+        drift = ODETerm(lambda t, y, _: _langevin_drift(t, y, self.args))
+        diffusion = _LangevinDiffusionTerm(gamma, u, bm)
+        super().__init__(drift, diffusion)

@@ -101,6 +101,18 @@ These are reversible in the same way as when applied to ODEs. [See here.](./ode_
     selection:
         members: false
 
+::: diffrax.ALIGN
+    selection:
+        members: false
+
+::: diffrax.SORT
+    selection:
+        members: false
+
+::: diffrax.ShOULD
+    selection:
+        members: false
+
 ---
 
 ### Wrapper solvers

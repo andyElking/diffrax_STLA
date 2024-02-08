@@ -53,7 +53,7 @@ DenseInfos = dict[str, PyTree[Shaped[Array, "times ..."]]]
 BufferDenseInfos = dict[str, PyTree[eqxi.MaybeBuffer[Shaped[Array, "times ..."]]]]
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
 
-LevyArea: TypeAlias = Literal["", "space-time"]
+LevyArea: TypeAlias = Literal["", "space-time", "space-time-time"]
 
 
 class LevyVal(eqx.Module):

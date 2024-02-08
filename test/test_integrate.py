@@ -16,6 +16,7 @@ from jaxtyping import Array
 from .helpers import (
     all_ode_solvers,
     all_split_solvers,
+    get_harmonic_oscillator,
     get_mlp_sde,
     get_time_sde,
     implicit_tol,
@@ -218,6 +219,10 @@ def _solvers():
     yield diffrax.ShARK, "add", 1.5
     yield diffrax.SRA1, "add", 1.5
     yield diffrax.SEA, "add", 1.0
+    yield diffrax.ALIGN, "uld", 2.0
+    yield diffrax.ShOULD, "uld", 3.0
+    yield diffrax.SORT, "uld", 3.0
+    yield diffrax.ShARK, "uld", 2.0
 
 
 # TODO: For solvers of high order, comparing to Euler or Heun is not good,
@@ -244,6 +249,8 @@ def test_sde_strong_order(
 
     if noise == "add":
         sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=7)
+    elif noise == "uld":
+        sde = get_harmonic_oscillator(t0, t1, jnp.float64)
     else:
         if noise == "com":
             noise_dim = 1
@@ -253,7 +260,10 @@ def test_sde_strong_order(
             assert False
         sde = get_mlp_sde(t0, t1, jnp.float64, sde_key, noise_dim=noise_dim)
 
-    ref_solver = solver_ctr()
+    if issubclass(solver_ctr, (diffrax.ALIGN, diffrax.ShOULD, diffrax.SORT)):
+        solver = solver_ctr(0.01)
+    else:
+        solver = solver_ctr()
     level_coarse, level_fine = 4, 10
 
     # We specify the times to which we step in way that each level contains all the
@@ -268,8 +278,8 @@ def test_sde_strong_order(
     hs, errors, order = simple_sde_order(
         bmkeys,
         sde,
-        solver_ctr(),
-        ref_solver,
+        solver,
+        solver,
         (level_coarse, level_fine),
         get_step_controller,
         saveat,
@@ -289,11 +299,13 @@ solutions = {
         "any": None,
         "com": None,
         "add": None,
+        "uld": None,
     },
     "Stratonovich": {
         "any": None,
         "com": None,
         "add": None,
+        "uld": None,
     },
 }
 
@@ -314,6 +326,8 @@ def test_sde_strong_limit(
 
     if noise == "add":
         sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=7)
+    elif noise == "uld":
+        sde = get_harmonic_oscillator(t0, t1, jnp.float64)
     else:
         if noise == "com":
             noise_dim = 1
@@ -334,12 +348,20 @@ def test_sde_strong_limit(
     else:
         assert False
 
-    ts_fine = jnp.linspace(t0, t1, 2**14 + 1, endpoint=True)
+    if issubclass(solver_ctr, (diffrax.ALIGN, diffrax.ShOULD, diffrax.SORT)):
+        solver = solver_ctr(0.01)
+    else:
+        solver = solver_ctr()
+
+    ts_fine = jnp.linspace(t0, t1, 2**13 + 1, endpoint=True)
     ts_coarse = jnp.linspace(t0, t1, 2**11 + 1, endpoint=True)
     contr_fine = diffrax.StepTo(ts=ts_fine)
     contr_coarse = diffrax.StepTo(ts=ts_coarse)
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**6 + 1, endpoint=True))
     levy_area = "space-time"  # must be common for all solvers
+    # Skip the test if the solver needs space-time-time Levy area
+    if isinstance(solver, (diffrax.SORT, diffrax.ShOULD)):
+        pytest.skip("SORT and ShOULD need space-time-time Levy area")
 
     if solutions[sol_type][noise] is None:
         correct_sol, _ = simple_batch_sde_solve(
@@ -350,7 +372,7 @@ def test_sde_strong_limit(
         correct_sol = solutions[sol_type][noise]
 
     sol, _ = simple_batch_sde_solve(
-        bmkeys, sde, solver_ctr(), levy_area, None, contr_coarse, 2**-14, saveat
+        bmkeys, sde, solver, levy_area, None, contr_coarse, 2**-14, saveat
     )
     error = path_l2_dist(correct_sol, sol)
     print(f"Error: {error}")

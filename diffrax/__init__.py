@@ -14,6 +14,7 @@ from ._brownian import (
     VirtualBrownianTree as VirtualBrownianTree,
 )
 from ._custom_types import (
+    levy_tree_transpose as levy_tree_transpose,
     LevyArea as LevyArea,
     LevyVal as LevyVal,
 )
@@ -65,13 +66,16 @@ from ._solver import (
     AbstractSRK as AbstractSRK,
     AbstractStratonovichSolver as AbstractStratonovichSolver,
     AbstractWrappedSolver as AbstractWrappedSolver,
+    ALIGN as ALIGN,
     Bosh3 as Bosh3,
     ButcherTableau as ButcherTableau,
     CalculateJacobian as CalculateJacobian,
     Dopri5 as Dopri5,
     Dopri8 as Dopri8,
+    DriftImplicitEulerCIR as DriftImplicitEulerCIR,
     Euler as Euler,
     EulerHeun as EulerHeun,
+    FosterCIR as FosterCIR,
     GeneralShARK as GeneralShARK,
     HalfSolver as HalfSolver,
     Heun as Heun,
@@ -91,8 +95,10 @@ from ._solver import (
     SEA as SEA,
     SemiImplicitEuler as SemiImplicitEuler,
     ShARK as ShARK,
+    ShOULD as ShOULD,
     Sil3 as Sil3,
     SlowRK as SlowRK,
+    SORT as SORT,
     SPaRK as SPaRK,
     SRA1 as SRA1,
     StratonovichMilstein as StratonovichMilstein,
@@ -108,6 +114,7 @@ from ._step_size_controller import (
 from ._term import (
     AbstractTerm as AbstractTerm,
     ControlTerm as ControlTerm,
+    LangevinTerm as LangevinTerm,
     MultiTerm as MultiTerm,
     ODETerm as ODETerm,
     WeaklyDiagonalControlTerm as WeaklyDiagonalControlTerm,
