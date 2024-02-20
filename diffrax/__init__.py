@@ -15,7 +15,6 @@ from ._brownian import (
 )
 from ._custom_types import (
     BrownianIncrement as BrownianIncrement,
-    BrownianIncrement as BrownianIncrement,
     SpaceTimeLevyArea as SpaceTimeLevyArea,
 )
 from ._event import (

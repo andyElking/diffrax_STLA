@@ -4,6 +4,7 @@ import operator
 from typing import Any, cast, Literal
 
 import diffrax
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -11,7 +12,6 @@ import jax.tree_util as jtu
 import pytest
 import scipy.stats
 from equinox.internal import ω
-import equinox as eqx
 from jaxtyping import Array, ArrayLike, Float
 
 from .helpers import (
@@ -340,7 +340,7 @@ def test_sde_strong_limit(
     contr_fine = diffrax.StepTo(ts=ts_fine)
     contr_coarse = diffrax.StepTo(ts=ts_coarse)
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**6 + 1, endpoint=True))
-    levy_area = "space-time"  # must be common for all solvers
+    levy_area = diffrax.SpaceTimeLevyArea  # must be common for all solvers
 
     if solutions[sol_type][noise] is None:
         correct_sol, _ = simple_batch_sde_solve(

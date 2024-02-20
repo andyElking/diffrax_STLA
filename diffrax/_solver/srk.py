@@ -15,11 +15,13 @@ from jaxtyping import Array, Float, PyTree
 from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     BoolScalarLike,
+    BrownianIncrement,
     DenseInfo,
     FloatScalarLike,
     IntScalarLike,
-    LevyVal,
     RealScalarLike,
+    SpaceTimeLevyArea,
+    SpaceTimeTimeLevyArea,
     VF,
     Y,
 )
@@ -45,7 +47,6 @@ class AbstractNoiseCoefficients:
 
     a: Union[Float[np.ndarray, " s"], tuple[np.ndarray, ...]]
     b: Union[FloatScalarLike, Float[np.ndarray, " s"]]
-    # b_error: Optional[Union[FloatScalarLike, Float[np.ndarray, " s"]]]
 
     @abc.abstractmethod
     def check(self) -> int:
@@ -258,13 +259,14 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     # space-time-time Levy area as well that is fine. The other way around would
     # not work. This is mostly an easily readable indicator so that methods know
     # what kind of BM to use.
-    def minimal_levy_area(self):
+    @property
+    def minimal_levy_area(self) -> type[BrownianIncrement]:
         if self.tableau.cfs_kk is not None:
-            return "space-time-time"
+            return SpaceTimeTimeLevyArea
         elif self.tableau.cfs_hh is not None:
-            return "space-time"
+            return SpaceTimeLevyArea
         else:
-            return ""
+            return BrownianIncrement
 
     def init(
         self,
@@ -277,26 +279,16 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # Check that the diffusion has the correct Levy area
         _, diffusion = terms.terms
 
-        stla = self.tableau.cfs_hh is not None
-        sttla = self.tableau.cfs_kk is not None
-
         is_bm = lambda x: isinstance(x, AbstractBrownianPath)
         leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
         paths = [x for x in leaves if is_bm(x)]
         for path in paths:
-            if sttla:
-                if not path.levy_area == "space-time-time":
-                    raise ValueError(
-                        "The Brownian path controlling the diffusion "
-                        "should be initialised with `levy_area='space-time-time'`"
-                    )
-            elif stla:
-                if path.levy_area not in ["space-time", "space-time-time"]:
-                    raise ValueError(
-                        "The Brownian path controlling the diffusion "
-                        "should be initialised with `levy_area='space-time'`"
-                        "or `levy_area='space-time-time'`"
-                    )
+            assert issubclass(path.levy_area, self.minimal_levy_area), (
+                f"The diffusion term should be controlled by a Brownian path,"
+                f" initialised with"
+                f"`levy_area='{self.minimal_levy_area.__name__}'` or a subclass of it."
+                f"Got {path.levy_area.__name__}."
+            )
 
         if self.tableau.additive_noise:
             # check that the vector field of the diffusion term does not depend on y
@@ -337,8 +329,12 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         additive_noise = self.tableau.additive_noise
         if self.tableau.ignore_stage_f is not None:
             ignore_stage_f = jnp.array(self.tableau.ignore_stage_f)
+        else:
+            ignore_stage_f = None
         if self.tableau.ignore_stage_g is not None:
             ignore_stage_g = jnp.array(self.tableau.ignore_stage_g)
+        else:
+            ignore_stage_g = None
 
         # time increment
         h = t1 - t0
@@ -366,9 +362,11 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # Now the diffusion related stuff
         # Brownian increment (and space-time Lévy area)
         bm_inc = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(bm_inc, LevyVal), (
-            "The diffusion should be a ControlTerm controlled by either a"
-            "VirtualBrownianTree or an UnsafeBrownianPath"
+        assert isinstance(bm_inc, self.minimal_levy_area), (
+            f"The diffusion term should be controlled by a Brownian path,"
+            f" initialised with"
+            f"`levy_area='{self.minimal_levy_area.__name__}'` or a subclass of it."
+            f"Got {bm_inc.__name__}."
         )
         w = bm_inc.W
 
@@ -381,22 +379,13 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         sttla = self.tableau.cfs_kk is not None
 
         if stla:
+            assert isinstance(bm_inc, SpaceTimeLevyArea)
             levy_areas.append(bm_inc.H)
-            b_levy_list.append(jnp.asarray(self.tableau.cfs_hh.b, dtype=dtype))  # type: ignore
+            b_levy_list.append(jnp.asarray(self.tableau.cfs_hh.b, dtype=dtype))  # pyright: ignore
             if sttla:
-                assert bm_inc.K is not None, (
-                    "The diffusion should be a ControlTerm controlled by either a"
-                    "VirtualBrownianTree or an UnsafeBrownianPath with"
-                    "`levy_area='space-time-time'`"
-                )
+                assert isinstance(bm_inc, SpaceTimeTimeLevyArea)
                 levy_areas.append(bm_inc.K)
-                b_levy_list.append(jnp.asarray(self.tableau.cfs_kk.b, dtype=dtype))  # type: ignore
-            else:
-                assert bm_inc.H is not None, (
-                    "The diffusion should be a ControlTerm controlled by either a"
-                    "VirtualBrownianTree or an UnsafeBrownianPath with"
-                    "`levy_area='space-time'` or `levy_area='space-time-time'`"
-                )
+                b_levy_list.append(jnp.asarray(self.tableau.cfs_kk.b, dtype=dtype))  # pyright: ignore
 
         def add_levy_to_w(_cw, *_c_levy):
             def aux_add_levy(w_leaf, *levy_leaves):
@@ -419,11 +408,13 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             w_kg = diffusion.prod(g0, w)
             a_w = jnp.asarray(self.tableau.cfs_w.a, dtype=dtype)
             if stla:
+                assert isinstance(bm_inc, SpaceTimeLevyArea)
                 levylist_kgs.append(diffusion.prod(g0, bm_inc.H))
-                a_levy.append(jnp.asarray(self.tableau.cfs_hh.a, dtype=dtype))  # type: ignore
+                a_levy.append(jnp.asarray(self.tableau.cfs_hh.a, dtype=dtype))  # pyright: ignore
             if sttla:
+                assert isinstance(bm_inc, SpaceTimeTimeLevyArea)
                 levylist_kgs.append(diffusion.prod(g0, bm_inc.K))
-                a_levy.append(jnp.asarray(self.tableau.cfs_kk.a, dtype=dtype))  # type: ignore
+                a_levy.append(jnp.asarray(self.tableau.cfs_kk.a, dtype=dtype))  # pyright: ignore
 
             carry: _CarryType = (h_kfs, None, None)
 
@@ -437,10 +428,10 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # do the same for each type of Levy area
             if stla:
                 levylist_kgs.append(make_zeros())
-                a_levy.append(self._embed_a_lower(self.tableau.cfs_hh.a, dtype))  # type: ignore
+                a_levy.append(self._embed_a_lower(self.tableau.cfs_hh.a, dtype))  # pyright: ignore
             if sttla:
                 levylist_kgs.append(make_zeros())
-                a_levy.append(self._embed_a_lower(self.tableau.cfs_kk.a, dtype))  # type: ignore
+                a_levy.append(self._embed_a_lower(self.tableau.cfs_kk.a, dtype))  # pyright: ignore
 
             carry: _CarryType = (h_kfs, w_kgs, levylist_kgs)
 
@@ -485,8 +476,8 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                 assert _w_kgs is None and _levylist_kgs is None
                 assert isinstance(levylist_kgs, list)
                 _diffusion_result = jtu.tree_map(
-                    add_levy_to_w(a_w_j, *a_levy_list_j),  # type: ignore
-                    w_kg,
+                    add_levy_to_w(a_w_j, *a_levy_list_j),
+                    w_kg,  # pyright: ignore
                     *levylist_kgs,
                 )
             else:
@@ -520,7 +511,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                 h_kf_j = drift.vf_prod(t0 + c_j * h, z_j, args, h)
                 return insert_jth_stage(_h_kfs_in, h_kf_j, j)
 
-            if self.tableau.ignore_stage_f is None:
+            if ignore_stage_f is None:
                 _h_kfs = compute_and_insert_kf_j(_h_kfs)
             else:
                 drift_pred = jnp.logical_not(ignore_stage_f[j])
@@ -545,7 +536,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                 new_levylist_kgs = insert_jth_stage(_levylist_kgs_in, _levylist_kg_j, j)
                 return new_w_kgs, new_levylist_kgs
 
-            if self.tableau.ignore_stage_g is None:
+            if ignore_stage_g is None:
                 _w_kgs, _levylist_kgs = compute_and_insert_kg_j(_w_kgs, _levylist_kgs)
             else:
                 diffusion_pred = jnp.logical_not(ignore_stage_g[j])
@@ -573,15 +564,18 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # output of lax.scan is ((num_stages, _h_kfs), None)
             (h_kfs, _, _), _ = scan_out
             diffusion_result = jtu.tree_map(
-                add_levy_to_w(b_w, *b_levy_list), w_kg, *levylist_kgs
+                add_levy_to_w(b_w, *b_levy_list),
+                w_kg,  # pyright: ignore
+                *levylist_kgs,
             )
 
             # In the additive noise case (i.e. when g is independent of y),
             # we still need a correction term in case the diffusion vector field
             # g depends on t. This term is of the form $(g1 - g0) * (0.5*W_n - H_n)$.
             g1 = diffusion.vf(t1, y0, args)
-            g_delta = (0.5 * (g1**ω - g0**ω)).ω  # type: ignore
+            g_delta = (0.5 * (g1**ω - g0**ω)).ω  # pyright: ignore
             if stla:
+                assert isinstance(bm_inc, SpaceTimeLevyArea)
                 time_var_contr = (bm_inc.W**ω - 2.0 * bm_inc.H**ω).ω
                 time_var_term = diffusion.prod(g_delta, time_var_contr)
             else:
@@ -594,7 +588,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             b_w_kgs = sum_prev_stages(w_kgs, b_w)
             b_levylist_kgs = [
                 sum_prev_stages(levy_gs, b_levy)
-                for b_levy, levy_gs in zip(b_levy_list, levylist_kgs)  # type: ignore
+                for b_levy, levy_gs in zip(b_levy_list, levylist_kgs)  # pyright: ignore
             ]
             diffusion_result = jtu.tree_map(
                 lambda b_w_kg, *b_levy_g: sum(b_levy_g, b_w_kg),
@@ -611,20 +605,20 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             if additive_noise:
                 error = drift_error
             else:
-                bw_err = jnp.asarray(self.tableau.cfs_w.b_error, dtype=dtype)  # type: ignore
-                w_err = sum_prev_stages(w_kgs, bw_err)  # type: ignore
+                bw_err = jnp.asarray(self.tableau.cfs_w.b_error, dtype=dtype)  # pyright: ignore
+                w_err = sum_prev_stages(w_kgs, bw_err)  # pyright: ignore
                 b_levy_err_list = []
                 if stla:
                     b_levy_err_list.append(
-                        jnp.asarray(self.tableau.cfs_hh.b_error, dtype=dtype)  # type: ignore
+                        jnp.asarray(self.tableau.cfs_hh.b_error, dtype=dtype)  # pyright: ignore
                     )
                 if sttla:
                     b_levy_err_list.append(
-                        jnp.asarray(self.tableau.cfs_kk.b_error, dtype=dtype)  # type: ignore
+                        jnp.asarray(self.tableau.cfs_kk.b_error, dtype=dtype)  # pyright: ignore
                     )
                 levy_err = [
                     sum_prev_stages(levy_gs, b_levy_err)
-                    for b_levy_err, levy_gs in zip(b_levy_err_list, levylist_kgs)  # type: ignore
+                    for b_levy_err, levy_gs in zip(b_levy_err_list, levylist_kgs)  # pyright: ignore
                 ]
                 diffusion_error = jtu.tree_map(
                     lambda _w_err, *_levy_err: sum(_levy_err, _w_err), w_err, *levy_err

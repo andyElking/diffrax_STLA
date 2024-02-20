@@ -1,8 +1,6 @@
 import dataclasses
 from typing import Callable, Optional
 
-from jax import Array
-
 import diffrax
 import equinox as eqx
 import jax
@@ -18,7 +16,9 @@ from diffrax import (
     ODETerm,
     VirtualBrownianTree,
 )
-from jaxtyping import PyTree, Shaped, PRNGKeyArray
+from jax import Array
+from jaxtyping import PRNGKeyArray, PyTree, Shaped
+
 
 all_ode_solvers = (
     diffrax.Bosh3(),
@@ -115,11 +115,7 @@ def path_l2_dist(
 def get_minimal_la(solver):
     while isinstance(solver, diffrax.HalfSolver):
         solver = solver.solver
-    la = getattr(solver, "minimal_levy_area", None)
-    if callable(la):
-        return la()
-    else:
-        return ""
+    return getattr(solver, "minimal_levy_area", diffrax.BrownianIncrement)
 
 
 @eqx.filter_jit
@@ -141,8 +137,7 @@ def _batch_sde_solve(
     bm_tol: float,
     saveat: diffrax.SaveAt,
 ):
-    if levy_area is None:
-        levy_area = get_minimal_la(solver)
+    _levy_area = get_minimal_la(solver) if levy_area is None else levy_area
     dtype = jnp.result_type(*jtu.tree_leaves(y0))
     struct = jax.ShapeDtypeStruct(w_shape, dtype)
     bm = diffrax.VirtualBrownianTree(
@@ -151,7 +146,7 @@ def _batch_sde_solve(
         shape=struct,
         tol=bm_tol,
         key=key,
-        levy_area=levy_area,
+        levy_area=_levy_area,
     )
     terms = get_terms(bm)
     if controller is None:
@@ -189,10 +184,8 @@ def sde_solver_strong_order(
 ):
     levy_area1 = get_minimal_la(solver)
     levy_area2 = get_minimal_la(ref_solver)
-    # Stricter levy_area requirements are a longer string, so only override
-    # solver's levy_area if the ref_solver requires more levy area
-    # TODO: this is a bit hacky, but I'm not sure how else to do it
-    levy_area = levy_area1 if len(levy_area1) > len(levy_area2) else levy_area2
+    # Stricter levy_area requirements inherit from less strict ones
+    levy_area = levy_area1 if issubclass(levy_area1, levy_area2) else levy_area2
 
     level_coarse, level_fine = levels
     level_ref = 2 + level_fine

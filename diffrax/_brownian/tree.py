@@ -172,9 +172,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: RealScalarLike
     tol: RealScalarLike
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[BrownianIncrement] = eqx.field(
-        static=True
-    )
+    levy_area: type[BrownianIncrement] = eqx.field(static=True)
     key: PyTree[PRNGKeyArray]
     _spline: _Spline = eqx.field(static=True)
 
@@ -186,9 +184,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         tol: RealScalarLike,
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
-        levy_area: type[
-            BrownianIncrement
-        ] = BrownianIncrement,
+        levy_area: type[BrownianIncrement] = BrownianIncrement,
         _spline: _Spline = "sqrt",
     ):
         (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
@@ -333,7 +329,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             _w = _split_interval(_cond, _w_stu, _w_inc)
             _bkk = None
-            if self.levy_area is not BrownianIncrement:
+            if self.levy_area is SpaceTimeLevyArea:
                 assert _bhh_stu is not None and _bhh_st_tu is not None
                 _bhh = _split_interval(_cond, _bhh_stu, _bhh_st_tu)
             else:

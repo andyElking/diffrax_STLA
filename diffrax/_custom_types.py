@@ -1,5 +1,5 @@
 import typing
-from typing import Any, Optional, TYPE_CHECKING, Union
+from typing import Any, TYPE_CHECKING, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -62,6 +62,13 @@ class SpaceTimeLevyArea(BrownianIncrement):
     dt: PyTree
     W: PyTree
     H: PyTree
+
+
+class SpaceTimeTimeLevyArea(SpaceTimeLevyArea):
+    dt: PyTree
+    W: PyTree
+    H: PyTree
+    K: PyTree
 
 
 def levy_tree_transpose(
