@@ -3,11 +3,11 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, GeneralNoiseCoefficients, StochasticButcherTableau
+from .srk import AbstractSRK, GeneralSpaceTimeLACoeffs, StochasticButcherTableau
 
 
-cfs_w = GeneralNoiseCoefficients(
-    a=(
+cfs_bm = GeneralSpaceTimeLACoeffs(
+    a_w=(
         np.array([0.0]),
         np.array([0.0, 0.5]),
         np.array([0.0, 0.0, 0.5]),
@@ -15,11 +15,8 @@ cfs_w = GeneralNoiseCoefficients(
         np.array([0.0, 0.0, 0.0, 0.75, 0.0]),
         np.array([0.0, 0.0, 0.5, 0.0, 0.0, 0.0]),
     ),
-    b=np.array([0.0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0.0, 0.0]),
-)
-
-cfs_hh = GeneralNoiseCoefficients(
-    a=(
+    b_w=np.array([0.0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0.0, 0.0]),
+    a_hh=(
         np.array([0.0]),
         np.array([0.0, 0.0]),
         np.array([0.0, 0.0, 0.0]),
@@ -27,7 +24,8 @@ cfs_hh = GeneralNoiseCoefficients(
         np.array([0.0, 0.0, 0.0, 1.5, 0.0]),
         np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ),
-    b=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
+    b_hh=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
+    b_error=None,
 )
 
 _tab = StochasticButcherTableau(
@@ -42,9 +40,7 @@ _tab = StochasticButcherTableau(
         np.array([0.75, 0.0, 0.0, 0.0, 0.0]),
         np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ],
-    cfs_w=cfs_w,
-    cfs_hh=cfs_hh,
-    additive_noise=False,
+    cfs_bm=cfs_bm,
     ignore_stage_f=np.array([False, True, True, True, True, False, True]),
     ignore_stage_g=np.array([True, False, False, False, False, True, False]),
 )

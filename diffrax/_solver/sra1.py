@@ -3,17 +3,14 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, AdditiveNoiseCoefficients, StochasticButcherTableau
+from .srk import AbstractSRK, AdditiveSpaceTimeLACoeffs, StochasticButcherTableau
 
 
-cfs_w = AdditiveNoiseCoefficients(
-    a=np.array([0.0, 3 / 4]),
-    b=np.array(1.0),
-)
-
-cfs_hh = AdditiveNoiseCoefficients(
-    a=np.array([0.0, 1.5]),
-    b=np.array(0.0),
+cfs_bm = AdditiveSpaceTimeLACoeffs(
+    a_w=np.array([0.0, 3 / 4]),
+    b_w=np.array(1.0),
+    a_hh=np.array([0.0, 1.5]),
+    b_hh=np.array(0.0),
 )
 
 
@@ -22,8 +19,7 @@ _tab = StochasticButcherTableau(
     b_sol=np.array([1 / 3, 2 / 3]),
     b_error=np.array([-2 / 3, 2 / 3]),
     a=[np.array([3 / 4])],
-    cfs_w=cfs_w,
-    cfs_hh=cfs_hh,
+    cfs_bm=cfs_bm,
 )
 
 

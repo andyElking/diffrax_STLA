@@ -209,6 +209,7 @@ def _solvers():
     yield diffrax.StratonovichMilstein, "any", 0.5
     yield diffrax.SPaRK, "any", 0.5
     yield diffrax.GeneralShARK, "any", 0.5
+    yield diffrax.SlowRK, "any", 0.5
     yield diffrax.ReversibleHeun, "com", 1
     yield diffrax.StratonovichMilstein, "com", 1
     yield diffrax.SPaRK, "com", 1
