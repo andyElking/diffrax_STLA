@@ -6,6 +6,7 @@ from typing_extensions import TypeAlias
 
 import equinox as eqx
 import equinox.internal as eqxi
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -527,11 +528,15 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
         if isinstance(cfs_bm, AdditiveBrownianCoeffs):  # additive noise
             # compute g once since it is constant
-            def _comp_g(_, _t):
-                return None, diffusion.vf(_t, y0, args)
 
-            _, (g0, g1) = lax.scan(_comp_g, None, jnp.array([t0, t1]), length=2)
-            g_delta = (0.5 * (g1**ω - g0**ω)).ω
+            @jax.vmap
+            def _comp_g(_t):
+                return diffusion.vf(_t, y0, args)
+
+            g0_g1 = _comp_g(jnp.array([t0, t1], dtype=dtype))
+            g0 = jtu.tree_map(lambda g_leaf: g_leaf[0], g0_g1)
+            # g_delta = 0.5 * g1 - g0
+            g_delta = jtu.tree_map(lambda g_leaf: 0.5 * (g_leaf[1] - g_leaf[0]), g0_g1)
             w_kgs = diffusion.prod(g0, w)
             a_w = jnp.asarray(cfs_bm.a_w, dtype=dtype)
 

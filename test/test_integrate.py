@@ -11,6 +11,7 @@ import jax.random as jr
 import jax.tree_util as jtu
 import pytest
 import scipy.stats
+from diffrax import ControlTerm, MultiTerm, ODETerm
 from equinox.internal import ω
 from jaxtyping import Array, ArrayLike, Float
 
@@ -22,6 +23,7 @@ from .helpers import (
     implicit_tol,
     path_l2_dist,
     random_pytree,
+    sde_solver_strong_order,
     simple_batch_sde_solve,
     simple_sde_order,
     tree_allclose,
@@ -196,7 +198,7 @@ def test_ode_order(solver):
     assert -0.9 < order - solver.order(term) < 0.9
 
 
-def _solvers():
+def _solvers_and_orders():
     # solver, noise, order
     # noise is "any" or "com" or "add" where "com" means commutative and "add" means
     # additive.
@@ -222,6 +224,107 @@ def _solvers():
     yield diffrax.SEA, "add", 1.0
 
 
+def _squareplus(x):
+    return 0.5 * (x + jnp.sqrt(x**2 + 4))
+
+
+def _drift(t, y, args):
+    drift_mlp, _, _ = args
+    return 0.5 * drift_mlp(y)
+
+
+def _diffusion(t, y, args):
+    _, diffusion_mlp, noise_dim = args
+    return 0.25 * diffusion_mlp(y).reshape(3, noise_dim)
+
+
+@pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers_and_orders())
+def test_sde_strong_order(solver_ctr, noise, theoretical_order):
+    key = jr.PRNGKey(5678)
+    driftkey, diffusionkey, ykey, bmkey = jr.split(key, 4)
+    num_samples = 20
+    bmkeys = jr.split(bmkey, num_samples)
+
+    if noise == "com":
+        noise_dim = 1
+    elif noise == "any":
+        noise_dim = 7
+    elif noise == "add":
+        return
+    else:
+        assert False
+
+    drift_mlp = eqx.nn.MLP(
+        in_size=3,
+        out_size=3,
+        width_size=8,
+        depth=2,
+        activation=_squareplus,
+        key=driftkey,
+    )
+
+    diffusion_mlp = eqx.nn.MLP(
+        in_size=3,
+        out_size=3 * noise_dim,
+        width_size=8,
+        depth=2,
+        activation=_squareplus,
+        final_activation=jnp.tanh,
+        key=diffusionkey,
+    )
+
+    args = (drift_mlp, diffusion_mlp, noise_dim)
+
+    t0 = 0.0
+    t1 = 2.0
+    y0 = jr.normal(ykey, (3,), dtype=jnp.float64)
+
+    def get_terms(bm):
+        return MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, bm))
+
+    # Reference solver is always an ODE-viable solver, so its implementation has been
+    # verified by the ODE tests like test_ode_order.
+    if issubclass(solver_ctr, diffrax.AbstractItoSolver):
+        ref_solver = diffrax.Euler()
+    elif issubclass(solver_ctr, diffrax.AbstractStratonovichSolver):
+        ref_solver = diffrax.Heun()
+    else:
+        assert False
+
+    if theoretical_order == 0.5:
+        levels = (3, 8)
+        ref_level = 10
+    elif theoretical_order == 1.0:
+        levels = (1, 7)
+        ref_level = 13
+    elif theoretical_order == 1.5:
+        levels = (0, 5)
+        ref_level = 13
+    else:
+        assert False
+
+    def get_dt_step_controller(level):
+        return 2**-level, diffrax.ConstantStepSize()
+
+    hs, errors, order = sde_solver_strong_order(
+        bmkeys,
+        get_terms,
+        (noise_dim,),
+        t0,
+        t1,
+        y0,
+        args,
+        solver_ctr(),
+        ref_solver,
+        levels,
+        ref_level,
+        get_dt_step_controller,
+        diffrax.SaveAt(t1=True),
+        bm_tol=2.0 ** -(ref_level + 2),
+    )
+    assert -0.2 < order - theoretical_order < 0.2
+
+
 # TODO: For solvers of high order, comparing to Euler or Heun is not good,
 # because they are waaaay worse than for example ShARK. ShARK is more precise
 # at dt=2**-4 than Euler is at dt=2**-14 (and it takes forever to run at such
@@ -233,8 +336,8 @@ def _solvers():
 # check whether that limit is the same as the Euler/Heun limit.
 # For the second, I would like to make a separate check, where the "correct"
 # solution is computed only once and then all solvers are compared to it.
-@pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers())
-def test_sde_strong_order(
+@pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers_and_orders())
+def test_sde_strong_order_new(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order
 ):
     bmkey = jr.PRNGKey(5678)
@@ -261,9 +364,9 @@ def test_sde_strong_order(
     # We specify the times to which we step in way that each level contains all the
     # steps of the previous level. This is so that we can compare the solutions at
     # all the times in saveat, and not just at the end time.
-    def get_step_controller(level):
+    def get_dt_step_controller(level):
         step_ts = jnp.linspace(t0, t1, 2**level + 1, endpoint=True)
-        return diffrax.StepTo(ts=step_ts)
+        return None, diffrax.StepTo(ts=step_ts)
 
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True))
 
@@ -273,7 +376,7 @@ def test_sde_strong_order(
         solver_ctr(),
         ref_solver,
         (level_coarse, level_fine),
-        get_step_controller,
+        get_dt_step_controller,
         saveat,
         bm_tol=2**-14,
     )
@@ -303,7 +406,7 @@ solutions = {
 # Now compare the limit of Euler/Heun to the limit of the other solvers,
 # using a single reference solution. We use Euler if the solver is Ito
 # and Heun if the solver is Stratonovich.
-@pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers())
+@pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers_and_orders())
 def test_sde_strong_limit(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order
 ):
@@ -357,6 +460,71 @@ def test_sde_strong_limit(
     error = path_l2_dist(correct_sol, sol)
     print(f"Error: {error}")
     assert error < 0.02
+
+
+def _solvers():
+    yield diffrax.Euler
+    yield diffrax.EulerHeun
+    yield diffrax.Heun
+    yield diffrax.ItoMilstein
+    yield diffrax.Midpoint
+    yield diffrax.ReversibleHeun
+    yield diffrax.StratonovichMilstein
+    yield diffrax.SPaRK
+    yield diffrax.GeneralShARK
+    yield diffrax.SlowRK
+    yield diffrax.ShARK
+    yield diffrax.SRA1
+    yield diffrax.SEA
+
+
+# Define the SDE
+def dict_drift(t, y, args):
+    pytree, _ = args
+    return jtu.tree_map(lambda _, x: -0.5 * x, pytree, y)
+
+
+def dict_diffusion(t, y, args):
+    pytree, additive = args
+
+    def get_matrix(y_leaf):
+        if additive:
+            return 2.0 * jnp.ones(y_leaf.shape + (3,), dtype=jnp.float64)
+        else:
+            return 2.0 * jnp.broadcast_to(
+                jnp.expand_dims(y_leaf, axis=y_leaf.ndim), y_leaf.shape + (3,)
+            )
+
+    return jtu.tree_map(get_matrix, y)
+
+
+@pytest.mark.parametrize("shape", [(), (5, 2)])
+@pytest.mark.parametrize("solver_ctr", _solvers())
+def test_sde_solver_shape(shape, solver_ctr):
+    pytree = ({"a": 0, "b": [0, 0]}, 0, 0)
+    dtype = jnp.float64
+    key = jr.PRNGKey(0)
+    y0 = jtu.tree_map(lambda _: jr.normal(key, shape, dtype=dtype), pytree)
+    t0, t1, dt0 = 0.0, 1.0, 0.3
+
+    # Some solvers only work with additive noise
+    additive = solver_ctr in [diffrax.ShARK, diffrax.SRA1, diffrax.SEA]
+    args = (pytree, additive)
+    solver = solver_ctr()
+    bmkey = jr.PRNGKey(1)
+    struct = jax.ShapeDtypeStruct((3,), dtype)
+    bm_shape = jtu.tree_map(lambda _: struct, pytree)
+    bm = diffrax.VirtualBrownianTree(
+        t0, t1, 0.1, bm_shape, bmkey, diffrax.SpaceTimeLevyArea
+    )
+    terms = MultiTerm(ODETerm(dict_drift), ControlTerm(dict_diffusion, bm))
+    solution = diffrax.diffeqsolve(
+        terms, solver, t0, t1, dt0, y0, args, saveat=diffrax.SaveAt(t1=True)
+    )
+    print(solution.ys)
+    assert jtu.tree_structure(solution.ys) == jtu.tree_structure(y0)
+    for leaf in jtu.tree_leaves(solution.ys):
+        assert leaf[0].shape == shape
 
 
 # Step size deliberately chosen not to divide the time interval

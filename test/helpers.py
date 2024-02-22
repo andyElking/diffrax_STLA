@@ -178,7 +178,10 @@ def sde_solver_strong_order(
     solver: diffrax.AbstractSolver,
     ref_solver: diffrax.AbstractSolver,
     levels: tuple[int, int],
-    get_step_controller: Callable[[int], diffrax.AbstractStepSizeController],
+    ref_level: int,
+    get_dt_step_controller: Callable[
+        [int], tuple[float, diffrax.AbstractStepSizeController]
+    ],
     saveat: diffrax.SaveAt,
     bm_tol: float,
 ):
@@ -188,8 +191,8 @@ def sde_solver_strong_order(
     levy_area = levy_area1 if issubclass(levy_area1, levy_area2) else levy_area2
 
     level_coarse, level_fine = levels
-    level_ref = 2 + level_fine
 
+    dt, step_controller = get_dt_step_controller(ref_level)
     correct_sols, _ = _batch_sde_solve(
         keys,
         get_terms,
@@ -200,14 +203,15 @@ def sde_solver_strong_order(
         args,
         ref_solver,
         levy_area,
-        None,
-        get_step_controller(level_ref),
+        dt,
+        step_controller,
         bm_tol,
         saveat,
     )
 
     errs_list, steps_list = [], []
     for level in range(level_coarse, level_fine + 1):
+        dt, step_controller = get_dt_step_controller(level)
         sols, steps = _batch_sde_solve(
             keys,
             get_terms,
@@ -218,8 +222,8 @@ def sde_solver_strong_order(
             args,
             solver,
             levy_area,
-            None,
-            get_step_controller(level),
+            dt,
+            step_controller,
             bm_tol,
             saveat,
         )
@@ -268,7 +272,7 @@ def simple_sde_order(
     solver,
     ref_solver,
     levels,
-    get_step_controller,
+    get_dt_step_controller,
     saveat,
     bm_tol,
 ):
@@ -283,7 +287,8 @@ def simple_sde_order(
         solver,
         ref_solver,
         levels,
-        get_step_controller,
+        levels[1] + 2,
+        get_dt_step_controller,
         saveat,
         bm_tol,
     )
