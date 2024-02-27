@@ -123,11 +123,7 @@ def get_minimal_la(solver):
         return ""
 
 
-@eqx.filter_jit
-@eqx.filter_vmap(
-    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None)
-)
-def _batch_sde_solve(
+def _sde_solve(
     key: PRNGKeyArray,
     get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
     w_shape: tuple[int, ...],
@@ -165,11 +161,54 @@ def _batch_sde_solve(
         dt0=dt0,
         y0=y0,
         args=args,
-        max_steps=2**19,
+        max_steps=2**15,
         stepsize_controller=controller,
         saveat=saveat,
     )
     return sol.ys, sol.stats["num_accepted_steps"]
+
+
+_batch_sde_solve = eqx.filter_jit(
+    eqx.filter_vmap(
+        _sde_solve,
+        in_axes=(
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+)
+
+_batch_sde_solve_multi_y0 = eqx.filter_jit(
+    eqx.filter_vmap(
+        _sde_solve,
+        in_axes=(
+            0,
+            None,
+            None,
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+)
 
 
 @eqx.filter_jit
@@ -233,7 +272,7 @@ def sde_solver_strong_order(
         )
         errs = path_l2_dist(sols, correct_sols)
         errs_list.append(errs)
-        steps_list.append(jnp.average(steps))
+        steps_list.append(jnp.mean(steps))
     errs_arr = jnp.array(errs_list)
     steps_arr = jnp.array(steps_list)
     order, _ = jnp.polyfit(jnp.log(1 / steps_arr), jnp.log(errs_arr), 1)
@@ -345,14 +384,21 @@ def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
 
 
 def get_neals_funnel(t0=0.0, t1=16.0, dtype=jnp.float32):
-    def half_grad_log_dist(x):
-        y_mult = 0.5 / jnp.exp(x[0]) * jnp.ones((9,), dtype=dtype)
-        mult = jnp.concatenate([jnp.array([1 / 6]), y_mult], axis=0)
-        return x * mult
+    def log_p(x):
+        z_term = x[0] ** 2 / 3.0
+        y_term = jnp.sum(x[1:] ** 2) / jax.lax.stop_gradient(2.0 * jnp.exp(x[0] / 2))
+        return z_term + y_term
+
+    # def grad_log_p(x):
+    #     y_mult = 1.0 / jnp.exp(x[0]) * jnp.ones((9,), dtype=dtype)
+    #     mult = jnp.concatenate([jnp.array([1 / 3]), y_mult], axis=0)
+    #     return x * mult
+
+    grad_log_p = jax.grad(log_p)
 
     gamma = 2.0
     u = 1.0
-    args_neal = (gamma, u, half_grad_log_dist)
+    args_neal = (gamma, u, grad_log_p)
     y0_neal = (jnp.zeros((10,), dtype=dtype), jnp.zeros((10,), dtype=dtype))
     w_shape_neal = (10,)
 
