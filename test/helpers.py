@@ -161,7 +161,7 @@ def _sde_solve(
         dt0=dt0,
         y0=y0,
         args=args,
-        max_steps=2**15,
+        max_steps=2**17,
         stepsize_controller=controller,
         saveat=saveat,
     )
