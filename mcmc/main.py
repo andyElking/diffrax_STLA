@@ -8,7 +8,7 @@ import jax.tree_util as jtu
 from diffrax import LangevinTerm
 
 
-def run_mcmc(
+def run_sortmc(
     key,
     log_p,
     x0,
@@ -35,7 +35,7 @@ def run_mcmc(
 
     t_warmup = warmup_mult * chain_sep
     controller_warmup = diffrax.PIDController(
-        rtol=0.0, atol=warmup_tol_mult * tol, pcoeff=0.1, icoeff=0.3, dtmin=2**-6
+        rtol=0.0, atol=warmup_tol_mult * tol, pcoeff=0.1, icoeff=0.3, dtmin=2**-4
     )
     half_solver = diffrax.HalfSolver(diffrax.SORT(0.1))
 
@@ -61,7 +61,7 @@ def run_mcmc(
     save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
     saveat = diffrax.SaveAt(ts=save_ts)
     controller_mcmc = diffrax.PIDController(
-        rtol=0.0, atol=tol, pcoeff=0.1, icoeff=0.3, dtmin=2**-8, step_ts=save_ts
+        rtol=0.0, atol=tol, pcoeff=0.1, icoeff=0.4, dtmin=2**-6, step_ts=save_ts
     )
     out_mcmc, steps_mcmc = _batch_sde_solve_multi_y0(
         keys_mcmc,

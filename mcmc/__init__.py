@@ -1,1 +1,1 @@
-from .main import run_mcmc as run_mcmc
+from .main import run_sortmc as run_sortmc
