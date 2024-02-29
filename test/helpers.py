@@ -124,7 +124,7 @@ def get_minimal_la(solver):
 
 
 def _sde_solve(
-    key: PRNGKeyArray,
+    keys: PRNGKeyArray,
     get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
     w_shape: tuple[int, ...],
     t0: float,
@@ -147,7 +147,7 @@ def _sde_solve(
         t1=t1,
         shape=struct,
         tol=bm_tol,
-        key=key,
+        key=keys,
         levy_area=levy_area,
     )
     terms = get_terms(bm)
