@@ -25,8 +25,9 @@ _ErrorEstimate: TypeAlias = Y
 _SolverState: TypeAlias = None
 
 
-class FosterCIR(AbstractStratonovichSolver):
-    r"""Foster's method for the Cox-Ingersoll-Ross process.
+class HOStS(AbstractStratonovichSolver):
+    r"""Foster's High-Order Strang Splitting method for the
+     Cox-Ingersoll-Ross process.
     It is unique in that it is tha only method that never
     becomes negative as long as $b > \frac{\sigma^2}{4 a}$.
 

@@ -60,20 +60,25 @@ def run_sortmc(
         2**-9,
         diffrax.SaveAt(t1=True),
     )
-    y_warm = jtu.tree_map(lambda x: jnp.squeeze(x, axis=1), out_warmup)
+    y_warm = jtu.tree_map(
+        lambda x: jnp.nan_to_num(x[:, 0], nan=0, posinf=0, neginf=0), out_warmup
+    )
 
     t0_mcmc = 4 * chain_sep
     t1_mcmc: float = chain_len * chain_sep + t0_mcmc
     save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
     saveat = diffrax.SaveAt(ts=save_ts)
     if use_sort_adaptive:
+        dtmin = 2**-11
+        bm_tol = dtmin / 8.0
         controller_mcmc = diffrax.PIDController(
-            rtol=0.0, atol=tol, pcoeff=0.1, icoeff=0.4, dtmin=2**-9, step_ts=save_ts
+            rtol=0.0, atol=tol, pcoeff=0.1, icoeff=0.4, dtmin=dtmin, step_ts=save_ts
         )
     else:
         step_ts = jnp.linspace(0.0, t1_mcmc, num=int(t1_mcmc / tol) + 1)
         step_ts = jnp.unique(jnp.sort(jnp.concatenate((step_ts, save_ts))))
         controller_mcmc = diffrax.StepTo(ts=step_ts)
+        bm_tol = tol / 8.0
 
     out_mcmc, steps_mcmc = _batch_sde_solve_multi_y0(
         keys_mcmc,
@@ -87,16 +92,20 @@ def run_sortmc(
         "space-time-time",
         None,
         controller_mcmc,
-        2**-12,
+        bm_tol,
         saveat,
     )
+    ys_mcmc = jnp.nan_to_num(out_mcmc[0], nan=0, posinf=0, neginf=0)
 
     avg_steps_warmup = jnp.mean(steps_warmup)
     avg_steps_mcmc = jnp.mean(steps_mcmc)
-    grad_evals_per_sample = 6 * (avg_steps_mcmc + avg_steps_warmup) / chain_len
+    if use_sort_adaptive:
+        grad_evals_per_sample = 6 * (avg_steps_mcmc + avg_steps_warmup) / chain_len
+    else:
+        grad_evals_per_sample = (avg_steps_mcmc + avg_steps_warmup) / chain_len
     print(
         f"Steps warmup: {avg_steps_warmup}, steps mcmc: {avg_steps_mcmc},"
         f" gradient evaluations per output: {grad_evals_per_sample}"
     )
 
-    return out_mcmc[0], grad_evals_per_sample
+    return ys_mcmc, grad_evals_per_sample

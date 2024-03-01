@@ -385,14 +385,9 @@ def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
 
 def get_neals_funnel(t0=0.0, t1=16.0, dtype=jnp.float32):
     def log_p(x):
-        z_term = x[0] ** 2 / 3.0
-        y_term = jnp.sum(x[1:] ** 2) / jax.lax.stop_gradient(2.0 * jnp.exp(x[0] / 2))
+        z_term = x[0] ** 2 / 6.0
+        y_term = jnp.sum(x[1:] ** 2) / jax.lax.stop_gradient(2.0 * jnp.exp(x[0] / 4.0))
         return z_term + y_term
-
-    # def grad_log_p(x):
-    #     y_mult = 1.0 / jnp.exp(x[0]) * jnp.ones((9,), dtype=dtype)
-    #     mult = jnp.concatenate([jnp.array([1 / 3]), y_mult], axis=0)
-    #     return x * mult
 
     grad_log_p = jax.grad(log_p)
 
