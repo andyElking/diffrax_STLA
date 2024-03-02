@@ -3,11 +3,16 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, GeneralSpaceTimeLACoeffs, StochasticButcherTableau
+from .srk import (
+    AbstractSRK,
+    GeneralCoeffs,
+    SpaceTimeLATableau,
+    StochasticButcherTableau,
+)
 
 
-cfs_bm = GeneralSpaceTimeLACoeffs(
-    a_w=(
+cfs_w = GeneralCoeffs(
+    a=(
         np.array([0.0]),
         np.array([0.0, 0.5]),
         np.array([0.0, 0.0, 0.5]),
@@ -15,8 +20,11 @@ cfs_bm = GeneralSpaceTimeLACoeffs(
         np.array([0.0, 0.0, 0.0, 0.75, 0.0]),
         np.array([0.0, 0.0, 0.5, 0.0, 0.0, 0.0]),
     ),
-    b_w=np.array([0.0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0.0, 0.0]),
-    a_hh=(
+    b=np.array([0.0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0.0, 0.0]),
+)
+
+cfs_hh = GeneralCoeffs(
+    a=(
         np.array([0.0]),
         np.array([0.0, 0.0]),
         np.array([0.0, 0.0, 0.0]),
@@ -24,8 +32,12 @@ cfs_bm = GeneralSpaceTimeLACoeffs(
         np.array([0.0, 0.0, 0.0, 1.5, 0.0]),
         np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ),
-    b_hh=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
-    b_error=None,
+    b=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
+)
+
+cfs_bm = SpaceTimeLATableau[GeneralCoeffs](
+    coeffs_w=cfs_w,
+    coeffs_hh=cfs_hh,
 )
 
 _tab = StochasticButcherTableau(

@@ -21,18 +21,9 @@ def _solvers_and_orders():
     # solver, noise, order
     # noise is "any" or "com" or "add" where "com" means commutative and "add" means
     # additive.
-    yield diffrax.Euler, "any", 0.5
-    yield diffrax.EulerHeun, "any", 0.5
-    yield diffrax.Heun, "any", 0.5
-    yield diffrax.ItoMilstein, "any", 0.5
-    yield diffrax.Midpoint, "any", 0.5
-    yield diffrax.ReversibleHeun, "any", 0.5
-    yield diffrax.StratonovichMilstein, "any", 0.5
     yield diffrax.SPaRK, "any", 0.5
     yield diffrax.GeneralShARK, "any", 0.5
     yield diffrax.SlowRK, "any", 0.5
-    yield diffrax.ReversibleHeun, "com", 1
-    yield diffrax.StratonovichMilstein, "com", 1
     yield diffrax.SPaRK, "com", 1
     yield diffrax.GeneralShARK, "com", 1
     yield diffrax.SlowRK, "com", 1.5
@@ -43,17 +34,14 @@ def _solvers_and_orders():
     yield diffrax.SEA, "add", 1.0
 
 
-# TODO: For solvers of high order, comparing to Euler or Heun is not good,
-# because they are waaaay worse than for example ShARK. ShARK is more precise
+# For solvers of high order, comparing to Euler or Heun is not sufficient,
+# because they are substantially worse than e.g. ShARK. ShARK is more precise
 # at dt=2**-4 than Euler is at dt=2**-14 (and it takes forever to run at such
 # a small dt). Hence , the order of convergence of ShARK seems to plateau at
 # discretisations finer than 2**-4.
-# I propose the following:
-# We can sparate this test into two. First we determine how fast the solver
-# converges to its own limit (i.e. using itself as reference), and then
-# check whether that limit is the same as the Euler/Heun limit.
-# For the second, I would like to make a separate check, where the "correct"
-# solution is computed only once and then all solvers are compared to it.
+# Therefore, we use two separate tests. First we determine how fast the solver
+# converges to its own limit (i.e. using itself as reference), and then in a
+# different test check whether that limit is the same as the Euler/Heun limit.
 @pytest.mark.parametrize("solver_ctr,noise,theoretical_order", _solvers_and_orders())
 def test_sde_strong_order_new(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order
@@ -77,12 +65,12 @@ def test_sde_strong_order_new(
         sde = get_mlp_sde(t0, t1, jnp.float64, sde_key, noise_dim=noise_dim)
 
     ref_solver = solver_ctr()
-    level_coarse, level_fine = 4, 10
+    level_coarse, level_fine = 4, 9
 
     # We specify the times to which we step in way that each level contains all the
     # steps of the previous level. This is so that we can compare the solutions at
     # all the times in saveat, and not just at the end time.
-    def get_dt_step_controller(level):
+    def get_dt_and_controller(level):
         step_ts = jnp.linspace(t0, t1, 2**level + 1, endpoint=True)
         return None, diffrax.StepTo(ts=step_ts)
 
@@ -94,14 +82,13 @@ def test_sde_strong_order_new(
         solver_ctr(),
         ref_solver,
         (level_coarse, level_fine),
-        get_dt_step_controller,
+        get_dt_and_controller,
         saveat,
         bm_tol=2**-14,
     )
     # The upper bound needs to be 0.25, otherwise we fail.
     # This still preserves a 0.05 buffer between the intervals
     # corresponding to the different orders.
-    print(order)
     assert -0.2 < order - theoretical_order < 0.25
 
 
@@ -162,7 +149,7 @@ def test_sde_strong_limit(
     contr_fine = diffrax.StepTo(ts=ts_fine)
     contr_coarse = diffrax.StepTo(ts=ts_coarse)
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**6 + 1, endpoint=True))
-    levy_area = diffrax.SpaceTimeLevyArea  # must be common for all solvers
+    levy_area = diffrax.AbstractSpaceTimeLevyArea  # must be common for all solvers
 
     if solutions[sol_type][noise] is None:
         correct_sol, _ = simple_batch_sde_solve(
@@ -176,18 +163,10 @@ def test_sde_strong_limit(
         bmkeys, sde, solver_ctr(), levy_area, None, contr_coarse, 2**-14, saveat
     )
     error = path_l2_dist(correct_sol, sol)
-    print(f"Error: {error}")
     assert error < 0.02
 
 
 def _solvers():
-    yield diffrax.Euler
-    yield diffrax.EulerHeun
-    yield diffrax.Heun
-    yield diffrax.ItoMilstein
-    yield diffrax.Midpoint
-    yield diffrax.ReversibleHeun
-    yield diffrax.StratonovichMilstein
     yield diffrax.SPaRK
     yield diffrax.GeneralShARK
     yield diffrax.SlowRK
@@ -233,13 +212,12 @@ def test_sde_solver_shape(shape, solver_ctr):
     struct = jax.ShapeDtypeStruct((3,), dtype)
     bm_shape = jtu.tree_map(lambda _: struct, pytree)
     bm = diffrax.VirtualBrownianTree(
-        t0, t1, 0.1, bm_shape, bmkey, diffrax.SpaceTimeLevyArea
+        t0, t1, 0.1, bm_shape, bmkey, diffrax.AbstractSpaceTimeLevyArea
     )
     terms = MultiTerm(ODETerm(dict_drift), ControlTerm(dict_diffusion, bm))
     solution = diffrax.diffeqsolve(
         terms, solver, t0, t1, dt0, y0, args, saveat=diffrax.SaveAt(t1=True)
     )
-    print(solution.ys)
     assert jtu.tree_structure(solution.ys) == jtu.tree_structure(y0)
     for leaf in jtu.tree_leaves(solution.ys):
         assert leaf[0].shape == shape

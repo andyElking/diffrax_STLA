@@ -14,6 +14,8 @@ from ._brownian import (
     VirtualBrownianTree as VirtualBrownianTree,
 )
 from ._custom_types import (
+    AbstractBrownianIncrement as AbstractBrownianIncrement,
+    AbstractSpaceTimeLevyArea as AbstractSpaceTimeLevyArea,
     BrownianIncrement as BrownianIncrement,
     SpaceTimeLevyArea as SpaceTimeLevyArea,
 )

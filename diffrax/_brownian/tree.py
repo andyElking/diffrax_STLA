@@ -13,6 +13,8 @@ import lineax.internal as lxi
 from jaxtyping import Array, Float, PRNGKeyArray, PyTree
 
 from .._custom_types import (
+    AbstractBrownianIncrement,
+    AbstractSpaceTimeLevyArea,
     BoolScalarLike,
     BrownianIncrement,
     IntScalarLike,
@@ -58,7 +60,7 @@ FloatTriple: TypeAlias = tuple[
     Float[Array, " *shape"], Float[Array, " *shape"], Float[Array, " *shape"]
 ]
 _Spline: TypeAlias = Literal["sqrt", "quad", "zero"]
-_BrownianReturn = TypeVar("_BrownianReturn", bound=BrownianIncrement)
+_BrownianReturn = TypeVar("_BrownianReturn", bound=AbstractBrownianIncrement)
 
 
 class _State(eqx.Module):
@@ -70,7 +72,7 @@ class _State(eqx.Module):
     bkk_s_u_su: Optional[FloatTriple]  # \bar{K}_s, _u, _{s,u}
 
 
-def _levy_diff(_, x0: tuple, x1: tuple) -> BrownianIncrement:
+def _levy_diff(_, x0: tuple, x1: tuple) -> AbstractBrownianIncrement:
     r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, \bar{H}_{s,u})$ and
     $(W_u, \bar{H}_u)$, where $\bar{H}_u = u * H_u$.
 
@@ -109,7 +111,7 @@ def _levy_diff(_, x0: tuple, x1: tuple) -> BrownianIncrement:
         assert False
 
 
-def _make_levy_val(_, x: tuple) -> BrownianIncrement:
+def _make_levy_val(_, x: tuple) -> AbstractBrownianIncrement:
     if len(x) == 2:
         dt, w = x
         return BrownianIncrement(dt=dt, W=w)
@@ -172,7 +174,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: RealScalarLike
     tol: RealScalarLike
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[BrownianIncrement] = eqx.field(static=True)
+    levy_area: type[AbstractBrownianIncrement] = eqx.field(static=True)
     key: PyTree[PRNGKeyArray]
     _spline: _Spline = eqx.field(static=True)
 
@@ -184,7 +186,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         tol: RealScalarLike,
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
-        levy_area: type[BrownianIncrement] = BrownianIncrement,
+        levy_area: type[AbstractBrownianIncrement] = AbstractBrownianIncrement,
         _spline: _Spline = "sqrt",
     ):
         (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
@@ -238,7 +240,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t1: Optional[RealScalarLike] = None,
         left: bool = True,
         use_levy: bool = False,
-    ) -> Union[PyTree[Array], BrownianIncrement, SpaceTimeLevyArea]:
+    ) -> Union[PyTree[Array], AbstractBrownianIncrement]:
         t0 = eqxi.nondifferentiable(t0, name="t0")
         # map the interval [self.t0, self.t1] onto [0,1]
         t0 = linear_rescale(self.t0, t0, self.t1)
@@ -282,7 +284,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t0 = jnp.zeros((), dtype)
         r = jnp.asarray(r, dtype)
 
-        if self.levy_area is SpaceTimeLevyArea:
+        if self.levy_area is AbstractSpaceTimeLevyArea:
             state_key, init_key_w, init_key_la = jr.split(key, 3)
             bhh_1 = jr.normal(init_key_la, shape, dtype) / math.sqrt(12)
             bhh_0 = jnp.zeros_like(bhh_1)
@@ -329,7 +331,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             _w = _split_interval(_cond, _w_stu, _w_inc)
             _bkk = None
-            if self.levy_area is SpaceTimeLevyArea:
+            if self.levy_area is AbstractSpaceTimeLevyArea:
                 assert _bhh_stu is not None and _bhh_st_tu is not None
                 _bhh = _split_interval(_cond, _bhh_stu, _bhh_st_tu)
             else:
@@ -355,7 +357,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_s, w_u, w_su = final_state.w_s_u_su
 
-        if self.levy_area is BrownianIncrement:
+        if self.levy_area is AbstractBrownianIncrement:
             w_mean = w_s + sr / su * w_su
             if self._spline == "sqrt":
                 z = jr.normal(final_state.key, shape, dtype)
@@ -370,7 +372,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_r = w_mean + bb
             return r, w_r
 
-        elif self.levy_area is SpaceTimeLevyArea:
+        elif self.levy_area is AbstractSpaceTimeLevyArea:
             # This is based on Theorem 6.1.4 of Foster's thesis (see above).
 
             assert final_state.bhh_s_u_su is not None
@@ -390,7 +392,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 x2 = jnp.zeros(shape, dtype)
             else:
                 raise ValueError(
-                    f"When levy_area='SpaceTimeLevyArea', only 'sqrt' and"
+                    f"When levy_area='AbstractSpaceTimeLevyArea', only 'sqrt' and"
                     f" 'zero' splines are permitted, got {self._spline}."
                 )
 
@@ -463,7 +465,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_s, w_u, w_su = _state.w_s_u_su
 
-        if self.levy_area is SpaceTimeLevyArea:
+        if self.levy_area is AbstractSpaceTimeLevyArea:
             assert _state.bhh_s_u_su is not None
             assert _state.bkk_s_u_su is None
             bhh_s, bhh_u, bhh_su = _state.bhh_s_u_su

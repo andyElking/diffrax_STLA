@@ -115,7 +115,7 @@ def path_l2_dist(
 def get_minimal_la(solver):
     while isinstance(solver, diffrax.HalfSolver):
         solver = solver.solver
-    return getattr(solver, "minimal_levy_area", diffrax.BrownianIncrement)
+    return getattr(solver, "minimal_levy_area", diffrax.AbstractBrownianIncrement)
 
 
 @eqx.filter_jit
@@ -131,7 +131,7 @@ def _batch_sde_solve(
     y0: PyTree[Array],
     args: PyTree,
     solver: diffrax.AbstractSolver,
-    levy_area: Optional[type[diffrax.BrownianIncrement]],
+    levy_area: Optional[type[diffrax.AbstractBrownianIncrement]],
     dt0: Optional[float],
     controller: Optional[diffrax.AbstractStepSizeController],
     bm_tol: float,
@@ -179,7 +179,7 @@ def sde_solver_strong_order(
     ref_solver: diffrax.AbstractSolver,
     levels: tuple[int, int],
     ref_level: int,
-    get_dt_step_controller: Callable[
+    get_dt_and_controller: Callable[
         [int], tuple[float, diffrax.AbstractStepSizeController]
     ],
     saveat: diffrax.SaveAt,
@@ -192,7 +192,7 @@ def sde_solver_strong_order(
 
     level_coarse, level_fine = levels
 
-    dt, step_controller = get_dt_step_controller(ref_level)
+    dt, step_controller = get_dt_and_controller(ref_level)
     correct_sols, _ = _batch_sde_solve(
         keys,
         get_terms,
@@ -211,7 +211,7 @@ def sde_solver_strong_order(
 
     errs_list, steps_list = [], []
     for level in range(level_coarse, level_fine + 1):
-        dt, step_controller = get_dt_step_controller(level)
+        dt, step_controller = get_dt_and_controller(level)
         sols, steps = _batch_sde_solve(
             keys,
             get_terms,
@@ -236,14 +236,7 @@ def sde_solver_strong_order(
     return steps_arr, errs_arr, order
 
 
-# TODO: remove this once we have a better way to handle this
-# I understand you'd prefer not to have this in the library and
-# I agree this is somewhat hacky, but I think passing each of
-# these args around separately is a bit of a pain. If this only appeared
-# in the tests, I'd be fine with it, but it's also in the examples
-# (e.g. srk_example.py) and I'd prefer if it looked a bit cleaner there.
-# So how do you recommend we streamline this?
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SDE:
     get_terms: Callable[[AbstractBrownianPath], AbstractTerm]
     args: PyTree
@@ -257,9 +250,9 @@ class SDE:
 
     def get_bm(
         self,
-        bm_key,
-        levy_area: type[diffrax.BrownianIncrement],
-        tol=2**-14,
+        bm_key: PRNGKeyArray,
+        levy_area: type[diffrax.AbstractBrownianIncrement],
+        tol: float,
     ):
         shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())
         return VirtualBrownianTree(self.t0, self.t1, tol, shp_dtype, bm_key, levy_area)
@@ -272,10 +265,12 @@ def simple_sde_order(
     solver,
     ref_solver,
     levels,
-    get_dt_step_controller,
+    get_dt_and_controller,
     saveat,
     bm_tol,
 ):
+    _, level_fine = levels
+    ref_level = level_fine + 2
     return sde_solver_strong_order(
         keys,
         sde.get_terms,
@@ -287,8 +282,8 @@ def simple_sde_order(
         solver,
         ref_solver,
         levels,
-        levels[1] + 2,
-        get_dt_step_controller,
+        ref_level,
+        get_dt_and_controller,
         saveat,
         bm_tol,
     )
@@ -330,9 +325,6 @@ def diffusion(t, y, args):
 
 def get_mlp_sde(t0, t1, dtype, key, noise_dim):
     driftkey, diffusionkey, ykey = jr.split(key, 3)
-    # To Patrick: I had to increase the depth of these MLPs, otherwise many SDE
-    # solvers had order ~0.72 which is more than 0.5 + 0.2, which is the maximal
-    # tolerated order. I think the issue was that it was too linear and too easy.
     drift_mlp = eqx.nn.MLP(
         in_size=3,
         out_size=3,

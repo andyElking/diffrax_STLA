@@ -11,6 +11,8 @@ import lineax.internal as lxi
 from jaxtyping import Array, PRNGKeyArray, PyTree
 
 from .._custom_types import (
+    AbstractBrownianIncrement,
+    AbstractSpaceTimeLevyArea,
     BrownianIncrement,
     levy_tree_transpose,
     RealScalarLike,
@@ -47,16 +49,14 @@ class UnsafeBrownianPath(AbstractBrownianPath):
     """
 
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]] = eqx.field(
-        static=True
-    )
+    levy_area: type[AbstractBrownianIncrement] = eqx.field(static=True)
     key: PRNGKeyArray
 
     def __init__(
         self,
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
-        levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]],
+        levy_area: type[AbstractBrownianIncrement],
     ):
         self.shape = (
             jax.ShapeDtypeStruct(shape, lxi.default_floating_dtype())
@@ -87,7 +87,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         t1: Optional[RealScalarLike] = None,
         left: bool = True,
         use_levy: bool = False,
-    ) -> Union[PyTree[Array], BrownianIncrement, SpaceTimeLevyArea]:
+    ) -> Union[PyTree[Array], AbstractBrownianIncrement]:
         del left
         if t1 is None:
             dtype = jnp.result_type(t0)
@@ -124,19 +124,19 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         t1: RealScalarLike,
         key,
         shape: jax.ShapeDtypeStruct,
-        levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]],
+        levy_area: type[AbstractBrownianIncrement],
         use_levy: bool,
     ):
         w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
         w = jr.normal(key, shape.shape, shape.dtype) * w_std
         dt = t1 - t0
 
-        if levy_area is SpaceTimeLevyArea:
+        if levy_area is AbstractSpaceTimeLevyArea:
             key, key_hh = jr.split(key, 2)
             hh_std = w_std / math.sqrt(12)
             hh = jr.normal(key_hh, shape.shape, shape.dtype) * hh_std
             levy_val = SpaceTimeLevyArea(dt=dt, W=w, H=hh)
-        elif levy_area is BrownianIncrement:
+        elif levy_area is AbstractBrownianIncrement:
             levy_val = BrownianIncrement(dt=dt, W=w)
         else:
             assert False

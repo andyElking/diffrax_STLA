@@ -3,16 +3,28 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, AdditiveSpaceTimeLACoeffs, StochasticButcherTableau
-
-
-cfs_bm = AdditiveSpaceTimeLACoeffs(
-    a_w=np.array([0.0, 3 / 4]),
-    b_w=np.array(1.0),
-    a_hh=np.array([0.0, 1.5]),
-    b_hh=np.array(0.0),
+from .srk import (
+    AbstractSRK,
+    AdditiveCoeffs,
+    SpaceTimeLATableau,
+    StochasticButcherTableau,
 )
 
+
+cfs_w = AdditiveCoeffs(
+    a=np.array([0.0, 3 / 4]),
+    b=np.array(1.0),
+)
+
+cfs_hh = AdditiveCoeffs(
+    a=np.array([0.0, 1.5]),
+    b=np.array(0.0),
+)
+
+cfs_bm = SpaceTimeLATableau[AdditiveCoeffs](
+    coeffs_w=cfs_w,
+    coeffs_hh=cfs_hh,
+)
 
 _tab = StochasticButcherTableau(
     c=np.array([3 / 4]),

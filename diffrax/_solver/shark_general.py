@@ -3,15 +3,27 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import AbstractSRK, GeneralSpaceTimeLACoeffs, StochasticButcherTableau
+from .srk import (
+    AbstractSRK,
+    GeneralCoeffs,
+    SpaceTimeLATableau,
+    StochasticButcherTableau,
+)
 
 
-cfs_bm = GeneralSpaceTimeLACoeffs(
-    a_w=(np.array([0.0]), np.array([0.0, 5 / 6])),
-    b_w=np.array([0.0, 0.4, 0.6]),
-    a_hh=(np.array([1.0]), np.array([1.0, 0.0])),
-    b_hh=np.array([0.0, 1.2, -1.2]),
-    b_error=None,
+cfs_w = GeneralCoeffs(
+    a=(np.array([0.0]), np.array([0.0, 5 / 6])),
+    b=np.array([0.0, 0.4, 0.6]),
+)
+
+cfs_hh = GeneralCoeffs(
+    a=(np.array([1.0]), np.array([1.0, 0.0])),
+    b=np.array([0.0, 1.2, -1.2]),
+)
+
+cfs_bm = SpaceTimeLATableau[GeneralCoeffs](
+    coeffs_w=cfs_w,
+    coeffs_hh=cfs_hh,
 )
 
 _tab = StochasticButcherTableau(

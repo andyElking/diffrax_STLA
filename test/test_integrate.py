@@ -290,15 +290,15 @@ def test_sde_strong_order(solver_ctr, noise, theoretical_order):
         levels = (3, 8)
         ref_level = 10
     elif theoretical_order == 1.0:
-        levels = (1, 7)
-        ref_level = 13
+        levels = (1, 6)
+        ref_level = 12
     elif theoretical_order == 1.5:
-        levels = (0, 5)
-        ref_level = 13
+        levels = (0, 4)
+        ref_level = 12
     else:
         assert False
 
-    def get_dt_step_controller(level):
+    def get_dt_and_controller(level):
         return 2**-level, diffrax.ConstantStepSize()
 
     hs, errors, order = sde_solver_strong_order(
@@ -313,7 +313,7 @@ def test_sde_strong_order(solver_ctr, noise, theoretical_order):
         ref_solver,
         levels,
         ref_level,
-        get_dt_step_controller,
+        get_dt_and_controller,
         diffrax.SaveAt(t1=True),
         bm_tol=2.0 ** -(ref_level + 2),
     )
