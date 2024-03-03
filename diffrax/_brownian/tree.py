@@ -284,7 +284,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t0 = jnp.zeros((), dtype)
         r = jnp.asarray(r, dtype)
 
-        if self.levy_area is AbstractSpaceTimeLevyArea:
+        if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
             state_key, init_key_w, init_key_la = jr.split(key, 3)
             bhh_1 = jr.normal(init_key_la, shape, dtype) / math.sqrt(12)
             bhh_0 = jnp.zeros_like(bhh_1)
@@ -331,7 +331,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             _w = _split_interval(_cond, _w_stu, _w_inc)
             _bkk = None
-            if self.levy_area is AbstractSpaceTimeLevyArea:
+            if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
                 assert _bhh_stu is not None and _bhh_st_tu is not None
                 _bhh = _split_interval(_cond, _bhh_stu, _bhh_st_tu)
             else:
@@ -356,23 +356,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         ru = jax.nn.relu(su - sr)
 
         w_s, w_u, w_su = final_state.w_s_u_su
-
-        if self.levy_area is AbstractBrownianIncrement:
-            w_mean = w_s + sr / su * w_su
-            if self._spline == "sqrt":
-                z = jr.normal(final_state.key, shape, dtype)
-                bb = jnp.sqrt(sr * ru / su) * z
-            elif self._spline == "quad":
-                z = jr.normal(final_state.key, shape, dtype)
-                bb = (sr * ru / su) * z
-            elif self._spline == "zero":
-                bb = jnp.zeros(shape, dtype)
-            else:
-                assert False
-            w_r = w_mean + bb
-            return r, w_r
-
-        elif self.levy_area is AbstractSpaceTimeLevyArea:
+        if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
             # This is based on Theorem 6.1.4 of Foster's thesis (see above).
 
             assert final_state.bhh_s_u_su is not None
@@ -392,7 +376,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 x2 = jnp.zeros(shape, dtype)
             else:
                 raise ValueError(
-                    f"When levy_area='AbstractSpaceTimeLevyArea', only 'sqrt' and"
+                    f"When levy_area='SpaceTimeLevyArea', only 'sqrt' and"
                     f" 'zero' splines are permitted, got {self._spline}."
                 )
 
@@ -410,6 +394,21 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
             hh_r = inverse_r * bhh_r
+
+        elif issubclass(self.levy_area, AbstractBrownianIncrement):
+            w_mean = w_s + sr / su * w_su
+            if self._spline == "sqrt":
+                z = jr.normal(final_state.key, shape, dtype)
+                bb = jnp.sqrt(sr * ru / su) * z
+            elif self._spline == "quad":
+                z = jr.normal(final_state.key, shape, dtype)
+                bb = (sr * ru / su) * z
+            elif self._spline == "zero":
+                bb = jnp.zeros(shape, dtype)
+            else:
+                assert False
+            w_r = w_mean + bb
+            return r, w_r
 
         else:
             assert False
@@ -465,7 +464,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_s, w_u, w_su = _state.w_s_u_su
 
-        if self.levy_area is AbstractSpaceTimeLevyArea:
+        if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
             assert _state.bhh_s_u_su is not None
             assert _state.bkk_s_u_su is None
             bhh_s, bhh_u, bhh_su = _state.bhh_s_u_su

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import ClassVar, Generic, Optional, TYPE_CHECKING, TypeVar
+from typing import ClassVar, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 from typing_extensions import TypeAlias
 
 import equinox as eqx
@@ -42,8 +42,8 @@ _CarryType: TypeAlias = tuple[PyTree[Array], PyTree[Array], PyTree[Array]]
 
 
 class AbstractStochasticCoeffs(eqx.Module):
-    a: eqx.AbstractVar
-    b: eqx.AbstractVar
+    a: eqx.AbstractVar[Union[Float[np.ndarray, " s"], tuple[np.ndarray, ...]]]
+    b: eqx.AbstractVar[Union[Float[np.ndarray, " s"], FloatScalarLike]]
 
     def check(self):
         raise NotImplementedError

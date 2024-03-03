@@ -129,14 +129,14 @@ class UnsafeBrownianPath(AbstractBrownianPath):
     ):
         w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
         w = jr.normal(key, shape.shape, shape.dtype) * w_std
-        dt = t1 - t0
+        dt = jnp.asarray(t1 - t0, dtype=shape.dtype)
 
-        if levy_area is AbstractSpaceTimeLevyArea:
+        if issubclass(levy_area, AbstractSpaceTimeLevyArea):
             key, key_hh = jr.split(key, 2)
             hh_std = w_std / math.sqrt(12)
             hh = jr.normal(key_hh, shape.shape, shape.dtype) * hh_std
             levy_val = SpaceTimeLevyArea(dt=dt, W=w, H=hh)
-        elif levy_area is AbstractBrownianIncrement:
+        elif issubclass(levy_area, AbstractBrownianIncrement):
             levy_val = BrownianIncrement(dt=dt, W=w)
         else:
             assert False
