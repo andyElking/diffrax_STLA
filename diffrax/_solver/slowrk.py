@@ -8,14 +8,14 @@ from .srk import AbstractSRK, GeneralNoiseCoefficients, StochasticButcherTableau
 
 cfs_w = GeneralNoiseCoefficients(
     a=(
-        np.array([0]),
+        np.array([0.0]),
         np.array([0.0, 0.5]),
         np.array([0.0, 0.0, 0.5]),
         np.array([0.0, 0.0, 0.0, 1.0]),
         np.array([0.0, 0.0, 0.0, 0.75, 0.0]),
         np.array([0.0, 0.0, 0.5, 0.0, 0.0, 0.0]),
     ),
-    b=np.array([0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0, 0]),
+    b=np.array([0.0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0.0, 0.0]),
 )
 
 cfs_hh = GeneralNoiseCoefficients(
@@ -27,12 +27,12 @@ cfs_hh = GeneralNoiseCoefficients(
         np.array([0.0, 0.0, 0.0, 1.5, 0.0]),
         np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ),
-    b=np.array([0, 0, 0, 2, 0, 0, -2]),
+    b=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
 )
 
 _tab = StochasticButcherTableau(
     c=np.array([0.5, 0.5, 0.5, 0.5, 0.75, 1.0]),
-    b_sol=np.array([1 / 3, 0, 0, 0, 0, 2 / 3, 0]),
+    b_sol=np.array([1 / 3, 0.0, 0.0, 0.0, 0.0, 2 / 3, 0.0]),
     b_error=None,
     a=[
         np.array([0.5]),

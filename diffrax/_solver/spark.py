@@ -37,7 +37,7 @@ class SPaRK(AbstractSRK, AbstractStratonovichSolver):
     It uses three evaluations of the vector field per step and
     has the following strong orders of convergence:
     - 1.5 for SDEs with additive noise
-    - 1.0 for SDEs with commutative noise
+    - 1. for SDEs with commutative noise
     - 0.5 for general SDEs.
     Despite being slower than methods like ShARK or SRA1, it works for a wider class
     of SDEs. It is based on Definition 1.6 from

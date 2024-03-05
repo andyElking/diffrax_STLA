@@ -195,6 +195,9 @@ def conditional_statistics(
     pvals_w2 = []
     pvals_h = []
 
+    total_mean_err = 0.0
+    total_cov_err = 0.0
+
     # Test their conditional statistics
     for i in range(1, len(ts) - 1):
         s, bm_s = out[i - 1]
@@ -207,6 +210,9 @@ def conditional_statistics(
             h_s = bm_s.H
             h_r = bm_r.H
             h_u = bm_u.H
+            k_s = bm_s.K
+            k_r = bm_r.K
+            k_u = bm_u.K
         else:
             w_s = bm_s
             w_r = bm_r
@@ -214,6 +220,9 @@ def conditional_statistics(
             h_s = None
             h_r = None
             h_u = None
+            k_s = None
+            k_r = None
+            k_u = None
 
         # Check w_r|(w_s, w_u)
         w_mean1 = w_s + (w_u - w_s) * ((r - s) / (u - s))
@@ -225,24 +234,126 @@ def conditional_statistics(
         # multiple-testing correction.
         pvals_w1.append(pval_w1)
 
-        if levy_area == "space-time" and use_levy:
+        s = s - t0
+        r = r - t0
+        u = u - t0
+        su = u - s
+        sr = r - s
+        ru = u - r
+        sr3 = jnp.power(sr, 3)
+        ru3 = jnp.power(ru, 3)
+        su3 = jnp.power(su, 3)
+        su2 = jnp.power(su, 2)
+        sr_ru_half = jnp.sqrt(sr * ru)
+        if levy_area == "space-time-time" and use_levy:
             assert h_s is not None
             assert h_r is not None
             assert h_u is not None
-            s = s - t0
-            r = r - t0
-            u = u - t0
-            su = u - s
-            sr = r - s
-            ru = u - r
-            d = math.sqrt(sr**3 + ru**3)
-            a = (1 / (2 * su * d)) * sr ** (7 / 2) * math.sqrt(ru)
-            b = (1 / (2 * su * d)) * ru ** (7 / 2) * math.sqrt(sr)
+            assert k_s is not None
+            assert k_r is not None
+            assert k_u is not None
+            su5 = jnp.power(su, 5)
+            sr2 = jnp.square(sr)
+            ru2 = jnp.square(ru)
+            bh_s = s * h_s
+            bh_r = r * h_r
+            bh_u = u * h_u
+            bk_s = s**2 * k_s
+            bk_r = r**2 * k_r
+            bk_u = u**2 * k_u
+            # u_bb_s := u * brownian bridge on [0,u] evaluated at s
+            u_bb_s = u * w_s - s * w_u
+
+            # Chen's relation for H
+            bh_su = bh_u - bh_s - 0.5 * u_bb_s
+
+            # Chen's relation for \bar{K}_{s,u} := (u-s)^2 * K_{s,u}
+            bk_su = (
+                bk_u
+                - bk_s
+                - su / 2 * bh_s
+                + s / 2 * bh_su
+                - ((u - 2 * s) / 12) * u_bb_s
+            )
+
+            # compute the mean of (W_sr, H_sr, K_sr) conditioned on
+            # (W_s, H_s, K_s, W_u, H_u, K_u)
+            bb_mean = (6 * sr * ru / su3) * bh_su + (
+                120 * sr * ru * (su / 2 - sr) / su5
+            ) * bk_su
+            tilde_w = (sr / su) * (w_u - w_s) + bb_mean
+            tilde_h = (sr2 / su3) * bh_su + (30 * sr2 * ru / su5) * bk_su
+            tilde_k = (sr3 / su5) * bk_su
+
+            tilde_y = jnp.stack([tilde_w, tilde_h, tilde_k], axis=0)
+
+            # now compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
+            # (W_s, H_s, K_s, W_u, H_u, K_u)
+            # note that the covariance matrix is independent of the values of
+            # (W_s, H_s, K_s, W_u, H_u, K_u), since those are already represented
+            # in the mean.
+            sr5 = jnp.power(sr, 5)
+
+            ww_cov = (sr * ru * ((sr - ru) ** 4 + 4 * (sr2 * ru2))) / su5
+            wh_cov = -(sr3 * ru * (sr2 - 3 * sr * ru + 6 * ru2)) / (2 * su5)
+            wk_cov = (sr**4 * ru * (sr - ru)) / (12 * su5)
+            hh_cov = sr / 12 * (1 - (sr3 * (sr2 + 2 * sr * ru + 16 * ru2)) / su5)
+            hk_cov = -(sr5 * ru) / (24 * su5)
+            kk_cov = sr / 720 * (1 - sr5 / su5)
+
+            cov = jnp.array(
+                [
+                    [ww_cov, wh_cov, wk_cov],
+                    [wh_cov, hh_cov, hk_cov],
+                    [wk_cov, hk_cov, kk_cov],
+                ]
+            )
+
+            # now compute the values of (W_sr, H_sr, K_sr), which are to be tested
+            # against the normal distribution N(mean, cov)
+            w_sr = w_r - w_s
+            r_bb_s = r * w_s - s * w_r
+            bh_sr = bh_r - bh_s - 0.5 * r_bb_s
+            h_sr = bh_sr / sr
+            bk_sr = (
+                bk_r
+                - bk_s
+                - 0.5 * (sr * bh_s - s * bh_sr)
+                - ((r - 2 * s) / 12) * r_bb_s
+            )
+            k_sr = bk_sr / sr2
+
+            y = jnp.stack([w_sr, h_sr, k_sr], axis=0)
+
+            # now we have to confirm that (w_centred, h_centred, k_centred) have
+            # zero mean and covariance matrix cov
+
+            hat_y = y - tilde_y
+            tilde_mean = jnp.mean(tilde_y, axis=1)
+            y_mean = jnp.mean(y, axis=1)
+            mean_diff = y_mean - tilde_mean
+            emp_cov = jnp.cov(hat_y)
+
+            mean_err = jnp.sum(jnp.abs(mean_diff))
+            cov_err = jnp.sum(jnp.abs(emp_cov - cov))
+            total_mean_err += mean_err / (len(ts) - 2)
+            total_cov_err += cov_err / (len(ts) - 2)
+
+        elif levy_area == "space-time" and use_levy:
+            assert h_s is not None
+            assert h_r is not None
+            assert h_u is not None
+            assert k_s is None
+            assert k_r is None
+            assert k_u is None
+            d = math.sqrt(sr3 + ru3)
+            a = (1 / (2 * su * d)) * sr3 * sr_ru_half
+            b = (1 / (2 * su * d)) * ru3 * sr_ru_half
             c = (1.0 / (math.sqrt(12) * d)) * sr ** (3 / 2) * ru ** (3 / 2)
             h_su = (1.0 / su) * (u * h_u - s * h_s - u / 2 * w_s + s / 2 * w_u)
 
             # Check w_r|(w_s, w_u, h_s, h_u)
-            w_mean2 = w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / (su**2)) * h_su
+            w_mean2 = w_s + (sr / su) * (w_u - w_s) + (6 * sr * ru / (su2)) * h_su
             w_std2 = 2 * (a + b) / su
             normalised_w2 = (w_r - w_mean2) / w_std2
             _, pval_w2 = stats.kstest(normalised_w2, stats.norm.cdf)
@@ -251,7 +362,7 @@ def conditional_statistics(
             # Check h_r|(w_s, w_u, h_s, h_u)
             h_mean = (
                 (s / r) * h_s
-                + (sr**3 / (r * su**2)) * h_su
+                + (sr3 / (r * su2)) * h_su
                 + 0.5 * w_s
                 - s / (2 * r) * w_mean2
             )
@@ -260,13 +371,19 @@ def conditional_statistics(
             normalised_hh = (h_r - h_mean) / h_std
             _, pval_h = stats.kstest(normalised_hh, stats.norm.cdf)
             pvals_h.append(pval_h)
-    return jnp.array(pvals_w1), jnp.array(pvals_w2), jnp.array(pvals_h)
+    return (
+        jnp.array(pvals_w1),
+        jnp.array(pvals_w2),
+        jnp.array(pvals_h),
+        total_mean_err,
+        total_cov_err,
+    )
 
 
-@pytest.mark.parametrize("levy_area", ["", "space-time"])
-@pytest.mark.parametrize("use_levy", (False, True))
+@pytest.mark.parametrize("levy_area", ["", "space-time", "space-time-time"])
+@pytest.mark.parametrize("use_levy", (True, False))
 def test_conditional_statistics(levy_area, use_levy):
-    pvals_w1, pvals_w2, pvals_h = conditional_statistics(
+    pvals_w1, pvals_w2, pvals_h, mean_err, cov_err = conditional_statistics(
         levy_area,
         use_levy,
         tol=2**-10,
@@ -275,7 +392,11 @@ def test_conditional_statistics(levy_area, use_levy):
         min_num_points=90,
     )
     assert jnp.all(pvals_w1 > 0.1 / pvals_w1.shape[0])
-    if levy_area == "space-time" and use_levy:
+
+    if levy_area == "space-time-time" and use_levy:
+        assert mean_err < 0.005
+        assert cov_err < 0.001
+    elif levy_area == "space-time" and use_levy:
         assert jnp.all(pvals_w2 > 0.1 / pvals_w2.shape[0])
         assert jnp.all(pvals_h > 0.1 / pvals_h.shape[0])
     else:
@@ -294,7 +415,7 @@ def _levy_area_spline():
 @pytest.mark.parametrize("levy_area,spline", _levy_area_spline())
 @pytest.mark.parametrize("use_levy", (False, True))
 def test_spline(levy_area, use_levy, spline):
-    pvals_w1, pvals_w2, pvals_h = conditional_statistics(
+    pvals_w1, pvals_w2, pvals_h, _, _ = conditional_statistics(
         levy_area,
         use_levy=use_levy,
         tol=2**-4,

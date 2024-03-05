@@ -8,12 +8,12 @@ from .srk import AbstractSRK, AdditiveNoiseCoefficients, StochasticButcherTablea
 
 cfs_w = AdditiveNoiseCoefficients(
     a=np.array([0.5]),
-    b=np.array([1.0]),
+    b=np.array(1.0),
 )
 
 cfs_hh = AdditiveNoiseCoefficients(
     a=np.array([1.0]),
-    b=np.array([0.0]),
+    b=np.array(0.0),
 )
 
 _tab = StochasticButcherTableau(
