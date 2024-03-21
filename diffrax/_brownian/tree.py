@@ -14,7 +14,6 @@ from jaxtyping import Array, Float, PRNGKeyArray, PyTree
 
 from .._custom_types import (
     AbstractBrownianIncrement,
-    AbstractSpaceTimeLevyArea,
     BoolScalarLike,
     BrownianIncrement,
     IntScalarLike,
@@ -174,7 +173,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
     t1: RealScalarLike
     tol: RealScalarLike
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[AbstractBrownianIncrement] = eqx.field(static=True)
+    levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]] = eqx.field(
+        static=True
+    )
     key: PyTree[PRNGKeyArray]
     _spline: _Spline = eqx.field(static=True)
 
@@ -186,7 +187,9 @@ class VirtualBrownianTree(AbstractBrownianPath):
         tol: RealScalarLike,
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
-        levy_area: type[AbstractBrownianIncrement] = AbstractBrownianIncrement,
+        levy_area: type[
+            Union[BrownianIncrement, SpaceTimeLevyArea]
+        ] = BrownianIncrement,
         _spline: _Spline = "sqrt",
     ):
         (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
@@ -284,17 +287,20 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t0 = jnp.zeros((), dtype)
         r = jnp.asarray(r, dtype)
 
-        if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
+        if self.levy_area is SpaceTimeLevyArea:
             state_key, init_key_w, init_key_la = jr.split(key, 3)
             bhh_1 = jr.normal(init_key_la, shape, dtype) / math.sqrt(12)
             bhh_0 = jnp.zeros_like(bhh_1)
             bhh = (bhh_0, bhh_1, bhh_1)
             bkk = None
 
-        else:
+        elif self.levy_area is BrownianIncrement:
             state_key, init_key_w = jr.split(key, 2)
             bhh = None
             bkk = None
+
+        else:
+            assert False
 
         w_0 = jnp.zeros(shape, dtype)
         w_1 = jr.normal(init_key_w, shape, dtype)
@@ -331,11 +337,13 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             _w = _split_interval(_cond, _w_stu, _w_inc)
             _bkk = None
-            if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
+            if self.levy_area is SpaceTimeLevyArea:
                 assert _bhh_stu is not None and _bhh_st_tu is not None
                 _bhh = _split_interval(_cond, _bhh_stu, _bhh_st_tu)
-            else:
+            elif self.levy_area is BrownianIncrement:
                 _bhh = None
+            else:
+                assert False
 
             return _State(
                 level=_level,
@@ -356,7 +364,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         ru = jax.nn.relu(su - sr)
 
         w_s, w_u, w_su = final_state.w_s_u_su
-        if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
+        if self.levy_area is SpaceTimeLevyArea:
             # This is based on Theorem 6.1.4 of Foster's thesis (see above).
 
             assert final_state.bhh_s_u_su is not None
@@ -395,7 +403,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             inverse_r = 1 / jnp.where(jnp.abs(r) < jnp.finfo(r).eps, jnp.inf, r)
             hh_r = inverse_r * bhh_r
 
-        elif issubclass(self.levy_area, AbstractBrownianIncrement):
+        elif self.levy_area is BrownianIncrement:
             w_mean = w_s + sr / su * w_su
             if self._spline == "sqrt":
                 z = jr.normal(final_state.key, shape, dtype)
@@ -464,7 +472,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         w_s, w_u, w_su = _state.w_s_u_su
 
-        if issubclass(self.levy_area, AbstractSpaceTimeLevyArea):
+        if self.levy_area is SpaceTimeLevyArea:
             assert _state.bhh_s_u_su is not None
             assert _state.bkk_s_u_su is None
             bhh_s, bhh_u, bhh_su = _state.bhh_s_u_su
@@ -495,7 +503,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bkk_stu = None
             bkk_st_tu = None
 
-        else:
+        elif self.levy_area is BrownianIncrement:
             assert _state.bhh_s_u_su is None
             assert _state.bkk_s_u_su is None
             mean = 0.5 * w_su
@@ -506,4 +514,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_t = w_s + w_st
             w_stu = (w_s, w_t, w_u)
             bhh_stu, bhh_st_tu, bkk_stu, bkk_st_tu = None, None, None, None
+
+        else:
+            assert False
+
         return t, w_stu, w_st_tu, keys, bhh_stu, bhh_st_tu, bkk_stu, bkk_st_tu

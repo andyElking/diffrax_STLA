@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import diffrax
 import equinox as eqx
@@ -115,7 +115,20 @@ def path_l2_dist(
 def get_minimal_la(solver):
     while isinstance(solver, diffrax.HalfSolver):
         solver = solver.solver
-    return getattr(solver, "minimal_levy_area", diffrax.AbstractBrownianIncrement)
+    return getattr(solver, "minimal_levy_area", diffrax.BrownianIncrement)
+
+
+#
+#
+# def abstract_la_to_la(abstract_la):
+#     if issubclass(abstract_la, diffrax.AbstractSpaceTimeTimeLevyArea):
+#         return diffrax.SpaceTimeTimeLevyArea
+#     elif issubclass(abstract_la, diffrax.AbstractSpaceTimeLevyArea):
+#         return diffrax.SpaceTimeLevyArea
+#     elif issubclass(abstract_la, diffrax.AbstractBrownianIncrement):
+#         return diffrax.BrownianIncrement
+#     else:
+#         raise ValueError(f"Unknown levy area {abstract_la}")
 
 
 @eqx.filter_jit
@@ -146,7 +159,7 @@ def _batch_sde_solve(
         shape=struct,
         tol=bm_tol,
         key=key,
-        levy_area=_levy_area,
+        levy_area=_levy_area,  # pyright: ignore
     )
     terms = get_terms(bm)
     if controller is None:
@@ -188,7 +201,7 @@ def sde_solver_strong_order(
     levy_area1 = get_minimal_la(solver)
     levy_area2 = get_minimal_la(ref_solver)
     # Stricter levy_area requirements inherit from less strict ones
-    levy_area = levy_area1 if issubclass(levy_area1, levy_area2) else levy_area2
+    levy_area = diffrax.resulting_levy_area(levy_area1, levy_area2)
 
     level_coarse, level_fine = levels
 
@@ -251,7 +264,7 @@ class SDE:
     def get_bm(
         self,
         bm_key: PRNGKeyArray,
-        levy_area: type[diffrax.AbstractBrownianIncrement],
+        levy_area: type[Union[diffrax.BrownianIncrement, diffrax.SpaceTimeLevyArea]],
         tol: float,
     ):
         shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())

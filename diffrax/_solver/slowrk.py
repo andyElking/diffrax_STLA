@@ -6,7 +6,7 @@ from .base import AbstractStratonovichSolver
 from .srk import (
     AbstractSRK,
     GeneralCoeffs,
-    SpaceTimeLATableau,
+    SpaceTimeLevyAreaTableau,
     StochasticButcherTableau,
 )
 
@@ -35,7 +35,7 @@ cfs_hh = GeneralCoeffs(
     b=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
 )
 
-cfs_bm = SpaceTimeLATableau[GeneralCoeffs](
+cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](
     coeffs_w=cfs_w,
     coeffs_hh=cfs_hh,
 )
@@ -63,6 +63,21 @@ class SlowRK(AbstractSRK, AbstractStratonovichSolver):
     Applied to SDEs with commutative noise, it converges strongly with order 1.5.
     Can be used for SDEs with non-commutative noise, but then it only converges
     strongly with order 0.5.
+
+     Based on equation $(6.2)$ from
+
+    ??? cite "Reference"
+
+        ```bibtex
+        @misc{foster2023high,
+          title={High order splitting methods for SDEs satisfying
+            a commutativity condition},
+          author={James Foster and Goncalo dos Reis and Calum Strange},
+          year={2023},
+          eprint={2210.17543},
+          archivePrefix={arXiv},
+          primaryClass={math.NA}
+        ```
 
     """
 

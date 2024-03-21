@@ -6,7 +6,7 @@ from .base import AbstractStratonovichSolver
 from .srk import (
     AbstractSRK,
     GeneralCoeffs,
-    SpaceTimeLATableau,
+    SpaceTimeLevyAreaTableau,
     StochasticButcherTableau,
 )
 
@@ -21,7 +21,7 @@ cfs_hh = GeneralCoeffs(
     b=np.array([0.0, 1.2, -1.2]),
 )
 
-cfs_bm = SpaceTimeLATableau[GeneralCoeffs](
+cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](
     coeffs_w=cfs_w,
     coeffs_hh=cfs_hh,
 )
@@ -40,9 +40,13 @@ class GeneralShARK(AbstractSRK, AbstractStratonovichSolver):
     r"""A generalised version of the ShARK method which now works for
     any SDE, not only those with additive noise.
     Applied to SDEs with additive noise, it still has strong order 1.5.
-    Uses three evaluations of the vector field per step.
+    Uses two evaluations of the drift vector field and three evaluations
+    of the diffusion vector field per step. For general SDEs, the strong
+    error is similar to that of three steps of Heun's method.
+    This is the recommended solver for general SDEs unless the noise vector filed is
+    commutative in the Lie bracket, in which case SlowRK is recommended.
 
-    Based on equation $(6.1)$ in
+    Based on equation $(6.1)$ from
 
     ??? cite "Reference"
 

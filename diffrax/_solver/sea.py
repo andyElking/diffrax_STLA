@@ -6,7 +6,7 @@ from .base import AbstractStratonovichSolver
 from .srk import (
     AbstractSRK,
     AdditiveCoeffs,
-    SpaceTimeLATableau,
+    SpaceTimeLevyAreaTableau,
     StochasticButcherTableau,
 )
 
@@ -21,7 +21,7 @@ cfs_hh = AdditiveCoeffs(
     b=np.array(0.0),
 )
 
-cfs_bm = SpaceTimeLATableau[AdditiveCoeffs](
+cfs_bm = SpaceTimeLevyAreaTableau[AdditiveCoeffs](
     coeffs_w=cfs_w,
     coeffs_hh=cfs_hh,
 )
@@ -37,12 +37,12 @@ _tab = StochasticButcherTableau(
 
 class SEA(AbstractSRK, AbstractStratonovichSolver):
     r"""Shifted Euler method for SDEs with additive noise.
-     It has a local error of $O(h^2)$ compared to
-     standard Euler-Maruyama, which has $O(h^{1.5})$.
-     Uses one evaluation of the vector field per step and
-     has order 1 for additive noise SDEs.
+     It has a local error of $O(h^2)$ compared to standard Euler-Maruyama,
+     which has $O(h^{1.5})$. They still have the same global order of $O(h)$
+     for additive noise SDEs, but SEA is better by a constant factor.
 
     Based on equation $(5.8)$ in
+
     ??? cite "Reference"
 
         ```bibtex

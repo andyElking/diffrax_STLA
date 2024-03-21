@@ -15,13 +15,14 @@ from jaxtyping import Array, Float, PyTree
 from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     AbstractBrownianIncrement,
-    AbstractSpaceTimeLevyArea,
-    AbstractSpaceTimeTimeLevyArea,
     BoolScalarLike,
+    BrownianIncrement,
     DenseInfo,
     FloatScalarLike,
     IntScalarLike,
     RealScalarLike,
+    SpaceTimeLevyArea,
+    SpaceTimeTimeLevyArea,
     VF,
     Y,
 )
@@ -133,7 +134,7 @@ class AbstractStochasticTableau(eqx.Module, Generic[COEFFS]):
             return None
 
     @property
-    def additive_noise(self):
+    def is_additive_noise(self):
         return isinstance(self.coeffs_w, AdditiveCoeffs)
 
     @property
@@ -194,7 +195,7 @@ class StochasticTableau(AbstractStochasticTableau[COEFFS]):
         return self.coeffs_w.check()
 
 
-class SpaceTimeLATableau(_AbstractSTLATableau[COEFFS]):
+class SpaceTimeLevyAreaTableau(_AbstractSTLATableau[COEFFS]):
     coeffs_w: COEFFS
     coeffs_hh: COEFFS
 
@@ -204,7 +205,7 @@ class SpaceTimeLATableau(_AbstractSTLATableau[COEFFS]):
         return w_num_stages
 
 
-class SpaceTimeTimeLATableau(_AbstractSTTLATableau[COEFFS]):
+class SpaceTimeTimeLevyAreaTableau(_AbstractSTTLATableau[COEFFS]):
     coeffs_w: COEFFS
     coeffs_hh: COEFFS
     coeffs_kk: COEFFS
@@ -220,10 +221,10 @@ class StochasticButcherTableau:
     """A Butcher Tableau for Stochastic Runge-Kutta methods."""
 
     # Only supports explicit SRK so far
-    c: np.ndarray
+    a: list[np.ndarray]
     b_sol: np.ndarray
     b_error: Optional[np.ndarray]
-    a: list[np.ndarray]
+    c: np.ndarray
 
     # Coefficients for the Brownian increment
     cfs_bm: AbstractStochasticTableau
@@ -234,8 +235,8 @@ class StochasticButcherTableau:
     ignore_stage_g: Optional[np.ndarray] = None
 
     @property
-    def additive_noise(self):
-        return self.cfs_bm.additive_noise
+    def is_additive_noise(self):
+        return self.cfs_bm.is_additive_noise
 
     def __post_init__(self):
         assert self.c.ndim == 1
@@ -252,7 +253,7 @@ class StochasticButcherTableau:
 
         assert self.cfs_bm.check() == self.b_sol.shape[0]
 
-        if self.b_error is not None and (not self.additive_noise):
+        if self.b_error is not None and (not self.is_additive_noise):
             assert self.cfs_bm.has_error_estimate
 
         if self.ignore_stage_f is not None:
@@ -265,7 +266,6 @@ StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
 
 Let `s` denote the number of stages of the solver.
 
-- `s`: The number of stages of the solver.
 - `a`: The lower triangle (without the diagonal) of the Butcher tableau. Should
     be a tuple of NumPy arrays, corresponding to the rows of this lower triangle. The
     first array should be of shape `(1,)`. Each subsequent array should
@@ -281,16 +281,24 @@ Let `s` denote the number of stages of the solver.
     Should be a NumPy array of shape `(s-1,)`, as the first stage has time increment 0.
 - `cfs_bm`: An instance of a subclass of `AbstractStochasticTableau` representing
     the coefficients for the Brownian increment and possibly its Levy areas.
+- `ignore_stage_f`: Optional. A NumPy array of length `s` of booleans. If `True` at
+    stage `j`, the vector field of the drift term will not be evaluated at stage `j`.
+- `ignore_stage_g`: Optional. A NumPy array of length `s` of booleans. If `True` at
+    stage `j`, the diffusion vector field will not be evaluated at stage `j`.
 """
 
 
 class AbstractSRK(AbstractSolver[_SolverState]):
     r"""A general Stochastic Runge-Kutta method.
 
-    The second term in the MultiTerm must be a `ControlTerm` with
-    `control=VirtualBrownianTree`. Depending on the Butcher tableau, the
-    `VirtualBrownianTree` may need to be initialised with 'levy_area="space-time"'
-    or 'levy_area="space-time-time"'.
+    This accepts `terms` of the form
+    `MultiTerm(ODETerm(drift), ControlTerm(diffusion, brownian_motion))`.
+     Depending on the solver, the brownian motion might need to generate
+    different types of Levy areas, specified by the `minimal_levy_area` attribute.
+
+    For example, the ShARK solver requires space-time Levy area, so it will have
+    `minimal_levy_area = AbstractSpaceTimeLevyArea` and the Brownian motion must
+    be initialised with `levy_area=SpaceTimeLevyArea`.
 
     Given the Stratonovich SDE
     $dy(t) = f(t, y(t)) dt + g(t, y(t)) \circ dw(t)$
@@ -310,8 +318,11 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     + H_n \Big(\sum_{i=1}^{j-1} a^H_{j,i} g_i \Big)$
 
     where $W_n = W_{t_n, t_{n+1}}$ is the increment of the Brownian motion and
-    $H_n = H_{t_n, t_{n+1}}$ is its corresponding space-time Lévy Area.
-    A similar term can also be added for the space-time-time Lévy area, K.
+    $H_n = H_{t_n, t_{n+1}}$ is its corresponding space-time Lévy Area, defined
+    as $H_{s,t} = \frac{1}{t-s} \int_s^t (W_{s,r} - \frac{r-s}{t-s} W_{s,t}) \, dr$.
+    A similar term can also be added for the space-time-time Lévy area, K,
+    defined as $K_{s,t} = \frac{1}{(t-s)^2} \int_s^t (W_{s,r} - \frac{r-s}{t-s}
+     W_{s,t}) \left( \frac{t+s}{2} - r \right) \, dr$.
 
     In the special case, when the SDE has additive noise, i.e. when g is
     independent of y (but can still depend on t), then the SDE can be written as
@@ -326,7 +337,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     \, (a^W_j W_n + a^H_j H_n)$
 
     When g depends on t, we need to add a correction term to $y_{n+1}$ of
-    the form $(g(t_{n+1}) - g(t_n)) \, (1/2 W_n - H_n)$.
+    the form $(g(t_{n+1}) - g(t_n)) \, (\frac{1}{2} W_n - H_n)$.
 
     The coefficients are provided in the `StochasticButcherTableau`.
     In particular the coefficients b^W, and a^W are provided in `tableau.cfs_bm`,
@@ -349,11 +360,11 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             self.tableau.cfs_bm,
             _AbstractSTTLATableau,
         ):
-            return AbstractSpaceTimeTimeLevyArea
+            return SpaceTimeTimeLevyArea
         elif isinstance(self.tableau.cfs_bm, _AbstractSTLATableau):
-            return AbstractSpaceTimeLevyArea
+            return SpaceTimeLevyArea
         else:
-            return AbstractBrownianIncrement
+            return BrownianIncrement
 
     def init(
         self,
@@ -377,7 +388,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                 f"Got {path.levy_area.__name__}."
             )
 
-        if self.tableau.additive_noise:
+        if self.tableau.is_additive_noise:
             # check that the vector field of the diffusion term does not depend on y
             ones_like_y0 = jtu.tree_map(jnp.ones_like, y0)
             _, y_sigma = eqx.filter_jvp(
@@ -463,12 +474,12 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
         levy_areas = []
         if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
-            assert isinstance(bm_inc, AbstractSpaceTimeLevyArea)
+            assert isinstance(bm_inc, SpaceTimeLevyArea)
             levy_areas.append(bm_inc.H)
             b_levy_list.append(jnp.asarray(cfs_bm.b_hh, dtype=dtype))
 
             if isinstance(cfs_bm, _AbstractSTTLATableau):  # space-time-time Levy area
-                assert isinstance(bm_inc, AbstractSpaceTimeTimeLevyArea)
+                assert isinstance(bm_inc, SpaceTimeTimeLevyArea)
                 levy_areas.append(bm_inc.K)
                 b_levy_list.append(jnp.asarray(cfs_bm.b_kk, dtype=dtype))
 
@@ -487,7 +498,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # where levy is either H or K (if those entries exist)
         # this is similar to h_kfs or w_kgs, but for the Levy area(s)
 
-        if cfs_bm.additive_noise:  # additive noise
+        if cfs_bm.is_additive_noise:  # additive noise
             # compute g once since it is constant
 
             @jax.vmap
@@ -502,12 +513,12 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             a_w = jnp.asarray(cfs_bm.a_w, dtype=dtype)
 
             if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
-                assert isinstance(bm_inc, AbstractSpaceTimeLevyArea)
+                assert isinstance(bm_inc, SpaceTimeLevyArea)
                 levylist_kgs.append(diffusion.prod(g0, bm_inc.H))
                 a_levy.append(jnp.asarray(cfs_bm.a_hh, dtype=dtype))
 
             if isinstance(cfs_bm, _AbstractSTTLATableau):  # space-time-time Levy area
-                assert isinstance(bm_inc, AbstractSpaceTimeTimeLevyArea)
+                assert isinstance(bm_inc, SpaceTimeTimeLevyArea)
                 levylist_kgs.append(diffusion.prod(g0, bm_inc.K))
                 a_levy.append(jnp.asarray(cfs_bm.a_kk, dtype=dtype))
 
@@ -566,7 +577,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # same for aK_j, but for space-time-time Lévy area K.
             _h_kfs, _w_kgs, _levylist_kgs = _carry
 
-            if cfs_bm.additive_noise:  # additive noise
+            if cfs_bm.is_additive_noise:  # additive noise
                 # carry = (_h_kfs, None, None) where
                 # _h_kfs = Array[h_kf_1, h_kf_2, ..., hk_{j-1}, 0, 0, ..., 0]
                 # h_kf_i = drift.vf_prod(t0 + c_i*h, y_i, args, h)
@@ -619,7 +630,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                     _h_kfs,
                 )
 
-            if cfs_bm.additive_noise:  # additive noise
+            if cfs_bm.is_additive_noise:  # additive noise
                 return (_h_kfs, None, None), None
 
             def compute_and_insert_kg_j(_w_kgs_in, _levylist_kgs_in):
@@ -657,7 +668,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             checkpoints="all",
         )
 
-        if cfs_bm.additive_noise:
+        if cfs_bm.is_additive_noise:
             # output of lax.scan is ((num_stages, _h_kfs), None)
             (h_kfs, _, _), _ = scan_out
             diffusion_result = jtu.tree_map(
@@ -670,7 +681,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # we still need a correction term in case the diffusion vector field
             # g depends on t. This term is of the form $(g1 - g0) * (0.5*W_n - H_n)$.
             if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
-                assert isinstance(bm_inc, AbstractSpaceTimeLevyArea)
+                assert isinstance(bm_inc, SpaceTimeLevyArea)
                 time_var_contr = (bm_inc.W**ω - 2.0 * bm_inc.H**ω).ω
                 time_var_term = diffusion.prod(g_delta, time_var_contr)
             else:

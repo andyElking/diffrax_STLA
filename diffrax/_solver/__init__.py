@@ -46,5 +46,8 @@ from .sil3 import Sil3 as Sil3
 from .slowrk import SlowRK as SlowRK
 from .spark import SPaRK as SPaRK
 from .sra1 import SRA1 as SRA1
-from .srk import AbstractSRK as AbstractSRK
+from .srk import (
+    AbstractSRK as AbstractSRK,
+    StochasticButcherTableau as StochasticButcherTableau,
+)
 from .tsit5 import Tsit5 as Tsit5

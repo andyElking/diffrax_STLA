@@ -6,7 +6,7 @@ from .base import AbstractStratonovichSolver
 from .srk import (
     AbstractSRK,
     AdditiveCoeffs,
-    SpaceTimeLATableau,
+    SpaceTimeLevyAreaTableau,
     StochasticButcherTableau,
 )
 
@@ -21,7 +21,7 @@ cfs_hh = AdditiveCoeffs(
     b=np.array(0.0),
 )
 
-cfs_bm = SpaceTimeLATableau[AdditiveCoeffs](
+cfs_bm = SpaceTimeLevyAreaTableau[AdditiveCoeffs](
     coeffs_w=cfs_w,
     coeffs_hh=cfs_hh,
 )
@@ -37,8 +37,9 @@ _tab = StochasticButcherTableau(
 
 class ShARK(AbstractSRK, AbstractStratonovichSolver):
     r"""Shifted Additive-noise Runge-Kutta method for SDEs by James Foster.
-    Applied to SDEs with additive noise, it has strong order 1.5.
-    Uses two evaluations of the vector field per step.
+    This is the recommended choice for SDEs with additive noise, and can only
+    be used for such SDEs.
+    Uses two evaluations of the vector field per step and has strong order 1.5.
 
     Based on equation $(6.1)$ in
 

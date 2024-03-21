@@ -16,8 +16,11 @@ from ._brownian import (
 from ._custom_types import (
     AbstractBrownianIncrement as AbstractBrownianIncrement,
     AbstractSpaceTimeLevyArea as AbstractSpaceTimeLevyArea,
+    AbstractSpaceTimeTimeLevyArea as AbstractSpaceTimeTimeLevyArea,
     BrownianIncrement as BrownianIncrement,
+    resulting_levy_area as resulting_levy_area,
     SpaceTimeLevyArea as SpaceTimeLevyArea,
+    SpaceTimeTimeLevyArea as SpaceTimeTimeLevyArea,
 )
 from ._event import (
     AbstractDiscreteTerminatingEvent as AbstractDiscreteTerminatingEvent,
@@ -103,6 +106,7 @@ from ._solver import (
     SlowRK as SlowRK,
     SPaRK as SPaRK,
     SRA1 as SRA1,
+    StochasticButcherTableau as StochasticButcherTableau,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,
 )

@@ -6,7 +6,7 @@ from .base import AbstractStratonovichSolver
 from .srk import (
     AbstractSRK,
     AdditiveCoeffs,
-    SpaceTimeLATableau,
+    SpaceTimeLevyAreaTableau,
     StochasticButcherTableau,
 )
 
@@ -21,7 +21,7 @@ cfs_hh = AdditiveCoeffs(
     b=np.array(0.0),
 )
 
-cfs_bm = SpaceTimeLATableau[AdditiveCoeffs](
+cfs_bm = SpaceTimeLevyAreaTableau[AdditiveCoeffs](
     coeffs_w=cfs_w,
     coeffs_hh=cfs_hh,
 )

@@ -12,7 +12,6 @@ from jaxtyping import Array, PRNGKeyArray, PyTree
 
 from .._custom_types import (
     AbstractBrownianIncrement,
-    AbstractSpaceTimeLevyArea,
     BrownianIncrement,
     levy_tree_transpose,
     RealScalarLike,
@@ -49,14 +48,16 @@ class UnsafeBrownianPath(AbstractBrownianPath):
     """
 
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[AbstractBrownianIncrement] = eqx.field(static=True)
+    levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]] = eqx.field(
+        static=True
+    )
     key: PRNGKeyArray
 
     def __init__(
         self,
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
-        levy_area: type[AbstractBrownianIncrement],
+        levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]],
     ):
         self.shape = (
             jax.ShapeDtypeStruct(shape, lxi.default_floating_dtype())
@@ -124,19 +125,19 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         t1: RealScalarLike,
         key,
         shape: jax.ShapeDtypeStruct,
-        levy_area: type[AbstractBrownianIncrement],
+        levy_area: type[Union[BrownianIncrement, SpaceTimeLevyArea]],
         use_levy: bool,
     ):
         w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
         w = jr.normal(key, shape.shape, shape.dtype) * w_std
         dt = jnp.asarray(t1 - t0, dtype=shape.dtype)
 
-        if issubclass(levy_area, AbstractSpaceTimeLevyArea):
+        if levy_area is SpaceTimeLevyArea:
             key, key_hh = jr.split(key, 2)
             hh_std = w_std / math.sqrt(12)
             hh = jr.normal(key_hh, shape.shape, shape.dtype) * hh_std
             levy_val = SpaceTimeLevyArea(dt=dt, W=w, H=hh)
-        elif issubclass(levy_area, AbstractBrownianIncrement):
+        elif levy_area is BrownianIncrement:
             levy_val = BrownianIncrement(dt=dt, W=w)
         else:
             assert False

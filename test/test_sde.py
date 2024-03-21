@@ -149,7 +149,7 @@ def test_sde_strong_limit(
     contr_fine = diffrax.StepTo(ts=ts_fine)
     contr_coarse = diffrax.StepTo(ts=ts_coarse)
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**6 + 1, endpoint=True))
-    levy_area = diffrax.AbstractSpaceTimeLevyArea  # must be common for all solvers
+    levy_area = diffrax.SpaceTimeLevyArea  # must be common for all solvers
 
     if solutions[sol_type][noise] is None:
         correct_sol, _ = simple_batch_sde_solve(
@@ -212,7 +212,7 @@ def test_sde_solver_shape(shape, solver_ctr):
     struct = jax.ShapeDtypeStruct((3,), dtype)
     bm_shape = jtu.tree_map(lambda _: struct, pytree)
     bm = diffrax.VirtualBrownianTree(
-        t0, t1, 0.1, bm_shape, bmkey, diffrax.AbstractSpaceTimeLevyArea
+        t0, t1, 0.1, bm_shape, bmkey, diffrax.SpaceTimeLevyArea
     )
     terms = MultiTerm(ODETerm(dict_drift), ControlTerm(dict_diffusion, bm))
     solution = diffrax.diffeqsolve(

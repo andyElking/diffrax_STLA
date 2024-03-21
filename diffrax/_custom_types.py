@@ -84,6 +84,36 @@ class SpaceTimeTimeLevyArea(AbstractSpaceTimeTimeLevyArea):
     K: PyTree[Array]
 
 
+def resulting_levy_area(
+    levy_area1: type[AbstractBrownianIncrement],
+    levy_area2: type[AbstractBrownianIncrement],
+) -> type[AbstractBrownianIncrement]:
+    """A helper that returns the stricter Levy area.
+
+    **Arguments:**
+
+    - `levy_area1`: The first Levy area type.
+    - `levy_area2`: The second Levy area type.
+
+    **Returns:**
+    `BrownianIncrement`, `SpaceTimeLevyArea`, or `SpaceTimeTimeLevyArea`.
+    """
+    if issubclass(levy_area1, AbstractSpaceTimeTimeLevyArea) or issubclass(
+        levy_area2, AbstractSpaceTimeTimeLevyArea
+    ):
+        return SpaceTimeTimeLevyArea
+    elif issubclass(levy_area1, AbstractSpaceTimeLevyArea) or issubclass(
+        levy_area2, AbstractSpaceTimeLevyArea
+    ):
+        return SpaceTimeLevyArea
+    elif issubclass(levy_area1, AbstractBrownianIncrement) or issubclass(
+        levy_area2, AbstractBrownianIncrement
+    ):
+        return BrownianIncrement
+    else:
+        raise ValueError("Invalid levy area types.")
+
+
 def levy_tree_transpose(
     tree_shape, tree: PyTree[AbstractBrownianIncrement]
 ) -> AbstractBrownianIncrement:
