@@ -140,9 +140,12 @@ def _term_compatible(
                 if not vf_type_compatible:
                     raise ValueError
 
-                if isinstance(control_type_expected, type) and issubclass(
-                    control_type_expected, AbstractBrownianIncrement
-                ):
+                try:
+                    flag = issubclass(control_type_expected, AbstractBrownianIncrement)
+                except TypeError:
+                    flag = False
+
+                if flag:
                     contr = functools.partial(term.contr, use_levy=True)
                 else:
                     contr = term.contr
