@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import ClassVar, Generic, Optional, TYPE_CHECKING, TypeVar, Union
+from typing import Any, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 from typing_extensions import TypeAlias
 
 import equinox as eqx
@@ -15,8 +15,9 @@ from jaxtyping import Array, Float, PyTree
 from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     AbstractBrownianIncrement,
+    AbstractSpaceTimeLevyArea,
+    AbstractSpaceTimeTimeLevyArea,
     BoolScalarLike,
-    BrownianIncrement,
     DenseInfo,
     FloatScalarLike,
     IntScalarLike,
@@ -28,7 +29,7 @@ from .._custom_types import (
 )
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
-from .._term import AbstractTerm, MultiTerm, ODETerm
+from .._term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
 from .base import AbstractSolver
 
 
@@ -344,7 +345,6 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     as well as b^H, a^H, b^K, and a^K if needed.
     """
 
-    term_structure: ClassVar = MultiTerm[tuple[ODETerm, AbstractTerm]]
     interpolation_cls = LocalLinearInterpolation
     tableau: AbstractClassVar[StochasticButcherTableau]
 
@@ -360,15 +360,19 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             self.tableau.cfs_bm,
             _AbstractSTTLATableau,
         ):
-            return SpaceTimeTimeLevyArea
+            return AbstractSpaceTimeTimeLevyArea
         elif isinstance(self.tableau.cfs_bm, _AbstractSTLATableau):
-            return SpaceTimeLevyArea
+            return AbstractSpaceTimeLevyArea
         else:
-            return BrownianIncrement
+            return AbstractBrownianIncrement
+
+    @property
+    def term_structure(self):
+        return MultiTerm[tuple[ODETerm, ControlTerm[Any, self.minimal_levy_area]]]
 
     def init(
         self,
-        terms: term_structure,
+        terms: MultiTerm[tuple[ODETerm, ControlTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         t1: RealScalarLike,
         y0: Y,
@@ -412,7 +416,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     def step(
         self,
-        terms: term_structure,
+        terms: MultiTerm[tuple[ODETerm, ControlTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         t1: RealScalarLike,
         y0: Y,
@@ -463,7 +467,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             f"The diffusion term should be controlled by a Brownian path,"
             f" initialised with"
             f"`levy_area='{self.minimal_levy_area.__name__}'` or a subclass of it."
-            f"Got {bm_inc.__name__}."
+            f"Got {bm_inc.__class__.__name__}."
         )
         w = bm_inc.W
 

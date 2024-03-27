@@ -118,17 +118,15 @@ def get_minimal_la(solver):
     return getattr(solver, "minimal_levy_area", diffrax.BrownianIncrement)
 
 
-#
-#
-# def abstract_la_to_la(abstract_la):
-#     if issubclass(abstract_la, diffrax.AbstractSpaceTimeTimeLevyArea):
-#         return diffrax.SpaceTimeTimeLevyArea
-#     elif issubclass(abstract_la, diffrax.AbstractSpaceTimeLevyArea):
-#         return diffrax.SpaceTimeLevyArea
-#     elif issubclass(abstract_la, diffrax.AbstractBrownianIncrement):
-#         return diffrax.BrownianIncrement
-#     else:
-#         raise ValueError(f"Unknown levy area {abstract_la}")
+def abstract_la_to_la(abstract_la):
+    if issubclass(abstract_la, diffrax.AbstractSpaceTimeTimeLevyArea):
+        return diffrax.SpaceTimeTimeLevyArea
+    elif issubclass(abstract_la, diffrax.AbstractSpaceTimeLevyArea):
+        return diffrax.SpaceTimeLevyArea
+    elif issubclass(abstract_la, diffrax.AbstractBrownianIncrement):
+        return diffrax.BrownianIncrement
+    else:
+        raise ValueError(f"Unknown levy area {abstract_la}")
 
 
 @eqx.filter_jit
@@ -150,7 +148,8 @@ def _batch_sde_solve(
     bm_tol: float,
     saveat: diffrax.SaveAt,
 ):
-    _levy_area = get_minimal_la(solver) if levy_area is None else levy_area
+    abstract_levy_area = get_minimal_la(solver) if levy_area is None else levy_area
+    concrete_la = abstract_la_to_la(abstract_levy_area)
     dtype = jnp.result_type(*jtu.tree_leaves(y0))
     struct = jax.ShapeDtypeStruct(w_shape, dtype)
     bm = diffrax.VirtualBrownianTree(
@@ -159,7 +158,7 @@ def _batch_sde_solve(
         shape=struct,
         tol=bm_tol,
         key=key,
-        levy_area=_levy_area,  # pyright: ignore
+        levy_area=concrete_la,  # pyright: ignore
     )
     terms = get_terms(bm)
     if controller is None:
