@@ -178,8 +178,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
     )
     key: PyTree[PRNGKeyArray]
     _spline: _Spline = eqx.field(static=True)
+    _w_t1: Optional[PyTree[Array]]
+    _hh_t1: Optional[PyTree[Array]]
 
-    @eqxi.doc_remove_args("_spline")
+    @eqxi.doc_remove_args("_spline", "_w_t1", "_hh_t1")
     def __init__(
         self,
         t0: RealScalarLike,
@@ -191,6 +193,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             Union[BrownianIncrement, SpaceTimeLevyArea]
         ] = BrownianIncrement,
         _spline: _Spline = "sqrt",
+        _w_t1: Optional[PyTree[Array]] = None,
+        _hh_t1: Optional[PyTree[Array]] = None,
     ):
         (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
         self.t0 = t0  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -213,6 +217,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 "VirtualBrownianTree dtypes all have to be floating-point."
             )
         self.key = split_by_tree(key, self.shape)
+        self._w_t1 = _w_t1
+        self._hh_t1 = _hh_t1
 
     def _denormalise_bm_inc(self, x: _BrownianReturn) -> _BrownianReturn:
         # Rescaling back from [0, 1] to the original interval [t0, t1].
@@ -271,14 +277,34 @@ class VirtualBrownianTree(AbstractBrownianPath):
             (r < 0) | (r > 1),
             "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
         )
-        map_func = lambda key, shape: self._evaluate_leaf(key, r, shape)
-        return jtu.tree_map(map_func, self.key, self.shape)
+        if self._w_t1 is not None and self._hh_t1 is not None:
+            map_func = lambda key, shape, w1, hh1: self._evaluate_leaf(
+                key, r, shape, _w_t1=w1, _hh_t1=hh1
+            )
+            return jtu.tree_map(map_func, self.key, self.shape, self._w_t1, self._hh_t1)
+        elif self._w_t1 is not None:
+            map_func = lambda key, shape, w1: self._evaluate_leaf(
+                key, r, shape, _w_t1=w1, _hh_t1=None
+            )
+            return jtu.tree_map(map_func, self.key, self.shape, self._w_t1)
+        elif self._hh_t1 is not None:
+            map_func = lambda key, shape, hh1: self._evaluate_leaf(
+                key, r, shape, _w_t1=None, _hh_t1=hh1
+            )
+            return jtu.tree_map(map_func, self.key, self.shape, self._hh_t1)
+        else:
+            map_func = lambda key, shape: self._evaluate_leaf(
+                key, r, shape, _w_t1=None, _hh_t1=None
+            )
+            return jtu.tree_map(map_func, self.key, self.shape)
 
     def _evaluate_leaf(
         self,
         key,
         r: RealScalarLike,
         struct: jax.ShapeDtypeStruct,
+        _w_t1: Optional[Array],
+        _hh_t1: Optional[Array],
     ) -> Union[
         tuple[RealScalarLike, Array], tuple[RealScalarLike, Array, Array, Array]
     ]:
@@ -289,7 +315,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
         if self.levy_area is SpaceTimeLevyArea:
             state_key, init_key_w, init_key_la = jr.split(key, 3)
-            bhh_1 = jr.normal(init_key_la, shape, dtype) / math.sqrt(12)
+            if _hh_t1 is None:
+                bhh_1 = jr.normal(init_key_la, shape, dtype) / math.sqrt(12)
+            else:
+                bhh_1 = jnp.array(_hh_t1, dtype=dtype) / jnp.sqrt(self.t1 - self.t0)
+                assert bhh_1.shape == shape
             bhh_0 = jnp.zeros_like(bhh_1)
             bhh = (bhh_0, bhh_1, bhh_1)
             bkk = None
@@ -303,7 +333,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
             assert False
 
         w_0 = jnp.zeros(shape, dtype)
-        w_1 = jr.normal(init_key_w, shape, dtype)
+        if _w_t1 is None:
+            w_1 = jr.normal(init_key_w, shape, dtype)
+        else:
+            w_1 = jnp.array(_w_t1, dtype=dtype) / jnp.sqrt(self.t1 - self.t0)
+            assert w_1.shape == shape
         w = (w_0, w_1, w_1)
 
         init_state = _State(

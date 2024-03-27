@@ -131,7 +131,23 @@ def _abstract_la_to_la(abstract_la):
 
 @eqx.filter_jit
 @eqx.filter_vmap(
-    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None)
+    in_axes=(
+        0,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
 )
 def _batch_sde_solve(
     key: PRNGKeyArray,
@@ -147,6 +163,8 @@ def _batch_sde_solve(
     controller: Optional[diffrax.AbstractStepSizeController],
     bm_tol: float,
     saveat: diffrax.SaveAt,
+    _w_t1: Optional[PyTree[Array]] = None,
+    _hh_t1: Optional[PyTree[Array]] = None,
 ):
     abstract_levy_area = _get_minimal_la(solver) if levy_area is None else levy_area
     concrete_la = _abstract_la_to_la(abstract_levy_area)
@@ -159,6 +177,8 @@ def _batch_sde_solve(
         tol=bm_tol,
         key=key,
         levy_area=concrete_la,  # pyright: ignore
+        _w_t1=_w_t1,
+        _hh_t1=_hh_t1,
     )
     terms = get_terms(bm)
     if controller is None:
@@ -333,7 +353,16 @@ def simple_sde_order(
 
 
 def simple_batch_sde_solve(
-    keys, sde: SDE, solver, levy_area, dt0, controller, bm_tol, saveat
+    keys,
+    sde: SDE,
+    solver,
+    levy_area,
+    dt0,
+    controller,
+    bm_tol,
+    saveat,
+    _w_t1: Optional[PyTree[Array]] = None,
+    _hh_t1: Optional[PyTree[Array]] = None,
 ):
     return _batch_sde_solve(
         keys,
@@ -349,6 +378,8 @@ def simple_batch_sde_solve(
         controller,
         bm_tol,
         saveat,
+        _w_t1=_w_t1,
+        _hh_t1=_hh_t1,
     )
 
 
