@@ -56,6 +56,8 @@ class AbstractSolver(eqx.Module, Generic[_SolverState], **_set_metaclass):
     structure of `terms` in `diffeqsolve(terms, ...)`.
     """
 
+    # Any keyword arguments needed in `_term_compatible` in `_integrate.py`.
+    term_compatible_contr_kwargs = dict()
     # What PyTree structure `terms` should have when used with this solver.
     term_structure: AbstractClassVar[PyTree[Type[AbstractTerm]]]
     # How to interpolate the solution in between steps.

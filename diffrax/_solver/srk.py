@@ -294,12 +294,12 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     This accepts `terms` of the form
     `MultiTerm(ODETerm(drift), ControlTerm(diffusion, brownian_motion))`.
-     Depending on the solver, the brownian motion might need to generate
+     Depending on the solver, the Brownian motion might need to generate
     different types of Levy areas, specified by the `minimal_levy_area` attribute.
 
-    For example, the ShARK solver requires space-time Levy area, so it will have
-    `minimal_levy_area = AbstractSpaceTimeLevyArea` and the Brownian motion must
-    be initialised with `levy_area=SpaceTimeLevyArea`.
+    For example, the [`diffrax.ShARK`][] solver requires space-time Levy area, so
+    it will have `minimal_levy_area = AbstractSpaceTimeLevyArea` and the Brownian
+    motion must be initialised with `levy_area=SpaceTimeLevyArea`.
 
     Given the Stratonovich SDE
     $dy(t) = f(t, y(t)) dt + g(t, y(t)) \circ dw(t)$
@@ -340,12 +340,13 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     When g depends on t, we need to add a correction term to $y_{n+1}$ of
     the form $(g(t_{n+1}) - g(t_n)) \, (\frac{1}{2} W_n - H_n)$.
 
-    The coefficients are provided in the `StochasticButcherTableau`.
+    The coefficients are provided in the [`diffrax.StochasticButcherTableau`][].
     In particular the coefficients b^W, and a^W are provided in `tableau.cfs_bm`,
     as well as b^H, a^H, b^K, and a^K if needed.
     """
 
     interpolation_cls = LocalLinearInterpolation
+    term_compatible_contr_kwargs = dict(use_levy=True)
     tableau: AbstractClassVar[StochasticButcherTableau]
 
     # Indicates the type of Levy area used by the solver.

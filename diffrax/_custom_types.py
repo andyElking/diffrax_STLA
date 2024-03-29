@@ -96,6 +96,7 @@ def resulting_levy_area(
     - `levy_area2`: The second Levy area type.
 
     **Returns:**
+
     `BrownianIncrement`, `SpaceTimeLevyArea`, or `SpaceTimeTimeLevyArea`.
     """
     if issubclass(levy_area1, AbstractSpaceTimeTimeLevyArea) or issubclass(
