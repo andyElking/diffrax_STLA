@@ -16,7 +16,9 @@ from ._misc import adjoint_rms_seminorm
 from ._saveat import SubSaveAt
 from ._solver import (
     AbstractImplicitSolver,
+    AbstractItoSolver,
     AbstractSRK,
+    AbstractStratonovichSolver,
     Dopri5,
     Dopri8,
     GeneralShARK,
@@ -381,11 +383,15 @@ def _backsolve_rms_norm(adjoint):
 
 @citation_rules.append
 def _explicit_solver(solver, terms=None):
-    if (
-        not isinstance(solver, AbstractImplicitSolver)
-        and not is_sde(terms)
-        and not issubclass(type(solver), AbstractSRK)
-    ):
+    if not isinstance(
+        solver,
+        (
+            AbstractImplicitSolver,
+            AbstractSRK,
+            AbstractItoSolver,
+            AbstractStratonovichSolver,
+        ),
+    ) and not is_sde(terms):
         return r"""
 % You are using an explicit solver, and may wish to cite the standard textbook:
 @book{hairer2008solving-i,
