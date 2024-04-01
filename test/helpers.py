@@ -112,13 +112,13 @@ def path_l2_dist(
     return dist
 
 
-def get_minimal_la(solver):
+def _get_minimal_la(solver):
     while isinstance(solver, diffrax.HalfSolver):
         solver = solver.solver
     return getattr(solver, "minimal_levy_area", diffrax.BrownianIncrement)
 
 
-def abstract_la_to_la(abstract_la):
+def _abstract_la_to_la(abstract_la):
     if issubclass(abstract_la, diffrax.AbstractSpaceTimeTimeLevyArea):
         return diffrax.SpaceTimeTimeLevyArea
     elif issubclass(abstract_la, diffrax.AbstractSpaceTimeLevyArea):
@@ -148,8 +148,8 @@ def _batch_sde_solve(
     bm_tol: float,
     saveat: diffrax.SaveAt,
 ):
-    abstract_levy_area = get_minimal_la(solver) if levy_area is None else levy_area
-    concrete_la = abstract_la_to_la(abstract_levy_area)
+    abstract_levy_area = _get_minimal_la(solver) if levy_area is None else levy_area
+    concrete_la = _abstract_la_to_la(abstract_levy_area)
     dtype = jnp.result_type(*jtu.tree_leaves(y0))
     struct = jax.ShapeDtypeStruct(w_shape, dtype)
     bm = diffrax.VirtualBrownianTree(
@@ -178,6 +178,37 @@ def _batch_sde_solve(
     return sol.ys, sol.stats["num_accepted_steps"]
 
 
+def _resulting_levy_area(
+    levy_area1: type[diffrax.AbstractBrownianIncrement],
+    levy_area2: type[diffrax.AbstractBrownianIncrement],
+) -> type[diffrax.AbstractBrownianIncrement]:
+    """A helper that returns the stricter Levy area.
+
+    **Arguments:**
+
+    - `levy_area1`: The first Levy area type.
+    - `levy_area2`: The second Levy area type.
+
+    **Returns:**
+
+    `BrownianIncrement`, `SpaceTimeLevyArea`, or `SpaceTimeTimeLevyArea`.
+    """
+    if issubclass(levy_area1, diffrax.AbstractSpaceTimeTimeLevyArea) or issubclass(
+        levy_area2, diffrax.AbstractSpaceTimeTimeLevyArea
+    ):
+        return diffrax.SpaceTimeTimeLevyArea
+    elif issubclass(levy_area1, diffrax.AbstractSpaceTimeLevyArea) or issubclass(
+        levy_area2, diffrax.AbstractSpaceTimeLevyArea
+    ):
+        return diffrax.SpaceTimeLevyArea
+    elif issubclass(levy_area1, diffrax.AbstractBrownianIncrement) or issubclass(
+        levy_area2, diffrax.AbstractBrownianIncrement
+    ):
+        return diffrax.BrownianIncrement
+    else:
+        raise ValueError("Invalid levy area types.")
+
+
 @eqx.filter_jit
 def sde_solver_strong_order(
     keys: PRNGKeyArray,
@@ -197,10 +228,10 @@ def sde_solver_strong_order(
     saveat: diffrax.SaveAt,
     bm_tol: float,
 ):
-    levy_area1 = get_minimal_la(solver)
-    levy_area2 = get_minimal_la(ref_solver)
+    levy_area1 = _get_minimal_la(solver)
+    levy_area2 = _get_minimal_la(ref_solver)
     # Stricter levy_area requirements inherit from less strict ones
-    levy_area = diffrax.resulting_levy_area(levy_area1, levy_area2)
+    levy_area = _resulting_levy_area(levy_area1, levy_area2)
 
     level_coarse, level_fine = levels
 
