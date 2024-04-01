@@ -25,6 +25,7 @@ cfs_w = GeneralCoeffs(
         np.array([0.0, 0.0, 0.5, 0.0, 0.0, 0.0]),
     ),
     b=np.array([0.0, 1 / 6, 1 / 3, 1 / 3, 1 / 6, 0.0, 0.0]),
+    b_error=None,
 )
 
 cfs_hh = GeneralCoeffs(
@@ -37,6 +38,7 @@ cfs_hh = GeneralCoeffs(
         np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ),
     b=np.array([0.0, 0.0, 0.0, 2.0, 0.0, 0.0, -2.0]),
+    b_error=None,
 )
 
 cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](

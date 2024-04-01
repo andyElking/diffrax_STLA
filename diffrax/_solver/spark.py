@@ -5,7 +5,7 @@ import numpy as np
 from .base import AbstractStratonovichSolver
 from .srk import (
     AbstractSRK,
-    GeneralCoeffsWithError,
+    GeneralCoeffs,
     SpaceTimeLevyAreaTableau,
     StochasticButcherTableau,
 )
@@ -14,19 +14,19 @@ from .srk import (
 _x1 = (3 - np.sqrt(3)) / 6
 _x2 = np.sqrt(3) / 3
 
-cfs_w = GeneralCoeffsWithError(
+cfs_w = GeneralCoeffs(
     a=(np.array([0.5]), np.array([0.0, 1.0])),
     b=np.array([_x1, _x2, _x1]),
     b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
 )
 
-cfs_hh = GeneralCoeffsWithError(
+cfs_hh = GeneralCoeffs(
     a=(np.array([np.sqrt(3.0)]), np.array([0.0, 0.0])),
     b=np.array([1.0, 0.0, -1.0]),
     b_error=np.array([1.0, 0.0, -1.0]),
 )
 
-cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffsWithError](
+cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](
     coeffs_w=cfs_w,
     coeffs_hh=cfs_hh,
 )

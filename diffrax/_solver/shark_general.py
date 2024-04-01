@@ -14,11 +14,13 @@ from .srk import (
 cfs_w = GeneralCoeffs(
     a=(np.array([0.0]), np.array([0.0, 5 / 6])),
     b=np.array([0.0, 0.4, 0.6]),
+    b_error=None,
 )
 
 cfs_hh = GeneralCoeffs(
     a=(np.array([1.0]), np.array([1.0, 0.0])),
     b=np.array([0.0, 1.2, -1.2]),
+    b_error=None,
 )
 
 cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](

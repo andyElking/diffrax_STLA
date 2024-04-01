@@ -1,3 +1,4 @@
+import abc
 from dataclasses import dataclass
 from typing import Any, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 from typing_extensions import TypeAlias
@@ -12,7 +13,6 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree
 
-from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     AbstractBrownianIncrement,
     AbstractSpaceTimeLevyArea,
@@ -29,7 +29,7 @@ from .._custom_types import (
 )
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
-from .._term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
+from .._term import AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractSolver
 
 
@@ -46,9 +46,11 @@ _CarryType: TypeAlias = tuple[PyTree[Array], PyTree[Array], PyTree[Array]]
 class AbstractStochasticCoeffs(eqx.Module):
     a: eqx.AbstractVar[Union[Float[np.ndarray, " s"], tuple[np.ndarray, ...]]]
     b: eqx.AbstractVar[Union[Float[np.ndarray, " s"], FloatScalarLike]]
+    b_error: eqx.AbstractVar[Optional[Float[np.ndarray, " s"]]]
 
-    def check(self):
-        raise NotImplementedError
+    @abc.abstractmethod
+    def check(self) -> int:
+        ...
 
 
 class AdditiveCoeffs(AbstractStochasticCoeffs):
@@ -56,7 +58,7 @@ class AdditiveCoeffs(AbstractStochasticCoeffs):
     SRK for solving additive noise SDEs.
     """
 
-    # assuming SDE has additive noise we only need a 1-dimensional array
+    # Assuming SDE has additive noise, then we only need a 1-dimensional array
     # of length s for the coefficients in front of the Brownian increment
     # and/or Lévy areas (where s is the number of stages of the solver).
     # This is the equivalent of the matrix a for the Brownian motion and
@@ -64,58 +66,47 @@ class AdditiveCoeffs(AbstractStochasticCoeffs):
     a: Float[np.ndarray, " s"]
     b: FloatScalarLike
 
+    # Explicitly declare to keep pyright happy.
+    def __init__(self, a: Float[np.ndarray, " s"], b: FloatScalarLike):
+        self.a = a
+        self.b = b
+
+    @property
+    def b_error(self):
+        return None
+
     def check(self):
         assert self.a.ndim == 1
         return self.a.shape[0]
 
 
-class _AbstractGeneralCoeffs(AbstractStochasticCoeffs):
-    a: eqx.AbstractVar[tuple[np.ndarray, ...]]
-    b: eqx.AbstractVar[Float[np.ndarray, " s"]]
-
-
-class GeneralCoeffs(_AbstractGeneralCoeffs):
+class GeneralCoeffs(AbstractStochasticCoeffs):
     """General coefficients for either the Brownian increment or its Lévy areas in an
     SRK for solving SDEs with any type of noise (i.e. non-additive).
     """
 
     a: tuple[np.ndarray, ...]
     b: Float[np.ndarray, " s"]
+    b_error: Optional[Float[np.ndarray, " s"]]
 
     def check(self):
         assert self.b.ndim == 1
         assert all((i + 1,) == a_i.shape for i, a_i in enumerate(self.a))
         assert self.b.shape[0] == len(self.a) + 1
+        if self.b_error is not None:
+            assert self.b_error.ndim == 1
+            assert self.b_error.shape == self.b.shape
         return self.b.shape[0]
 
 
-class GeneralCoeffsWithError(_AbstractGeneralCoeffs):
-    """General coefficients for either the Brownian increment or its Lévy areas in an
-    SRK for solving SDEs with any type of noise (i.e. non-additive). Use this subclass
-    when the SRK provides an embedded method for error estimation.
-    """
-
-    a: tuple[np.ndarray, ...]
-    b: Float[np.ndarray, " s"]
-    b_error: Float[np.ndarray, " s"]
-
-    def check(self):
-        assert self.b.ndim == 1
-        assert all((i + 1,) == a_i.shape for i, a_i in enumerate(self.a))
-        assert self.b.shape[0] == len(self.a) + 1
-        assert self.b_error.ndim == 1
-        assert self.b_error.shape == self.b.shape
-        return self.b.shape[0]
+_Coeffs = TypeVar("_Coeffs", bound=AbstractStochasticCoeffs)
 
 
-COEFFS = TypeVar("COEFFS", bound=AbstractStochasticCoeffs)
-
-
-class AbstractStochasticTableau(eqx.Module, Generic[COEFFS]):
+class AbstractStochasticTableau(eqx.Module, Generic[_Coeffs]):
     r"""Part of a `StochasticButcherTableau` that represents the coefficients
     for the Brownian increment and possibly its Levy areas."""
 
-    coeffs_w: eqx.AbstractVar[COEFFS]
+    coeffs_w: eqx.AbstractVar[_Coeffs]
 
     @property
     def a_w(self):
@@ -129,10 +120,7 @@ class AbstractStochasticTableau(eqx.Module, Generic[COEFFS]):
 
     @property
     def get_b_error_w(self) -> Optional[Float[np.ndarray, " s"]]:
-        if isinstance(self.coeffs_w, GeneralCoeffsWithError):
-            return self.coeffs_w.b_error
-        else:
-            return None
+        return self.coeffs_w.b_error
 
     @property
     def is_additive_noise(self):
@@ -140,14 +128,15 @@ class AbstractStochasticTableau(eqx.Module, Generic[COEFFS]):
 
     @property
     def has_error_estimate(self):
-        return isinstance(self.coeffs_w, GeneralCoeffsWithError)
+        return self.coeffs_w.b_error is not None
 
-    def check(self):
-        raise NotImplementedError
+    @abc.abstractmethod
+    def check(self) -> int:
+        ...
 
 
-class _AbstractSTLATableau(AbstractStochasticTableau[COEFFS]):
-    coeffs_hh: eqx.AbstractVar[COEFFS]
+class _AbstractSTLATableau(AbstractStochasticTableau[_Coeffs]):
+    coeffs_hh: eqx.AbstractVar[_Coeffs]
 
     @property
     def a_hh(self):
@@ -161,14 +150,11 @@ class _AbstractSTLATableau(AbstractStochasticTableau[COEFFS]):
 
     @property
     def get_b_error_hh(self) -> Optional[Float[np.ndarray, " s"]]:
-        if isinstance(self.coeffs_hh, GeneralCoeffsWithError):
-            return self.coeffs_hh.b_error
-        else:
-            return None
+        return self.coeffs_hh.b_error
 
 
-class _AbstractSTTLATableau(_AbstractSTLATableau[COEFFS]):
-    coeffs_kk: eqx.AbstractVar[COEFFS]
+class _AbstractSTTLATableau(_AbstractSTLATableau[_Coeffs]):
+    coeffs_kk: eqx.AbstractVar[_Coeffs]
 
     @property
     def a_kk(self):
@@ -183,22 +169,19 @@ class _AbstractSTTLATableau(_AbstractSTLATableau[COEFFS]):
 
     @property
     def get_b_error_kk(self) -> Optional[Float[np.ndarray, " s"]]:
-        if isinstance(self.coeffs_kk, GeneralCoeffsWithError):
-            return self.coeffs_kk.b_error
-        else:
-            return None
+        return self.coeffs_kk.b_error
 
 
-class StochasticTableau(AbstractStochasticTableau[COEFFS]):
-    coeffs_w: COEFFS
+class StochasticTableau(AbstractStochasticTableau[_Coeffs]):
+    coeffs_w: _Coeffs
 
     def check(self):
         return self.coeffs_w.check()
 
 
-class SpaceTimeLevyAreaTableau(_AbstractSTLATableau[COEFFS]):
-    coeffs_w: COEFFS
-    coeffs_hh: COEFFS
+class SpaceTimeLevyAreaTableau(_AbstractSTLATableau[_Coeffs]):
+    coeffs_w: _Coeffs
+    coeffs_hh: _Coeffs
 
     def check(self):
         w_num_stages = self.coeffs_w.check()
@@ -206,10 +189,10 @@ class SpaceTimeLevyAreaTableau(_AbstractSTLATableau[COEFFS]):
         return w_num_stages
 
 
-class SpaceTimeTimeLevyAreaTableau(_AbstractSTTLATableau[COEFFS]):
-    coeffs_w: COEFFS
-    coeffs_hh: COEFFS
-    coeffs_kk: COEFFS
+class SpaceTimeTimeLevyAreaTableau(_AbstractSTTLATableau[_Coeffs]):
+    coeffs_w: _Coeffs
+    coeffs_hh: _Coeffs
+    coeffs_kk: _Coeffs
 
     def check(self):
         w_num_stages = self.coeffs_w.check()
@@ -261,18 +244,26 @@ class StochasticButcherTableau:
             assert len(self.ignore_stage_f) == len(self.b_sol)
         if self.ignore_stage_g is not None:
             assert len(self.ignore_stage_g) == len(self.b_sol)
+        if self.ignore_stage_f is not None and self.ignore_stage_g is not None:
+            assert np.all(self.ignore_stage_f | self.ignore_stage_g)
 
 
-StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
+StochasticButcherTableau.__init__.__doc__ = """The coefficients of a
+[`diffrax.AbstractSRK`][] method.
+
+See the documentation for [`diffrax.AbstractSRK`][] for additional details on the
+mathematical meaning of each of these arguments.
+
+**Arguments:**
 
 Let `s` denote the number of stages of the solver.
 
-- `a`: The lower triangle (without the diagonal) of the Butcher tableau. Should
-    be a tuple of NumPy arrays, corresponding to the rows of this lower triangle. The
-    first array should be of shape `(1,)`. Each subsequent array should
+- `a`: The lower triangle (without the diagonal) of the Butcher tableau for the drift
+    term. Should be a tuple of NumPy arrays, corresponding to the rows of this lower
+    triangle. The first array should be of shape `(1,)`. Each subsequent array should
     be of shape `(2,)`, `(3,)` etc. The final array should have shape `(s - 1,)`.
-- `b_sol`: The linear combination of stages to take to produce the output at each step.
-    Should be a NumPy array of shape `(s,)`.
+- `b_sol`: The linear combination of drift stages to take to produce the output at each
+    step. Should be a NumPy array of shape `(s,)`.
 - `b_error`: The linear combination of stages to take to produce the error estimate at
     each step. Should be a NumPy array of shape `(s,)`. Note that this is *not*
     differenced against `b_sol` prior to evaluation. (i.e. `b_error` gives the linear
@@ -341,8 +332,8 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     the form $(g(t_{n+1}) - g(t_n)) \, (\frac{1}{2} W_n - H_n)$.
 
     The coefficients are provided in the [`diffrax.StochasticButcherTableau`][].
-    In particular the coefficients b^W, and a^W are provided in `tableau.cfs_bm`,
-    as well as b^H, a^H, b^K, and a^K if needed.
+    In particular the coefficients $b^W$, and $a^W$ are provided in `tableau.cfs_bm`,
+    as well as $b^H$, $a^H$, $b^K$, and $a^K$ if needed.
     """
 
     interpolation_cls = LocalLinearInterpolation
@@ -369,11 +360,11 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     @property
     def term_structure(self):
-        return MultiTerm[tuple[ODETerm, ControlTerm[Any, self.minimal_levy_area]]]
+        return MultiTerm[tuple[ODETerm, AbstractTerm[Any, self.minimal_levy_area]]]
 
     def init(
         self,
-        terms: MultiTerm[tuple[ODETerm, ControlTerm[Any, AbstractBrownianIncrement]]],
+        terms: MultiTerm[tuple[ODETerm, AbstractTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         t1: RealScalarLike,
         y0: Y,
@@ -381,17 +372,6 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     ) -> _SolverState:
         # Check that the diffusion has the correct Levy area
         _, diffusion = terms.terms
-
-        is_bm = lambda x: isinstance(x, AbstractBrownianPath)
-        leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
-        paths = [x for x in leaves if is_bm(x)]
-        for path in paths:
-            assert issubclass(path.levy_area, self.minimal_levy_area), (
-                f"The diffusion term should be controlled by a Brownian path,"
-                f" initialised with"
-                f"`levy_area='{self.minimal_levy_area.__name__}'` or a subclass of it."
-                f"Got {path.levy_area.__name__}."
-            )
 
         if self.tableau.is_additive_noise:
             # check that the vector field of the diffusion term does not depend on y
@@ -417,7 +397,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     def step(
         self,
-        terms: MultiTerm[tuple[ODETerm, ControlTerm[Any, AbstractBrownianIncrement]]],
+        terms: MultiTerm[tuple[ODETerm, AbstractTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         t1: RealScalarLike,
         y0: Y,
@@ -429,14 +409,14 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
         dtype = jnp.result_type(*jtu.tree_leaves(y0))
         drift, diffusion = terms.terms
-        if self.tableau.ignore_stage_f is not None:
-            ignore_stage_f = jnp.array(self.tableau.ignore_stage_f)
-        else:
+        if self.tableau.ignore_stage_f is None:
             ignore_stage_f = None
-        if self.tableau.ignore_stage_g is not None:
-            ignore_stage_g = jnp.array(self.tableau.ignore_stage_g)
         else:
+            ignore_stage_f = jnp.array(self.tableau.ignore_stage_f)
+        if self.tableau.ignore_stage_g is None:
             ignore_stage_g = None
+        else:
+            ignore_stage_g = jnp.array(self.tableau.ignore_stage_g)
 
         # time increment
         h = t1 - t0
@@ -748,7 +728,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     def func(
         self,
-        terms: AbstractTerm,
+        terms: MultiTerm[tuple[ODETerm, AbstractTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         y0: Y,
         args: PyTree,
