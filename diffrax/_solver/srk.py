@@ -346,7 +346,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     """
 
     interpolation_cls = LocalLinearInterpolation
-    term_compatible_contr_kwargs = dict(use_levy=True)
+    term_compatible_contr_kwargs = (dict(), dict(use_levy=True))
     tableau: AbstractClassVar[StochasticButcherTableau]
 
     # Indicates the type of Levy area used by the solver.
