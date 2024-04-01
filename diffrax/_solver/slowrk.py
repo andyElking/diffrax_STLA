@@ -11,6 +11,10 @@ from .srk import (
 )
 
 
+# TODO: maybe this solver should use a custom implementation, not going via
+# `AbstractSRK`? Its tableaus have huge amounts of sparsity due to its odd structure.
+
+
 cfs_w = GeneralCoeffs(
     a=(
         np.array([0.0]),
@@ -59,26 +63,28 @@ _tab = StochasticButcherTableau(
 
 
 class SlowRK(AbstractSRK, AbstractStratonovichSolver):
-    r"""SLOW-RK method for SDEs by James Foster.
+    r"""SLOW-RK method for commutative-noise Stratonovich SDEs.
+
+    Makes two evaluations of the drift and five evaluations of the diffusion per step.
     Applied to SDEs with commutative noise, it converges strongly with order 1.5.
     Can be used for SDEs with non-commutative noise, but then it only converges
     strongly with order 0.5.
 
-     Based on equation $(6.2)$ from
+    This solver is an excellent choice for Stratonovich SDEs with commutative noise.
 
     ??? cite "Reference"
 
-        ```bibtex
-        @misc{foster2023high,
-          title={High order splitting methods for SDEs satisfying
-            a commutativity condition},
-          author={James Foster and Goncalo dos Reis and Calum Strange},
-          year={2023},
-          eprint={2210.17543},
-          archivePrefix={arXiv},
-          primaryClass={math.NA}
-        ```
+        This solver is based on equation (6.2) from
 
+        ```bibtex
+        @article{foster2023high,
+            title={High order splitting methods for SDEs satisfying a commutativity
+                   condition},
+            author={James Foster and Goncalo dos Reis and Calum Strange},
+            year={2023},
+            journal={arXiv:2210.17543},
+        }
+        ```
     """
 
     tableau: ClassVar[StochasticButcherTableau] = _tab

@@ -36,17 +36,20 @@ _tab = StochasticButcherTableau(
 
 
 class SRA1(AbstractSRK, AbstractStratonovichSolver):
-    r"""Based on the SRA1 method by Andreas Rößler.
-    Works only for SDEs with additive noise, applied to which, it has
-    strong order 1.5. Uses two evaluations of the vector field per step.
+    r"""The SRA1 method for additive-noise SDEs.
+
+    Makes two evaluations of the drift and diffusion per step and has a strong order
+    1.5.
+
+    See also [`diffrax.ShARK`][], which is very similar.
 
     ??? cite "Reference"
 
         ```bibtex
         @article{rossler2010runge
-            author = {R\"{o}\ss{}ler, Andreas},
-            title = {Runge–Kutta Methods for the Strong Approximation of
-                Solutions of Stochastic Differential Equations},
+            author = {Andreas R\"{o}\ss{}ler},
+            title = {Runge–Kutta Methods for the Strong Approximation of Solutions of
+                     Stochastic Differential Equations},
             journal = {SIAM Journal on Numerical Analysis},
             volume = {48},
             number = {3},

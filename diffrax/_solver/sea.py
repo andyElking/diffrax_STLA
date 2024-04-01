@@ -37,23 +37,26 @@ _tab = StochasticButcherTableau(
 
 class SEA(AbstractSRK, AbstractStratonovichSolver):
     r"""Shifted Euler method for SDEs with additive noise.
-     It has a local error of $O(h^2)$ compared to standard Euler-Maruyama,
-     which has $O(h^{1.5})$. They still have the same global order of $O(h)$
-     for additive noise SDEs, but SEA is better by a constant factor.
 
-    Based on equation $(5.8)$ in
+    Makes one evaluation of the drift and diffusion per step and has a strong order 1.
+    Compared to [`diffrax.Euler`][], it has a better constant factor in the global
+    error, and an improved local error of $O(h^2)$ instead of $O(h^{1.5})$.
+
+    This solver is useful for solving additive-noise SDEs with as few drift and
+    diffusion evaluations per step as possible.
 
     ??? cite "Reference"
 
+        This solver is based on equation (5.8) in
+
         ```bibtex
-        @misc{foster2023high,
-          title={High order splitting methods for SDEs satisfying
-            a commutativity condition},
-          author={James Foster and Goncalo dos Reis and Calum Strange},
-          year={2023},
-          eprint={2210.17543},
-          archivePrefix={arXiv},
-          primaryClass={math.NA}
+        @article{foster2023high,
+            title={High order splitting methods for SDEs satisfying a commutativity
+                   condition},
+            author={James Foster and Goncalo dos Reis and Calum Strange},
+            year={2023},
+            journal={arXiv:2210.17543},
+        }
         ```
     """
 

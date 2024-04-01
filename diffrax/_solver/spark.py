@@ -41,16 +41,22 @@ _tab = StochasticButcherTableau(
 
 
 class SPaRK(AbstractSRK, AbstractStratonovichSolver):
-    r"""The Splitting Path Runge-Kutta method by James Foster.
-    It uses three evaluations of the vector field per step and
-    has the following strong orders of convergence:
+    r"""The Splitting Path Runge-Kutta method.
+
+    It uses three evaluations of the drift and diffusion per step, and has the following
+    strong orders of convergence:
+
     - 1.5 for SDEs with additive noise
-    - 1.0 for SDEs with commutative noise
-    - 0.5 for general SDEs.
-    Despite being slower than methods like ShARK or SRA1, it works for a wider class
-    of SDEs. It is based on Definition 1.6 from
+    - 1.0 for Stratonovich SDEs with commutative noise
+    - 0.5 for Stratonovich SDEs with general noise.
+
+    Despite being slower than methods like [`diffrax.ShARK`][] or [`diffrax.SRA1`][]
+    (which each only make two drift and diffusion evaluations per step), this solver
+    is designed to still produce good results regardless of the noise type of the SDE.
 
     ??? cite "Reference"
+
+        This solver is based on Definition 1.6 from
 
         ```bibtex
         @misc{foster2023convergence,

@@ -36,24 +36,27 @@ _tab = StochasticButcherTableau(
 
 
 class ShARK(AbstractSRK, AbstractStratonovichSolver):
-    r"""Shifted Additive-noise Runge-Kutta method for SDEs by James Foster.
-    This is the recommended choice for SDEs with additive noise, and can only
-    be used for such SDEs.
-    Uses two evaluations of the vector field per step and has strong order 1.5.
+    r"""Shifted Additive-noise Runge-Kutta method for additive SDEs.
 
-    Based on equation $(6.1)$ in
+    Makes two evaluations of the drift and diffusion per step and has a strong order
+    1.5.
+
+    This is the recommended choice for SDEs with additive noise.
+
+    See also [`diffrax.SRA1`][], which is very similar.
 
     ??? cite "Reference"
 
+        This solver is based on equation (6.1) in
+
         ```bibtex
-        @misc{foster2023high,
-          title={High order splitting methods for SDEs satisfying
-            a commutativity condition},
-          author={James Foster and Goncalo dos Reis and Calum Strange},
-          year={2023},
-          eprint={2210.17543},
-          archivePrefix={arXiv},
-          primaryClass={math.NA}
+        @article{foster2023high,
+            title={High order splitting methods for SDEs satisfying a commutativity
+                   condition},
+            author={James Foster and Goncalo dos Reis and Calum Strange},
+            year={2023},
+            journal={arXiv:2210.17543},
+        }
         ```
     """
 

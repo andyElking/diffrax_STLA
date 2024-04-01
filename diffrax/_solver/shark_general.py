@@ -37,18 +37,19 @@ _tab = StochasticButcherTableau(
 
 
 class GeneralShARK(AbstractSRK, AbstractStratonovichSolver):
-    r"""A generalised version of the ShARK method which now works for
-    any SDE, not only those with additive noise.
-    Applied to SDEs with additive noise, it still has strong order 1.5.
-    Uses two evaluations of the drift vector field and three evaluations
-    of the diffusion vector field per step. For general SDEs, the strong
-    error is similar to that of three steps of Heun's method.
-    This is the recommended solver for general SDEs unless the noise vector filed is
-    commutative in the Lie bracket, in which case SlowRK is recommended.
+    r"""ShARK method for Stratonovich SDEs.
 
-    Based on equation $(6.1)$ from
+    As compared to [`diffrax.ShARK`][] this can handle any SDE, not only those with
+    additive noise.
+
+    Makes two evaluations of the drift and three evaluations of the diffusion per step.
+    For additive SDEs this has strong order 1.5. For general SDEs this has strong order
+    0.5, but with a good coefficient in front (similar to making three steps of
+    [`diffrax.Heun`][]).
 
     ??? cite "Reference"
+
+        This solver is based on equation (6.1) from
 
         ```bibtex
         @misc{foster2023high,
