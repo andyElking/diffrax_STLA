@@ -3,38 +3,31 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import (
-    AbstractSRK,
-    GeneralCoeffs,
-    SpaceTimeLevyAreaTableau,
-    StochasticButcherTableau,
-)
+from .srk import AbstractSRK, GeneralCoeffs, StochasticButcherTableau
 
 
-cfs_w = GeneralCoeffs(
+_coeffs_w = GeneralCoeffs(
     a=(np.array([0.0]), np.array([0.0, 5 / 6])),
-    b=np.array([0.0, 0.4, 0.6]),
+    b_sol=np.array([0.0, 0.4, 0.6]),
     b_error=None,
 )
 
-cfs_hh = GeneralCoeffs(
+_coeffs_hh = GeneralCoeffs(
     a=(np.array([1.0]), np.array([1.0, 0.0])),
-    b=np.array([0.0, 1.2, -1.2]),
+    b_sol=np.array([0.0, 1.2, -1.2]),
     b_error=None,
-)
-
-cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](
-    coeffs_w=cfs_w,
-    coeffs_hh=cfs_hh,
 )
 
 _tab = StochasticButcherTableau(
-    c=np.array([0.0, 5 / 6]),
+    a=[np.array([0.0]), np.array([0.0, 5 / 6])],
     b_sol=np.array([0.0, 0.4, 0.6]),
     b_error=None,
-    a=[np.array([0.0]), np.array([0.0, 5 / 6])],
-    cfs_bm=cfs_bm,
+    c=np.array([0.0, 5 / 6]),
+    coeffs_w=_coeffs_w,
+    coeffs_hh=_coeffs_hh,
+    coeffs_kk=None,
     ignore_stage_f=np.array([True, False, False]),
+    ignore_stage_g=None,
 )
 
 

@@ -3,40 +3,34 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import (
-    AbstractSRK,
-    GeneralCoeffs,
-    SpaceTimeLevyAreaTableau,
-    StochasticButcherTableau,
-)
+from .srk import AbstractSRK, GeneralCoeffs, StochasticButcherTableau
 
 
 _x1 = (3 - np.sqrt(3)) / 6
 _x2 = np.sqrt(3) / 3
 
-cfs_w = GeneralCoeffs(
+_coeffs_w = GeneralCoeffs(
     a=(np.array([0.5]), np.array([0.0, 1.0])),
-    b=np.array([_x1, _x2, _x1]),
+    b_sol=np.array([_x1, _x2, _x1]),
     b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
 )
 
-cfs_hh = GeneralCoeffs(
+_coeffs_hh = GeneralCoeffs(
     a=(np.array([np.sqrt(3.0)]), np.array([0.0, 0.0])),
-    b=np.array([1.0, 0.0, -1.0]),
+    b_sol=np.array([1.0, 0.0, -1.0]),
     b_error=np.array([1.0, 0.0, -1.0]),
 )
 
-cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](
-    coeffs_w=cfs_w,
-    coeffs_hh=cfs_hh,
-)
-
 _tab = StochasticButcherTableau(
-    c=np.array([0.5, 1.0]),
-    b_sol=np.array([_x1, _x2, _x1]),
     a=[np.array([0.5]), np.array([0.0, 1.0])],
+    b_sol=np.array([_x1, _x2, _x1]),
     b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
-    cfs_bm=cfs_bm,
+    c=np.array([0.5, 1.0]),
+    coeffs_w=_coeffs_w,
+    coeffs_hh=_coeffs_hh,
+    coeffs_kk=None,
+    ignore_stage_f=None,
+    ignore_stage_g=None,
 )
 
 
