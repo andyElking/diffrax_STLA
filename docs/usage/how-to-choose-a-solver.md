@@ -68,7 +68,6 @@ For Itô SDEs:
 
 - If the noise is commutative then [`diffrax.ItoMilstein`][] is a typical choice;
 - If the noise is noncommutative then [`diffrax.Euler`][] is a typical choice.
-- Often Itô SDEs can easily be converted to Stratonoivch SDEs by adding a correction term to the drift. In this case the Stratonovich solvers below are recommended.
 
 ### Stratonovich
 
