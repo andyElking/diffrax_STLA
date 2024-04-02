@@ -73,9 +73,9 @@ For Itô SDEs:
 
 For Stratonovich SDEs:
 
-- If cheap low-accuracy solves are desired then [`diffrax.EulerHeun`][] is a good choice.
-- Otherwise, and if the noise is commutative, then [`diffrax.StratonovichMilstein`][] is a typical choice.
-- Otherwise, and if the noise is noncommutative, then [`diffrax.Heun`][] is a typical choice.
+- If cheap low-accuracy solves are desired then [`diffrax.EulerHeun`][] is a typical choice.
+- Otherwise, and if the noise is commutative, then [`diffrax.StratonovichMilstein`][] or [`diffrax.SlowRK`][] are good choices.
+- Otherwise, and if the noise is noncommutative, then [`diffrax.Heun`][] or [`diffrax.GeneralShARK`][] are good choices.
 
 ### Additive noise
 
@@ -85,10 +85,10 @@ $\mathrm{d}y(t) = μ(t, y(t))\mathrm{d}t + σ(t, y(t))\mathrm{d}w(t)$
 
 Then the diffusion matrix $σ$ is said to be additive if $σ(t, y) = σ(t)$. That is to say if the diffusion is independent of $y$.
 
-In this case then the Itô solution and the Stratonovich solution coincide, and mathematically speaking the choice of Itô vs Stratonovich is unimportant.
+In this case then the Itô solution and the Stratonovich solution coincide, and mathematically speaking the choice of Itô vs Stratonovich is unimportant. Special solvers for additive-noise SDEs tend to do particularly well as compared to the general Itô or Stratonovich solvers discussed above.
 
-- The cheapest (but least accurate) solver is [`diffrax.Euler`][].
-- Otherwise [`diffrax.Heun`][] is a good choice. It gets first-order strong convergence and second-order weak convergence.
+- The cheapest (but least accurate) solver is [`diffrax.SEA`][].
+- Otherwise [`diffrax.ShARK`][] or [`diffrax.SRA1`][] are good choices.
 
 ---
 

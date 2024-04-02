@@ -3,52 +3,48 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import (
-    AbstractSRK,
-    GeneralCoeffs,
-    SpaceTimeLevyAreaTableau,
-    StochasticButcherTableau,
-)
+from .srk import AbstractSRK, GeneralCoeffs, StochasticButcherTableau
 
 
-cfs_w = GeneralCoeffs(
+_coeffs_w = GeneralCoeffs(
     a=(np.array([0.0]), np.array([0.0, 5 / 6])),
-    b=np.array([0.0, 0.4, 0.6]),
+    b_sol=np.array([0.0, 0.4, 0.6]),
+    b_error=None,
 )
 
-cfs_hh = GeneralCoeffs(
+_coeffs_hh = GeneralCoeffs(
     a=(np.array([1.0]), np.array([1.0, 0.0])),
-    b=np.array([0.0, 1.2, -1.2]),
-)
-
-cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffs](
-    coeffs_w=cfs_w,
-    coeffs_hh=cfs_hh,
+    b_sol=np.array([0.0, 1.2, -1.2]),
+    b_error=None,
 )
 
 _tab = StochasticButcherTableau(
-    c=np.array([0.0, 5 / 6]),
+    a=[np.array([0.0]), np.array([0.0, 5 / 6])],
     b_sol=np.array([0.0, 0.4, 0.6]),
     b_error=None,
-    a=[np.array([0.0]), np.array([0.0, 5 / 6])],
-    cfs_bm=cfs_bm,
+    c=np.array([0.0, 5 / 6]),
+    coeffs_w=_coeffs_w,
+    coeffs_hh=_coeffs_hh,
+    coeffs_kk=None,
     ignore_stage_f=np.array([True, False, False]),
+    ignore_stage_g=None,
 )
 
 
 class GeneralShARK(AbstractSRK, AbstractStratonovichSolver):
-    r"""A generalised version of the ShARK method which now works for
-    any SDE, not only those with additive noise.
-    Applied to SDEs with additive noise, it still has strong order 1.5.
-    Uses two evaluations of the drift vector field and three evaluations
-    of the diffusion vector field per step. For general SDEs, the strong
-    error is similar to that of three steps of Heun's method.
-    This is the recommended solver for general SDEs unless the noise vector filed is
-    commutative in the Lie bracket, in which case SlowRK is recommended.
+    r"""ShARK method for Stratonovich SDEs.
 
-    Based on equation $(6.1)$ from
+    As compared to [`diffrax.ShARK`][] this can handle any SDE, not only those with
+    additive noise.
+
+    Makes two evaluations of the drift and three evaluations of the diffusion per step.
+    For additive SDEs this has strong order 1.5. For general SDEs this has strong order
+    0.5, but with a good coefficient in front (similar to making three steps of
+    [`diffrax.Heun`][]).
 
     ??? cite "Reference"
+
+        This solver is based on equation (6.1) from
 
         ```bibtex
         @misc{foster2023high,

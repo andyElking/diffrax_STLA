@@ -3,54 +3,54 @@ from typing import ClassVar
 import numpy as np
 
 from .base import AbstractStratonovichSolver
-from .srk import (
-    AbstractSRK,
-    GeneralCoeffsWithError,
-    SpaceTimeLevyAreaTableau,
-    StochasticButcherTableau,
-)
+from .srk import AbstractSRK, GeneralCoeffs, StochasticButcherTableau
 
 
 _x1 = (3 - np.sqrt(3)) / 6
 _x2 = np.sqrt(3) / 3
 
-cfs_w = GeneralCoeffsWithError(
+_coeffs_w = GeneralCoeffs(
     a=(np.array([0.5]), np.array([0.0, 1.0])),
-    b=np.array([_x1, _x2, _x1]),
+    b_sol=np.array([_x1, _x2, _x1]),
     b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
 )
 
-cfs_hh = GeneralCoeffsWithError(
+_coeffs_hh = GeneralCoeffs(
     a=(np.array([np.sqrt(3.0)]), np.array([0.0, 0.0])),
-    b=np.array([1.0, 0.0, -1.0]),
+    b_sol=np.array([1.0, 0.0, -1.0]),
     b_error=np.array([1.0, 0.0, -1.0]),
 )
 
-cfs_bm = SpaceTimeLevyAreaTableau[GeneralCoeffsWithError](
-    coeffs_w=cfs_w,
-    coeffs_hh=cfs_hh,
-)
-
 _tab = StochasticButcherTableau(
-    c=np.array([0.5, 1.0]),
-    b_sol=np.array([_x1, _x2, _x1]),
     a=[np.array([0.5]), np.array([0.0, 1.0])],
+    b_sol=np.array([_x1, _x2, _x1]),
     b_error=np.array([_x1 - 0.5, _x2, _x1 - 0.5]),
-    cfs_bm=cfs_bm,
+    c=np.array([0.5, 1.0]),
+    coeffs_w=_coeffs_w,
+    coeffs_hh=_coeffs_hh,
+    coeffs_kk=None,
+    ignore_stage_f=None,
+    ignore_stage_g=None,
 )
 
 
 class SPaRK(AbstractSRK, AbstractStratonovichSolver):
-    r"""The Splitting Path Runge-Kutta method by James Foster.
-    It uses three evaluations of the vector field per step and
-    has the following strong orders of convergence:
+    r"""The Splitting Path Runge-Kutta method.
+
+    It uses three evaluations of the drift and diffusion per step, and has the following
+    strong orders of convergence:
+
     - 1.5 for SDEs with additive noise
-    - 1.0 for SDEs with commutative noise
-    - 0.5 for general SDEs.
-    Despite being slower than methods like ShARK or SRA1, it works for a wider class
-    of SDEs. It is based on Definition 1.6 from
+    - 1.0 for Stratonovich SDEs with commutative noise
+    - 0.5 for Stratonovich SDEs with general noise.
+
+    Despite being slower than methods like [`diffrax.ShARK`][] or [`diffrax.SRA1`][]
+    (which each only make two drift and diffusion evaluations per step), this solver
+    is designed to still produce good results regardless of the noise type of the SDE.
 
     ??? cite "Reference"
+
+        This solver is based on Definition 1.6 from
 
         ```bibtex
         @misc{foster2023convergence,

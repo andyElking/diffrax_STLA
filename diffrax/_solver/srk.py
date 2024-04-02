@@ -1,3 +1,4 @@
+import abc
 from dataclasses import dataclass
 from typing import Any, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 from typing_extensions import TypeAlias
@@ -12,7 +13,6 @@ import numpy as np
 from equinox.internal import ω
 from jaxtyping import Array, Float, PyTree
 
-from .._brownian import AbstractBrownianPath
 from .._custom_types import (
     AbstractBrownianIncrement,
     AbstractSpaceTimeLevyArea,
@@ -22,14 +22,12 @@ from .._custom_types import (
     FloatScalarLike,
     IntScalarLike,
     RealScalarLike,
-    SpaceTimeLevyArea,
-    SpaceTimeTimeLevyArea,
     VF,
     Y,
 )
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
-from .._term import AbstractTerm, ControlTerm, MultiTerm, ODETerm
+from .._term import AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractSolver
 
 
@@ -45,10 +43,12 @@ _CarryType: TypeAlias = tuple[PyTree[Array], PyTree[Array], PyTree[Array]]
 
 class AbstractStochasticCoeffs(eqx.Module):
     a: eqx.AbstractVar[Union[Float[np.ndarray, " s"], tuple[np.ndarray, ...]]]
-    b: eqx.AbstractVar[Union[Float[np.ndarray, " s"], FloatScalarLike]]
+    b_sol: eqx.AbstractVar[Union[Float[np.ndarray, " s"], FloatScalarLike]]
+    b_error: eqx.AbstractVar[Optional[Float[np.ndarray, " s"]]]
 
-    def check(self):
-        raise NotImplementedError
+    @abc.abstractmethod
+    def check(self) -> int:
+        ...
 
 
 class AdditiveCoeffs(AbstractStochasticCoeffs):
@@ -56,188 +56,72 @@ class AdditiveCoeffs(AbstractStochasticCoeffs):
     SRK for solving additive noise SDEs.
     """
 
-    # assuming SDE has additive noise we only need a 1-dimensional array
+    # Assuming SDE has additive noise, then we only need a 1-dimensional array
     # of length s for the coefficients in front of the Brownian increment
     # and/or Lévy areas (where s is the number of stages of the solver).
     # This is the equivalent of the matrix a for the Brownian motion and
     # its Lévy areas.
     a: Float[np.ndarray, " s"]
-    b: FloatScalarLike
+    b_sol: FloatScalarLike
+
+    # Explicitly declare to keep pyright happy.
+    def __init__(self, a: Float[np.ndarray, " s"], b_sol: FloatScalarLike):
+        self.a = a
+        self.b_sol = b_sol
+
+    @property
+    def b_error(self):
+        return None
 
     def check(self):
         assert self.a.ndim == 1
         return self.a.shape[0]
 
 
-class _AbstractGeneralCoeffs(AbstractStochasticCoeffs):
-    a: eqx.AbstractVar[tuple[np.ndarray, ...]]
-    b: eqx.AbstractVar[Float[np.ndarray, " s"]]
-
-
-class GeneralCoeffs(_AbstractGeneralCoeffs):
+class GeneralCoeffs(AbstractStochasticCoeffs):
     """General coefficients for either the Brownian increment or its Lévy areas in an
     SRK for solving SDEs with any type of noise (i.e. non-additive).
     """
 
     a: tuple[np.ndarray, ...]
-    b: Float[np.ndarray, " s"]
+    b_sol: Float[np.ndarray, " s"]
+    b_error: Optional[Float[np.ndarray, " s"]]
 
     def check(self):
-        assert self.b.ndim == 1
+        assert self.b_sol.ndim == 1
         assert all((i + 1,) == a_i.shape for i, a_i in enumerate(self.a))
-        assert self.b.shape[0] == len(self.a) + 1
-        return self.b.shape[0]
+        assert self.b_sol.shape[0] == len(self.a) + 1
+        if self.b_error is not None:
+            assert self.b_error.ndim == 1
+            assert self.b_error.shape == self.b_sol.shape
+        return self.b_sol.shape[0]
 
 
-class GeneralCoeffsWithError(_AbstractGeneralCoeffs):
-    """General coefficients for either the Brownian increment or its Lévy areas in an
-    SRK for solving SDEs with any type of noise (i.e. non-additive). Use this subclass
-    when the SRK provides an embedded method for error estimation.
-    """
-
-    a: tuple[np.ndarray, ...]
-    b: Float[np.ndarray, " s"]
-    b_error: Float[np.ndarray, " s"]
-
-    def check(self):
-        assert self.b.ndim == 1
-        assert all((i + 1,) == a_i.shape for i, a_i in enumerate(self.a))
-        assert self.b.shape[0] == len(self.a) + 1
-        assert self.b_error.ndim == 1
-        assert self.b_error.shape == self.b.shape
-        return self.b.shape[0]
-
-
-COEFFS = TypeVar("COEFFS", bound=AbstractStochasticCoeffs)
-
-
-class AbstractStochasticTableau(eqx.Module, Generic[COEFFS]):
-    r"""Part of a `StochasticButcherTableau` that represents the coefficients
-    for the Brownian increment and possibly its Levy areas."""
-
-    coeffs_w: eqx.AbstractVar[COEFFS]
-
-    @property
-    def a_w(self):
-        """The coefficients in front of the Brownian increment at each stage."""
-        return self.coeffs_w.a
-
-    @property
-    def b_w(self):
-        """The coefficient for the Brownian increment when computing the output."""
-        return self.coeffs_w.b
-
-    @property
-    def get_b_error_w(self) -> Optional[Float[np.ndarray, " s"]]:
-        if isinstance(self.coeffs_w, GeneralCoeffsWithError):
-            return self.coeffs_w.b_error
-        else:
-            return None
-
-    @property
-    def is_additive_noise(self):
-        return isinstance(self.coeffs_w, AdditiveCoeffs)
-
-    @property
-    def has_error_estimate(self):
-        return isinstance(self.coeffs_w, GeneralCoeffsWithError)
-
-    def check(self):
-        raise NotImplementedError
-
-
-class _AbstractSTLATableau(AbstractStochasticTableau[COEFFS]):
-    coeffs_hh: eqx.AbstractVar[COEFFS]
-
-    @property
-    def a_hh(self):
-        """The coefficients in front of the space-time Lévy area at each stage."""
-        return self.coeffs_hh.a
-
-    @property
-    def b_hh(self):
-        """The coefficient for the space-time Lévy area when computing the output."""
-        return self.coeffs_hh.b
-
-    @property
-    def get_b_error_hh(self) -> Optional[Float[np.ndarray, " s"]]:
-        if isinstance(self.coeffs_hh, GeneralCoeffsWithError):
-            return self.coeffs_hh.b_error
-        else:
-            return None
-
-
-class _AbstractSTTLATableau(_AbstractSTLATableau[COEFFS]):
-    coeffs_kk: eqx.AbstractVar[COEFFS]
-
-    @property
-    def a_kk(self):
-        """The coefficients in front of the space-time-time Lévy area at each stage."""
-        return self.coeffs_kk.a
-
-    @property
-    def b_kk(self):
-        """The coefficient for the space-time-time Lévy area when computing
-        the output."""
-        return self.coeffs_kk.b
-
-    @property
-    def get_b_error_kk(self) -> Optional[Float[np.ndarray, " s"]]:
-        if isinstance(self.coeffs_kk, GeneralCoeffsWithError):
-            return self.coeffs_kk.b_error
-        else:
-            return None
-
-
-class StochasticTableau(AbstractStochasticTableau[COEFFS]):
-    coeffs_w: COEFFS
-
-    def check(self):
-        return self.coeffs_w.check()
-
-
-class SpaceTimeLevyAreaTableau(_AbstractSTLATableau[COEFFS]):
-    coeffs_w: COEFFS
-    coeffs_hh: COEFFS
-
-    def check(self):
-        w_num_stages = self.coeffs_w.check()
-        assert w_num_stages == self.coeffs_hh.check()
-        return w_num_stages
-
-
-class SpaceTimeTimeLevyAreaTableau(_AbstractSTTLATableau[COEFFS]):
-    coeffs_w: COEFFS
-    coeffs_hh: COEFFS
-    coeffs_kk: COEFFS
-
-    def check(self):
-        w_num_stages = self.coeffs_w.check()
-        assert w_num_stages == self.coeffs_hh.check() == self.coeffs_kk.check()
-        return w_num_stages
+_Coeffs = TypeVar("_Coeffs", bound=AbstractStochasticCoeffs)
 
 
 @dataclass(frozen=True)
-class StochasticButcherTableau:
+class StochasticButcherTableau(Generic[_Coeffs]):
     """A Butcher Tableau for Stochastic Runge-Kutta methods."""
 
-    # Only supports explicit SRK so far
+    # Coefficinets for the drift
     a: list[np.ndarray]
     b_sol: np.ndarray
     b_error: Optional[np.ndarray]
     c: np.ndarray
 
     # Coefficients for the Brownian increment
-    cfs_bm: AbstractStochasticTableau
+    coeffs_w: _Coeffs
+    coeffs_hh: Optional[_Coeffs]
+    coeffs_kk: Optional[_Coeffs]
 
     # For some stages we may not need to evaluate the vector field for both
     # the drift and the diffusion. This avoids unnecessary computations.
-    ignore_stage_f: Optional[np.ndarray] = None
-    ignore_stage_g: Optional[np.ndarray] = None
+    ignore_stage_f: Optional[np.ndarray]
+    ignore_stage_g: Optional[np.ndarray]
 
-    @property
     def is_additive_noise(self):
-        return self.cfs_bm.is_additive_noise
+        return isinstance(self.coeffs_w, AdditiveCoeffs)
 
     def __post_init__(self):
         assert self.c.ndim == 1
@@ -247,32 +131,46 @@ class StochasticButcherTableau:
         assert (self.b_error is None) or self.b_error.ndim == 1
         assert self.c.shape[0] == len(self.a)
         assert all(i + 1 == a_i.shape[0] for i, a_i in enumerate(self.a))
-        assert (self.b_error is None) or self.b_error.shape[0] == self.b_sol.shape[0]
-        assert self.c.shape[0] + 1 == self.b_sol.shape[0]
-
+        num_stages = len(self.b_sol)
+        assert (self.b_error is None) or self.b_error.shape[0] == num_stages
+        assert self.c.shape[0] + 1 == num_stages
         assert np.allclose(sum(self.b_sol), 1.0)
 
-        assert self.cfs_bm.check() == self.b_sol.shape[0]
+        assert self.coeffs_w.check() == num_stages
+        if self.coeffs_hh is not None:
+            assert type(self.coeffs_hh) is type(self.coeffs_w)
+            assert self.coeffs_hh.check() == num_stages
+        if self.coeffs_kk is not None:
+            assert type(self.coeffs_kk) is type(self.coeffs_w)
+            assert self.coeffs_kk.check() == num_stages
 
-        if self.b_error is not None and (not self.is_additive_noise):
-            assert self.cfs_bm.has_error_estimate
+        if self.b_error is not None and (not self.is_additive_noise()):
+            assert self.coeffs_w.b_error is not None
 
         if self.ignore_stage_f is not None:
             assert len(self.ignore_stage_f) == len(self.b_sol)
         if self.ignore_stage_g is not None:
             assert len(self.ignore_stage_g) == len(self.b_sol)
+        if self.ignore_stage_f is not None and self.ignore_stage_g is not None:
+            assert np.all(self.ignore_stage_f | self.ignore_stage_g)
 
 
-StochasticButcherTableau.__init__.__doc__ = """**Arguments:**
+StochasticButcherTableau.__init__.__doc__ = """The coefficients of a
+[`diffrax.AbstractSRK`][] method.
+
+See the documentation for [`diffrax.AbstractSRK`][] for additional details on the
+mathematical meaning of each of these arguments.
+
+**Arguments:**
 
 Let `s` denote the number of stages of the solver.
 
-- `a`: The lower triangle (without the diagonal) of the Butcher tableau. Should
-    be a tuple of NumPy arrays, corresponding to the rows of this lower triangle. The
-    first array should be of shape `(1,)`. Each subsequent array should
+- `a`: The lower triangle (without the diagonal) of the Butcher tableau for the drift
+    term. Should be a tuple of NumPy arrays, corresponding to the rows of this lower
+    triangle. The first array should be of shape `(1,)`. Each subsequent array should
     be of shape `(2,)`, `(3,)` etc. The final array should have shape `(s - 1,)`.
-- `b_sol`: The linear combination of stages to take to produce the output at each step.
-    Should be a NumPy array of shape `(s,)`.
+- `b_sol`: The linear combination of drift stages to take to produce the output at each
+    step. Should be a NumPy array of shape `(s,)`.
 - `b_error`: The linear combination of stages to take to produce the error estimate at
     each step. Should be a NumPy array of shape `(s,)`. Note that this is *not*
     differenced against `b_sol` prior to evaluation. (i.e. `b_error` gives the linear
@@ -307,8 +205,8 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     We construct the SRK with $s$ stages as follows:
 
     $y_{n+1} = y_n + h \Big(\sum_{j=1}^s b_j f_j \Big)
-    + W_n \Big(\sum_{i=1}^{j-1} b^W_j g_i \Big)
-    + H_n \Big(\sum_{i=1}^{j-1} b^H_j g_i \Big)$
+    + W_n \Big(\sum_{j=1}^s b^W_j g_j \Big)
+    + H_n \Big(\sum_{j=1}^s b^H_j g_j \Big)$
 
     $f_j = f(t_0 + c_j h , z_j)$
 
@@ -341,12 +239,12 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     the form $(g(t_{n+1}) - g(t_n)) \, (\frac{1}{2} W_n - H_n)$.
 
     The coefficients are provided in the [`diffrax.StochasticButcherTableau`][].
-    In particular the coefficients b^W, and a^W are provided in `tableau.cfs_bm`,
-    as well as b^H, a^H, b^K, and a^K if needed.
+    In particular the coefficients $b^W$, and $a^W$ are provided in `tableau.cfs_bm`,
+    as well as $b^H$, $a^H$, $b^K$, and $a^K$ if needed.
     """
 
     interpolation_cls = LocalLinearInterpolation
-    term_compatible_contr_kwargs = dict(use_levy=True)
+    term_compatible_contr_kwargs = (dict(), dict(use_levy=True))
     tableau: AbstractClassVar[StochasticButcherTableau]
 
     # Indicates the type of Levy area used by the solver.
@@ -357,23 +255,20 @@ class AbstractSRK(AbstractSolver[_SolverState]):
     # what kind of BM to use.
     @property
     def minimal_levy_area(self) -> type[AbstractBrownianIncrement]:
-        if isinstance(
-            self.tableau.cfs_bm,
-            _AbstractSTTLATableau,
-        ):
+        if self.tableau.coeffs_kk is not None:
             return AbstractSpaceTimeTimeLevyArea
-        elif isinstance(self.tableau.cfs_bm, _AbstractSTLATableau):
+        elif self.tableau.coeffs_hh is not None:
             return AbstractSpaceTimeLevyArea
         else:
             return AbstractBrownianIncrement
 
     @property
     def term_structure(self):
-        return MultiTerm[tuple[ODETerm, ControlTerm[Any, self.minimal_levy_area]]]
+        return MultiTerm[tuple[ODETerm, AbstractTerm[Any, self.minimal_levy_area]]]
 
     def init(
         self,
-        terms: MultiTerm[tuple[ODETerm, ControlTerm[Any, AbstractBrownianIncrement]]],
+        terms: MultiTerm[tuple[ODETerm, AbstractTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         t1: RealScalarLike,
         y0: Y,
@@ -382,18 +277,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # Check that the diffusion has the correct Levy area
         _, diffusion = terms.terms
 
-        is_bm = lambda x: isinstance(x, AbstractBrownianPath)
-        leaves = jtu.tree_leaves(diffusion, is_leaf=is_bm)
-        paths = [x for x in leaves if is_bm(x)]
-        for path in paths:
-            assert issubclass(path.levy_area, self.minimal_levy_area), (
-                f"The diffusion term should be controlled by a Brownian path,"
-                f" initialised with"
-                f"`levy_area='{self.minimal_levy_area.__name__}'` or a subclass of it."
-                f"Got {path.levy_area.__name__}."
-            )
-
-        if self.tableau.is_additive_noise:
+        if self.tableau.is_additive_noise():
             # check that the vector field of the diffusion term does not depend on y
             ones_like_y0 = jtu.tree_map(jnp.ones_like, y0)
             _, y_sigma = eqx.filter_jvp(
@@ -417,7 +301,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     def step(
         self,
-        terms: MultiTerm[tuple[ODETerm, ControlTerm[Any, AbstractBrownianIncrement]]],
+        terms: MultiTerm[tuple[ODETerm, AbstractTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         t1: RealScalarLike,
         y0: Y,
@@ -429,14 +313,14 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
         dtype = jnp.result_type(*jtu.tree_leaves(y0))
         drift, diffusion = terms.terms
-        if self.tableau.ignore_stage_f is not None:
-            ignore_stage_f = jnp.array(self.tableau.ignore_stage_f)
-        else:
+        if self.tableau.ignore_stage_f is None:
             ignore_stage_f = None
-        if self.tableau.ignore_stage_g is not None:
-            ignore_stage_g = jnp.array(self.tableau.ignore_stage_g)
         else:
+            ignore_stage_f = jnp.array(self.tableau.ignore_stage_f)
+        if self.tableau.ignore_stage_g is None:
             ignore_stage_g = None
+        else:
+            ignore_stage_g = jnp.array(self.tableau.ignore_stage_g)
 
         # time increment
         h = t1 - t0
@@ -464,29 +348,25 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # Now the diffusion related stuff
         # Brownian increment (and space-time Lévy area)
         bm_inc = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(bm_inc, self.minimal_levy_area), (
-            f"The diffusion term should be controlled by a Brownian path,"
-            f" initialised with"
-            f"`levy_area='{self.minimal_levy_area.__name__}'` or a subclass of it."
-            f"Got {bm_inc.__class__.__name__}."
-        )
+        assert isinstance(bm_inc, self.minimal_levy_area)
         w = bm_inc.W
 
         # b looks similar regardless of whether we have additive noise or not
-        cfs_bm = self.tableau.cfs_bm
-        b_w = jnp.asarray(cfs_bm.b_w, dtype=dtype)
+        b_w = jnp.asarray(self.tableau.coeffs_w.b_sol, dtype=dtype)
         b_levy_list = []
 
         levy_areas = []
-        if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
-            assert isinstance(bm_inc, SpaceTimeLevyArea)
+        if self.tableau.coeffs_hh is not None:  # space-time Levy area
+            assert isinstance(bm_inc, AbstractSpaceTimeLevyArea)
             levy_areas.append(bm_inc.H)
-            b_levy_list.append(jnp.asarray(cfs_bm.b_hh, dtype=dtype))
+            b_levy_list.append(jnp.asarray(self.tableau.coeffs_hh.b_sol, dtype=dtype))
 
-            if isinstance(cfs_bm, _AbstractSTTLATableau):  # space-time-time Levy area
-                assert isinstance(bm_inc, SpaceTimeTimeLevyArea)
+            if self.tableau.coeffs_kk is not None:  # space-time-time Levy area
+                assert isinstance(bm_inc, AbstractSpaceTimeTimeLevyArea)
                 levy_areas.append(bm_inc.K)
-                b_levy_list.append(jnp.asarray(cfs_bm.b_kk, dtype=dtype))
+                b_levy_list.append(
+                    jnp.asarray(self.tableau.coeffs_kk.b_sol, dtype=dtype)
+                )
 
         def add_levy_to_w(_cw, *_c_levy):
             def aux_add_levy(w_leaf, *levy_leaves):
@@ -503,7 +383,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         # where levy is either H or K (if those entries exist)
         # this is similar to h_kfs or w_kgs, but for the Levy area(s)
 
-        if cfs_bm.is_additive_noise:  # additive noise
+        if self.tableau.is_additive_noise():  # additive noise
             # compute g once since it is constant
 
             @jax.vmap
@@ -515,17 +395,17 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # g_delta = 0.5 * g1 - g0
             g_delta = jtu.tree_map(lambda g_leaf: 0.5 * (g_leaf[1] - g_leaf[0]), g0_g1)
             w_kgs = diffusion.prod(g0, w)
-            a_w = jnp.asarray(cfs_bm.a_w, dtype=dtype)
+            a_w = jnp.asarray(self.tableau.coeffs_w.a, dtype=dtype)
 
-            if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
-                assert isinstance(bm_inc, SpaceTimeLevyArea)
+            if self.tableau.coeffs_hh is not None:  # space-time Levy area
+                assert isinstance(bm_inc, AbstractSpaceTimeLevyArea)
                 levylist_kgs.append(diffusion.prod(g0, bm_inc.H))
-                a_levy.append(jnp.asarray(cfs_bm.a_hh, dtype=dtype))
+                a_levy.append(jnp.asarray(self.tableau.coeffs_hh.a, dtype=dtype))
 
-            if isinstance(cfs_bm, _AbstractSTTLATableau):  # space-time-time Levy area
-                assert isinstance(bm_inc, SpaceTimeTimeLevyArea)
+            if self.tableau.coeffs_kk is not None:  # space-time-time Levy area
+                assert isinstance(bm_inc, AbstractSpaceTimeTimeLevyArea)
                 levylist_kgs.append(diffusion.prod(g0, bm_inc.K))
-                a_levy.append(jnp.asarray(cfs_bm.a_kk, dtype=dtype))
+                a_levy.append(jnp.asarray(self.tableau.coeffs_kk.a, dtype=dtype))
 
             carry: _CarryType = (h_kfs, None, None)
 
@@ -538,15 +418,15 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # we initialise a list of zeros of the same shape as y0, which will get
             # filled with the values of W * g(t0 + c_j * h, z_j) at each stage
             w_kgs = make_zeros()
-            a_w = self._embed_a_lower(cfs_bm.a_w, dtype)
+            a_w = self._embed_a_lower(self.tableau.coeffs_w.a, dtype)
 
             # do the same for each type of Levy area
-            if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
+            if self.tableau.coeffs_hh is not None:  # space-time Levy area
                 levylist_kgs.append(make_zeros())
-                a_levy.append(self._embed_a_lower(cfs_bm.a_hh, dtype))
-            if isinstance(cfs_bm, _AbstractSTTLATableau):  # space-time-time Levy area
+                a_levy.append(self._embed_a_lower(self.tableau.coeffs_hh.a, dtype))
+            if self.tableau.coeffs_kk is not None:  # space-time-time Levy area
                 levylist_kgs.append(make_zeros())
-                a_levy.append(self._embed_a_lower(cfs_bm.a_kk, dtype))
+                a_levy.append(self._embed_a_lower(self.tableau.coeffs_kk.a, dtype))
 
             carry: _CarryType = (h_kfs, w_kgs, levylist_kgs)
 
@@ -582,7 +462,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # same for aK_j, but for space-time-time Lévy area K.
             _h_kfs, _w_kgs, _levylist_kgs = _carry
 
-            if cfs_bm.is_additive_noise:  # additive noise
+            if self.tableau.is_additive_noise():
                 # carry = (_h_kfs, None, None) where
                 # _h_kfs = Array[h_kf_1, h_kf_2, ..., hk_{j-1}, 0, 0, ..., 0]
                 # h_kf_i = drift.vf_prod(t0 + c_i*h, y_i, args, h)
@@ -635,7 +515,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
                     _h_kfs,
                 )
 
-            if cfs_bm.is_additive_noise:  # additive noise
+            if self.tableau.is_additive_noise():
                 return (_h_kfs, None, None), None
 
             def compute_and_insert_kg_j(_w_kgs_in, _levylist_kgs_in):
@@ -673,7 +553,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             checkpoints="all",
         )
 
-        if cfs_bm.is_additive_noise:
+        if self.tableau.is_additive_noise():
             # output of lax.scan is ((num_stages, _h_kfs), None)
             (h_kfs, _, _), _ = scan_out
             diffusion_result = jtu.tree_map(
@@ -685,8 +565,8 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             # In the additive noise case (i.e. when g is independent of y),
             # we still need a correction term in case the diffusion vector field
             # g depends on t. This term is of the form $(g1 - g0) * (0.5*W_n - H_n)$.
-            if isinstance(cfs_bm, _AbstractSTLATableau):  # space-time Levy area
-                assert isinstance(bm_inc, SpaceTimeLevyArea)
+            if self.tableau.coeffs_hh is not None:  # space-time Levy area
+                assert isinstance(bm_inc, AbstractSpaceTimeLevyArea)
                 time_var_contr = (bm_inc.W**ω - 2.0 * bm_inc.H**ω).ω
                 time_var_term = diffusion.prod(g_delta, time_var_contr)
             else:
@@ -713,18 +593,18 @@ class AbstractSRK(AbstractSolver[_SolverState]):
         else:
             b_err = jnp.asarray(self.tableau.b_error, dtype=dtype)
             drift_error = sum_prev_stages(h_kfs, b_err)
-            if cfs_bm.has_error_estimate:
-                get_err_w = cfs_bm.get_b_error_w
+            if self.tableau.coeffs_w.b_error is not None:
+                get_err_w = self.tableau.coeffs_w.b_error
                 assert get_err_w is not None
                 bw_err = jnp.asarray(get_err_w, dtype=dtype)
                 w_err = sum_prev_stages(w_kgs, bw_err)
                 b_levy_err_list = []
-                if isinstance(cfs_bm, _AbstractSTLATableau):
-                    get_err_hh = cfs_bm.get_b_error_hh
+                if self.tableau.coeffs_hh is not None:
+                    get_err_hh = self.tableau.coeffs_hh.b_error
                     assert get_err_hh is not None
                     b_levy_err_list.append(jnp.asarray(get_err_hh, dtype=dtype))
-                if isinstance(cfs_bm, _AbstractSTTLATableau):
-                    get_err_kk = cfs_bm.get_b_error_kk
+                if self.tableau.coeffs_kk is not None:
+                    get_err_kk = self.tableau.coeffs_kk.b_error
                     assert get_err_kk is not None
                     b_levy_err_list.append(jnp.asarray(get_err_kk, dtype=dtype))
                 levy_err = [
@@ -748,7 +628,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     def func(
         self,
-        terms: AbstractTerm,
+        terms: MultiTerm[tuple[ODETerm, AbstractTerm[Any, AbstractBrownianIncrement]]],
         t0: RealScalarLike,
         y0: Y,
         args: PyTree,
