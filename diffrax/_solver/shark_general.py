@@ -38,9 +38,18 @@ class GeneralShARK(AbstractSRK, AbstractStratonovichSolver):
     additive noise.
 
     Makes two evaluations of the drift and three evaluations of the diffusion per step.
-    For additive SDEs this has strong order 1.5. For general SDEs this has strong order
-    0.5, but with a good coefficient in front (similar to making three steps of
-    [`diffrax.Heun`][]).
+    Has the following orders of convergence:
+
+    - 1.5 for SDEs with additive noise (but [`diffrax.ShARK`][] is recommended instead)
+    - 1.0 for Stratonovich SDEs with commutative noise
+    ([`diffrax.SlowRK`][] is recommended instead)
+    - 0.5 for Stratonovich SDEs with general noise.
+
+    For general Stratonovich SDEs this is equally precise as three steps of
+    [`diffrax.Heun`][] or a single step of [`diffrax.SPaRK`][], while requiring
+    one fewer evaluation of the drift, so this is the recommended choice for general
+    SDEs with an expensive drift vector field. If embedded error estimation is needed
+    (e.g. for adaptive time-stepping) then [`diffrax.SPaRK`][] is recommended instead.
 
     ??? cite "Reference"
 
