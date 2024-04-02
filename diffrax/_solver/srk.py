@@ -141,18 +141,25 @@ class StochasticButcherTableau(Generic[_Coeffs]):
             assert type(self.coeffs_hh) is type(self.coeffs_w)
             assert self.coeffs_hh.check() == num_stages
         if self.coeffs_kk is not None:
+            assert self.coeffs_hh is not None, (
+                "If space-time-time Levy area (K) is used,"
+                " space-time Levy area (H) must also be used."
+            )
             assert type(self.coeffs_kk) is type(self.coeffs_w)
             assert self.coeffs_kk.check() == num_stages
 
         if self.b_error is not None and (not self.is_additive_noise()):
             assert self.coeffs_w.b_error is not None
+            assert (self.coeffs_hh is None) or (self.coeffs_hh.b_error is not None)
+            assert (self.coeffs_kk is None) or (self.coeffs_kk.b_error is not None)
 
         if self.ignore_stage_f is not None:
             assert len(self.ignore_stage_f) == len(self.b_sol)
         if self.ignore_stage_g is not None:
             assert len(self.ignore_stage_g) == len(self.b_sol)
         if self.ignore_stage_f is not None and self.ignore_stage_g is not None:
-            assert np.all(self.ignore_stage_f | self.ignore_stage_g)
+            # Check that no stages are ignored for both the drift and diffusion
+            assert not np.any(self.ignore_stage_f & self.ignore_stage_g)
 
 
 StochasticButcherTableau.__init__.__doc__ = """The coefficients of a

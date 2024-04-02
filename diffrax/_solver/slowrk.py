@@ -6,10 +6,6 @@ from .base import AbstractStratonovichSolver
 from .srk import AbstractSRK, GeneralCoeffs, StochasticButcherTableau
 
 
-# TODO: maybe this solver should use a custom implementation, not going via
-# `AbstractSRK`? Its tableaus have huge amounts of sparsity due to its odd structure.
-
-
 _coeffs_w = GeneralCoeffs(
     a=(
         np.array([0.0]),
@@ -65,6 +61,8 @@ class SlowRK(AbstractSRK, AbstractStratonovichSolver):
     strongly with order 0.5.
 
     This solver is an excellent choice for Stratonovich SDEs with commutative noise.
+    For non-commutative Stratonovich SDEs, consider using [`GeneralShARK`][] or
+    [`diffrax.SPaRK`][] instead.
 
     ??? cite "Reference"
 
