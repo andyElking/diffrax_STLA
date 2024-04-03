@@ -61,8 +61,8 @@ class SlowRK(AbstractSRK, AbstractStratonovichSolver):
     strongly with order 0.5.
 
     This solver is an excellent choice for Stratonovich SDEs with commutative noise.
-    For non-commutative Stratonovich SDEs, consider using [`GeneralShARK`][] or
-    [`diffrax.SPaRK`][] instead.
+    For non-commutative Stratonovich SDEs, consider using [`diffrax.GeneralShARK`][]
+    or [`diffrax.SPaRK`][] instead.
 
     ??? cite "Reference"
 
