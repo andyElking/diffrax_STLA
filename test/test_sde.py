@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import pytest
-from diffrax import ControlTerm, MultiTerm, ODETerm
+from diffrax import ControlTerm, MultiTerm, ODETerm, WeaklyDiagonalControlTerm
 
 from .helpers import (
     get_mlp_sde,
@@ -221,3 +221,33 @@ def test_sde_solver_shape(shape, solver_ctr):
     assert jtu.tree_structure(solution.ys) == jtu.tree_structure(y0)
     for leaf in jtu.tree_leaves(solution.ys):
         assert leaf[0].shape == shape
+
+
+@pytest.mark.parametrize("solver_ctr", _solvers())
+def test_weakly_diagonal_noise(solver_ctr):
+    dtype = jnp.float64
+    w_shape = (3,)
+    args = (0.5, 1.2)
+
+    def _diffusion(t, y, args):
+        a, b = args
+        return jnp.array([b, t, 1 / (t + 1.0)], dtype=dtype)
+
+    def _drift(t, y, args):
+        a, b = args
+        return -a * y
+
+    y0 = jnp.ones(w_shape, dtype)
+
+    bm = diffrax.VirtualBrownianTree(
+        0.0, 1.0, 0.05, w_shape, jr.PRNGKey(0), diffrax.SpaceTimeLevyArea
+    )
+
+    terms = MultiTerm(ODETerm(_drift), WeaklyDiagonalControlTerm(_diffusion, bm))
+    solver = solver_ctr()
+    saveat = diffrax.SaveAt(t1=True)
+    solution = diffrax.diffeqsolve(
+        terms, solver, 0.0, 1.0, 0.1, y0, args, saveat=saveat
+    )
+    assert solution.ys is not None
+    assert solution.ys.shape == (1, 3)
