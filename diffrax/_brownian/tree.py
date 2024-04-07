@@ -458,7 +458,10 @@ class VirtualBrownianTree(AbstractBrownianPath):
             elif self._spline == "zero":
                 hat_y = jnp.zeros(shape=shape + (3,), dtype=dtype)
             else:
-                assert False
+                raise ValueError(
+                    f"When levy_area='space-time-time', only 'sqrt' and"
+                    f" 'zero' splines are permitted, got {self._spline}."
+                )
 
             hat_w_sr, hat_hh_sr, hat_kk_sr = [
                 x.squeeze(axis=-1) for x in jnp.split(hat_y, 3, axis=-1)
