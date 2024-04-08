@@ -4,3 +4,4 @@ from .adaptive import (
 )
 from .base import AbstractStepSizeController as AbstractStepSizeController
 from .constant import ConstantStepSize as ConstantStepSize, StepTo as StepTo
+from .sabr_adaptive import SABRController as SABRController

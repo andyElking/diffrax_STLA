@@ -115,6 +115,7 @@ from ._step_size_controller import (
     ConstantStepSize as ConstantStepSize,
     PIDController as PIDController,
     StepTo as StepTo,
+    SABRController as SABRController,
 )
 from ._term import (
     AbstractTerm as AbstractTerm,
