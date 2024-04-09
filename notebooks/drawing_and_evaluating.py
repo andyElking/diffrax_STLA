@@ -123,3 +123,23 @@ def pid_strong_order(keys, sde, solver, levels, bm_tol=2**-14):
     return simple_sde_order(
         keys, sde, solver, solver, levels, get_pid, saveat_pid, bm_tol
     )
+
+
+def save_order_results(order_results, name):
+    steps, errs, order = order_results
+    filename = f"order_results_{name}.npy"
+    with open(filename, "wb") as f:
+        np.save(f, steps)
+        np.save(f, errs)
+        np.save(f, order)
+    print(f"Saved {filename}")
+
+
+def load_order_results(name):
+    filename = f"order_results_{name}.npy"
+    with open(filename, "rb") as f:
+        steps = np.load(f)
+        errs = np.load(f)
+        order = np.load(f)
+    print(f"Loaded {filename}")
+    return steps, errs, order

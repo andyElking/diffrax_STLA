@@ -292,7 +292,10 @@ def sde_solver_strong_order(
         )
         errs = path_l2_dist(sols, correct_sols)
         errs_list.append(errs)
-        steps_list.append(jnp.average(steps))
+        avg_steps = jnp.average(steps)
+        if isinstance(solver, diffrax.HalfSolver):
+            avg_steps *= 3
+        steps_list.append(avg_steps)
     errs_arr = jnp.array(errs_list)
     steps_arr = jnp.array(steps_list)
     order, _ = jnp.polyfit(jnp.log(1 / steps_arr), jnp.log(errs_arr), 1)

@@ -43,30 +43,23 @@ class SABRController(AbstractStepSizeController[None, Optional[RealScalarLike]])
         return jnp.clip(step_size, self.dtmin, self.dtmax)
 
     def _clip_step_ts(self, t0: RealScalarLike, t1: RealScalarLike) -> RealScalarLike:
+        # Copied from PIDController
         if self.step_ts is None:
             return t1
-
         step_ts0 = upcast_or_raise(
             self.step_ts,
             t0,
-            "`PIDController.step_ts`",
+            "`SABRController.step_ts`",
             "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
         )
         step_ts1 = upcast_or_raise(
             self.step_ts,
             t1,
-            "`PIDController.step_ts`",
+            "`SABRController.step_ts`",
             "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
         )
-        # TODO: it should be possible to switch this O(nlogn) for just O(n) by keeping
-        # track of where we were last, and using that as a hint for the next search.
         t0_index = jnp.searchsorted(step_ts0, t0, side="right")
         t1_index = jnp.searchsorted(step_ts1, t1, side="right")
-        # This minimum may or may not actually be necessary. The left branch is taken
-        # iff t0_index < t1_index <= len(self.step_ts), so all valid t0_index s must
-        # already satisfy the minimum.
-        # However, that branch is actually executed unconditionally and then where'd,
-        # so we clamp it just to be sure we're not hitting undefined behaviour.
         t1 = jnp.where(
             t0_index < t1_index,
             step_ts1[jnp.minimum(t0_index, len(self.step_ts) - 1)],

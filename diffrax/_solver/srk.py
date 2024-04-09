@@ -271,7 +271,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
 
     @property
     def term_structure(self):
-        return MultiTerm[tuple[ODETerm, AbstractTerm[Any, self.minimal_levy_area]]]
+        return MultiTerm[tuple[ODETerm, AbstractTerm]]
 
     def init(
         self,
