@@ -8,23 +8,45 @@ from diffrax import PIDController
 from matplotlib import animation, pyplot as plt  # type: ignore
 
 
+markers = [
+    ",",
+    "o",
+    "v",
+    "+",
+    "x",
+    "*",
+    "^",
+    "<",
+    ">",
+    "h",
+    "H",
+    "X",
+    "D",
+    "d",
+    "|",
+    "_",
+]
+
+
 def draw_order_multiple_dict(results_dict: dict, title: Optional[str] = None):
     plt.figure(dpi=200)
     if title is not None:
         plt.title(title)
 
     orders = "Orders:\n"
-    for name, result in results_dict.items():
+    for i, (name, result) in enumerate(results_dict.items()):
         steps, errs, _ = result
         if "SPaRK" in name:
             num_evals = 3 * steps
+        elif "Heun" in name:
+            num_evals = 2 * steps
         else:
             num_evals = steps
         trend = np.polyfit(-np.log(num_evals), np.log(errs), 1)
         order, _ = trend
         trend_f = np.poly1d(trend)
         # plot the points
-        plt.scatter(num_evals, errs, label=f"{name}: {order:.2f}")
+        plt.scatter(num_evals, errs, label=f"{name}: {order:.2f}", marker=markers[i])
         # plot the trend line
         plt.plot(num_evals, np.exp(trend_f(-np.log(num_evals))))
         orders += f"{name}: {order:.2f}\n"

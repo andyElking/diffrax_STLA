@@ -31,6 +31,7 @@ class SABRController(AbstractStepSizeController[None, Optional[RealScalarLike]])
     step_ts: Optional[Real[Array, " steps"]] = eqx.field(
         default=None, converter=_none_or_array
     )
+    previsible: bool = eqx.field(default=False)
 
     def wrap(self, direction: IntScalarLike) -> "AbstractStepSizeController":
         return self
@@ -104,12 +105,15 @@ class SABRController(AbstractStepSizeController[None, Optional[RealScalarLike]])
     ]:
         del args, y_error, error_order, controller_state
         assert y0.shape == (2,)
-        v0 = y0[1]
         v1 = y1_candidate[1]
+        accepted_desired = self.desired_step_size(v1)
+        if self.previsible:
+            new_t1 = self._clip_step_ts(t1, t1 + accepted_desired)
+            return True, t1, new_t1, False, None, RESULTS.successful
+
+        v0 = y0[1]
         v_max = jnp.maximum(v0, v1)
         desired = self.desired_step_size(v_max)
-        accepted_desired = self.desired_step_size(v1)
-
         accept = t1 - t0 < 1.1 * desired
         new_t0 = jnp.where(accept, t1, t0)
         new_dt = jnp.where(accept, accepted_desired, desired)
