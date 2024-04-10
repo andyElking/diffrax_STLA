@@ -1,4 +1,5 @@
 from test.helpers import simple_sde_order
+from typing import Optional
 
 import diffrax
 import jax.numpy as jnp
@@ -7,25 +8,39 @@ from diffrax import PIDController
 from matplotlib import animation, pyplot as plt  # type: ignore
 
 
-def draw_order_multiple(results_list, names_list, title=None):
+def draw_order_multiple_dict(results_dict: dict, title: Optional[str] = None):
     plt.figure(dpi=200)
     if title is not None:
         plt.title(title)
 
     orders = "Orders:\n"
-    for results, name in zip(results_list, names_list):
-        steps, errs, order = results
-        plt.scatter(steps, errs, label=f"{name}: {order:.2f}")
-        trend = np.polyfit(-np.log(steps), np.log(errs), 1)
+    for name, result in results_dict.items():
+        steps, errs, _ = result
+        if "SPaRK" in name:
+            num_evals = 3 * steps
+        else:
+            num_evals = steps
+        trend = np.polyfit(-np.log(num_evals), np.log(errs), 1)
+        order, _ = trend
         trend_f = np.poly1d(trend)
-        plt.plot(steps, np.exp(trend_f(-np.log(steps))))
+        # plot the points
+        plt.scatter(num_evals, errs, label=f"{name}: {order:.2f}")
+        # plot the trend line
+        plt.plot(num_evals, np.exp(trend_f(-np.log(num_evals))))
         orders += f"{name}: {order:.2f}\n"
     plt.yscale("log")
     plt.xscale("log")
     plt.ylabel("RMS error")
-    plt.xlabel("average number of steps")
+    plt.xlabel("average number of vector field evaluations")
     plt.legend()
     plt.show()
+
+
+def draw_order_multiple(
+    results_list: list, names_list: list, title: Optional[str] = None
+):
+    results_dict = {result: name for result, name in zip(results_list, names_list)}
+    draw_order_multiple_dict(results_dict, title)
 
 
 def plot_sol_general(sol):

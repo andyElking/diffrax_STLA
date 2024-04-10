@@ -195,7 +195,13 @@ def _batch_sde_solve(
         stepsize_controller=controller,
         saveat=saveat,
     )
-    return sol.ys, sol.stats["num_accepted_steps"]
+    steps = sol.stats["num_accepted_steps"]
+    if isinstance(solver, diffrax.HalfSolver):
+        if isinstance(solver.solver, diffrax.SPaRK):
+            steps *= 8 / 3
+        else:
+            steps *= 3
+    return sol.ys, steps
 
 
 def _resulting_levy_area(
@@ -292,10 +298,7 @@ def sde_solver_strong_order(
         )
         errs = path_l2_dist(sols, correct_sols)
         errs_list.append(errs)
-        avg_steps = jnp.average(steps)
-        if isinstance(solver, diffrax.HalfSolver):
-            avg_steps *= 3
-        steps_list.append(avg_steps)
+        steps_list.append(jnp.mean(steps))
     errs_arr = jnp.array(errs_list)
     steps_arr = jnp.array(steps_list)
     order, _ = jnp.polyfit(jnp.log(1 / steps_arr), jnp.log(errs_arr), 1)
