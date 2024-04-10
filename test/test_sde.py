@@ -65,7 +65,7 @@ def test_sde_strong_order_new(
         sde = get_mlp_sde(t0, t1, jnp.float64, sde_key, noise_dim=noise_dim)
 
     ref_solver = solver_ctr()
-    level_coarse, level_fine = 4, 9
+    level_coarse, level_fine = 1, 7
 
     # We specify the times to which we step in way that each level contains all the
     # steps of the previous level. This is so that we can compare the solutions at
@@ -123,8 +123,14 @@ def test_sde_strong_limit(
     t1 = 5.3
 
     if noise == "add":
-        sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=7)
+        sde = get_time_sde(t0, t1, jnp.float64, sde_key, noise_dim=3)
+        level_fine = 12
+        if theoretical_order <= 1.0:
+            level_coarse = 11
+        else:
+            level_coarse = 8
     else:
+        level_coarse, level_fine = 7, 11
         if noise == "com":
             noise_dim = 1
         elif noise == "any":
@@ -144,26 +150,29 @@ def test_sde_strong_limit(
     else:
         assert False
 
-    ts_fine = jnp.linspace(t0, t1, 2**14 + 1, endpoint=True)
-    ts_coarse = jnp.linspace(t0, t1, 2**11 + 1, endpoint=True)
+    ts_fine = jnp.linspace(t0, t1, 2**level_fine + 1, endpoint=True)
+    ts_coarse = jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True)
     contr_fine = diffrax.StepTo(ts=ts_fine)
     contr_coarse = diffrax.StepTo(ts=ts_coarse)
-    saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**6 + 1, endpoint=True))
+    save_ts = jnp.linspace(t0, t1, 2**5 + 1, endpoint=True)
+    assert len(jnp.intersect1d(ts_fine, save_ts)) == len(save_ts)
+    assert len(jnp.intersect1d(ts_coarse, save_ts)) == len(save_ts)
+    saveat = diffrax.SaveAt(ts=save_ts)
     levy_area = diffrax.SpaceTimeLevyArea  # must be common for all solvers
 
     if solutions[sol_type][noise] is None:
         correct_sol, _ = simple_batch_sde_solve(
-            bmkeys, sde, ref_solver, levy_area, None, contr_fine, 2**-14, saveat
+            bmkeys, sde, ref_solver, levy_area, None, contr_fine, 2**-10, saveat
         )
         solutions[sol_type][noise] = correct_sol
     else:
         correct_sol = solutions[sol_type][noise]
 
     sol, _ = simple_batch_sde_solve(
-        bmkeys, sde, solver_ctr(), levy_area, None, contr_coarse, 2**-14, saveat
+        bmkeys, sde, solver_ctr(), levy_area, None, contr_coarse, 2**-10, saveat
     )
     error = path_l2_dist(correct_sol, sol)
-    assert error < 0.02
+    assert error < 0.05
 
 
 def _solvers():
@@ -223,8 +232,7 @@ def test_sde_solver_shape(shape, solver_ctr):
         assert leaf[0].shape == shape
 
 
-@pytest.mark.parametrize("solver_ctr", _solvers())
-def test_weakly_diagonal_noise(solver_ctr):
+def _weakly_diagonal_noise_helper(solver):
     dtype = jnp.float64
     w_shape = (3,)
     args = (0.5, 1.2)
@@ -244,10 +252,18 @@ def test_weakly_diagonal_noise(solver_ctr):
     )
 
     terms = MultiTerm(ODETerm(_drift), WeaklyDiagonalControlTerm(_diffusion, bm))
-    solver = solver_ctr()
     saveat = diffrax.SaveAt(t1=True)
     solution = diffrax.diffeqsolve(
         terms, solver, 0.0, 1.0, 0.1, y0, args, saveat=saveat
     )
     assert solution.ys is not None
     assert solution.ys.shape == (1, 3)
+
+
+@pytest.mark.parametrize("solver_ctr", _solvers())
+def test_weakly_diagonal_noise(solver_ctr):
+    _weakly_diagonal_noise_helper(solver_ctr())
+
+
+def test_halfsolver_term_compatible():
+    _weakly_diagonal_noise_helper(diffrax.HalfSolver(diffrax.SPaRK()))

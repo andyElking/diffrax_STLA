@@ -277,6 +277,10 @@ class HalfSolver(
     def interpolation_cls(self):  # pyright: ignore
         return self.solver.interpolation_cls
 
+    @property
+    def term_compatible_contr_kwargs(self):
+        return self.solver.term_compatible_contr_kwargs
+
     def order(self, terms: PyTree[AbstractTerm]) -> Optional[int]:
         return self.solver.order(terms)
 
