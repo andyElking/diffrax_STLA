@@ -8,11 +8,12 @@ from diffrax import PIDController
 from matplotlib import animation, pyplot as plt  # type: ignore
 
 
-markers = [
+_markers = [
+    "+",
     ",",
     "o",
     "v",
-    "+",
+    ".",
     "x",
     "*",
     "^",
@@ -28,12 +29,16 @@ markers = [
 ]
 
 
-def draw_order_multiple_dict(results_dict: dict, title: Optional[str] = None):
-    plt.figure(dpi=200)
+def draw_order_multiple_dict(
+    results_dict: dict, title: Optional[str] = None, markers=_markers
+):
+    fig, ax = plt.subplots()
+    fig.set_dpi(200)
     if title is not None:
-        plt.title(title)
+        fig.title(title)
 
     orders = "Orders:\n"
+    scats = []
     for i, (name, result) in enumerate(results_dict.items()):
         steps, errs, _ = result
         if "SPaRK" in name:
@@ -46,16 +51,28 @@ def draw_order_multiple_dict(results_dict: dict, title: Optional[str] = None):
         order, _ = trend
         trend_f = np.poly1d(trend)
         # plot the points
-        plt.scatter(num_evals, errs, label=f"{name}: {order:.2f}", marker=markers[i])
+        scat = ax.scatter(
+            num_evals, errs, label=f"{name}: {order:.2f}", marker=markers[i]
+        )
+        scats.append(scat)
         # plot the trend line
-        plt.plot(num_evals, np.exp(trend_f(-np.log(num_evals))))
+        ax.plot(num_evals, np.exp(trend_f(-np.log(num_evals))), linewidth=1.0)
         orders += f"{name}: {order:.2f}\n"
-    plt.yscale("log")
-    plt.xscale("log")
-    plt.ylabel("RMS error")
-    plt.xlabel("average number of vector field evaluations")
-    plt.legend()
+    ax.set_yscale("log")
+    ax.set_xscale("log")
+    ax.set_ylabel("RMS error")
+    ax.set_xlabel("Average number of vector field evaluations")
+    ymin, ymax = ax.get_ylim()
+    ax.set_ylim([ymin, ymax])
+    xmin, xmax = ax.get_xlim()
+    ax.set_xlim([xmin / 1.6, xmax])
+    top_legend = ax.legend(
+        loc="upper right", fancybox=True, handles=scats[:3], frameon=False
+    )
+    ax.add_artist(top_legend)
+    ax.legend(loc="lower left", fancybox=True, handles=scats[3:], frameon=False)
     plt.show()
+    return fig
 
 
 def draw_order_multiple(
@@ -164,7 +181,7 @@ def pid_strong_order(keys, sde, solver, levels, bm_tol=2**-14):
 
 def save_order_results(order_results, name):
     steps, errs, order = order_results
-    filename = f"order_results_{name}.npy"
+    filename = f"order_results/order_results_{name}.npy"
     with open(filename, "wb") as f:
         np.save(f, steps)
         np.save(f, errs)
@@ -173,7 +190,7 @@ def save_order_results(order_results, name):
 
 
 def load_order_results(name):
-    filename = f"order_results_{name}.npy"
+    filename = f"order_results/order_results_{name}.npy"
     with open(filename, "rb") as f:
         steps = np.load(f)
         errs = np.load(f)

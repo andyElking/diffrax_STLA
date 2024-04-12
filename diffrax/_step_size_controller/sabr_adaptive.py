@@ -1,6 +1,7 @@
 from typing import Callable, Optional, TypeAlias
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from jax import Array
 from jaxtyping import PyTree, Real
@@ -22,6 +23,18 @@ def _none_or_array(x):
         return jnp.asarray(x)
 
 
+@jax.jit
+def inv_expx_min1_by_x(z):
+    initial = jnp.log(z)
+
+    def step(_, x):
+        exp_x = jnp.exp(x)
+        x_exp_x = x * exp_x
+        return x * (1 - (exp_x - 1 - x * z) / (x_exp_x - exp_x + 1))
+
+    return jax.lax.fori_loop(0, 10, step, initial)
+
+
 class SABRController(AbstractStepSizeController[None, Optional[RealScalarLike]]):
     """Step size controller for the CIR process."""
 
@@ -32,12 +45,18 @@ class SABRController(AbstractStepSizeController[None, Optional[RealScalarLike]])
         default=None, converter=_none_or_array
     )
     previsible: bool = eqx.field(default=False)
+    euler: bool = eqx.field(default=False)
 
     def wrap(self, direction: IntScalarLike) -> "AbstractStepSizeController":
         return self
 
-    def desired_step_size(self, v_max):
-        step_size = jnp.log(1 + self.ctol * jnp.exp(-2 * v_max))
+    def desired_step_size(self, v):
+        z = 1 + self.ctol * jnp.exp(-2 * v)
+        if self.euler:
+            step_size = inv_expx_min1_by_x(z)
+        else:
+            step_size = jnp.log(z)
+
         step_size = jnp.nan_to_num(
             step_size, nan=self.dtmin, posinf=self.dtmax, neginf=self.dtmin
         )
