@@ -27,6 +27,8 @@ _markers = [
     "|",
     "_",
 ]
+solvers_3_evals = ["SPaRK"]
+solvers_2_evals = ["Heun", "SORT", "ShOULD", "SRA1", "ShARK"]
 
 
 def draw_order_multiple_dict(
@@ -41,9 +43,9 @@ def draw_order_multiple_dict(
     scats = []
     for i, (name, result) in enumerate(results_dict.items()):
         steps, errs, _ = result
-        if "SPaRK" in name:
+        if any(solver in name for solver in solvers_3_evals):
             num_evals = 3 * steps
-        elif "Heun" in name:
+        elif any(solver in name for solver in solvers_2_evals):
             num_evals = 2 * steps
         else:
             num_evals = steps
@@ -66,9 +68,7 @@ def draw_order_multiple_dict(
     ax.set_ylim([ymin, ymax])
     xmin, xmax = ax.get_xlim()
     ax.set_xlim([xmin / 1.6, xmax])
-    ax.legend(
-        fancybox=True,
-    )
+    ax.legend(fancybox=True, fontsize="large")
     plt.show()
     return fig
 
@@ -77,7 +77,7 @@ def draw_order_multiple(
     results_list: list, names_list: list, title: Optional[str] = None
 ):
     results_dict = {name: result for result, name in zip(results_list, names_list)}
-    draw_order_multiple_dict(results_dict, title)
+    return draw_order_multiple_dict(results_dict, title)
 
 
 def plot_sol_general(sol):

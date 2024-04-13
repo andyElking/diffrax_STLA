@@ -165,7 +165,10 @@ def _sde_solve(
         stepsize_controller=controller,
         saveat=saveat,
     )
-    return sol.ys, sol.stats["num_accepted_steps"]
+    steps = sol.stats["num_accepted_steps"]
+    if isinstance(solver, diffrax.HalfSolver):
+        steps *= 3
+    return sol.ys, steps
 
 
 _batch_sde_solve = eqx.filter_jit(
