@@ -1,4 +1,5 @@
 from test.helpers import simple_sde_order
+from typing import Optional
 
 import diffrax
 import jax.numpy as jnp
@@ -7,25 +8,76 @@ from diffrax import PIDController
 from matplotlib import animation, pyplot as plt  # type: ignore
 
 
-def draw_order_multiple(results_list, names_list, title=None):
-    plt.figure(dpi=200)
+_markers = [
+    "+",
+    ",",
+    "o",
+    "v",
+    ".",
+    "x",
+    "*",
+    "^",
+    "<",
+    ">",
+    "h",
+    "H",
+    "X",
+    "D",
+    "d",
+    "|",
+    "_",
+]
+
+
+def draw_order_multiple_dict(
+    results_dict: dict, title: Optional[str] = None, markers=_markers
+):
+    fig, ax = plt.subplots()
+    fig.set_dpi(200)
     if title is not None:
-        plt.title(title)
+        ax.set_title(title)
 
     orders = "Orders:\n"
-    for results, name in zip(results_list, names_list):
-        steps, errs, order = results
-        plt.scatter(steps, errs, label=f"{name}: {order:.2f}")
-        trend = np.polyfit(-np.log(steps), np.log(errs), 1)
+    scats = []
+    for i, (name, result) in enumerate(results_dict.items()):
+        steps, errs, _ = result
+        if "SPaRK" in name:
+            num_evals = 3 * steps
+        elif "Heun" in name:
+            num_evals = 2 * steps
+        else:
+            num_evals = steps
+        trend = np.polyfit(-np.log(num_evals), np.log(errs), 1)
+        order, _ = trend
         trend_f = np.poly1d(trend)
-        plt.plot(steps, np.exp(trend_f(-np.log(steps))))
+        # plot the points
+        scat = ax.scatter(
+            num_evals, errs, label=f"{name}: {order:.2f}", marker=markers[i]
+        )
+        scats.append(scat)
+        # plot the trend line
+        ax.plot(num_evals, np.exp(trend_f(-np.log(num_evals))), linewidth=1.0)
         orders += f"{name}: {order:.2f}\n"
-    plt.yscale("log")
-    plt.xscale("log")
-    plt.ylabel("RMS error")
-    plt.xlabel("average number of steps")
-    plt.legend()
+    ax.set_yscale("log")
+    ax.set_xscale("log")
+    ax.set_ylabel("RMS error")
+    ax.set_xlabel("Average number of vector field evaluations")
+    ymin, ymax = ax.get_ylim()
+    ax.set_ylim([ymin, ymax])
+    xmin, xmax = ax.get_xlim()
+    ax.set_xlim([xmin / 1.6, xmax])
+    ax.legend(
+        fancybox=True,
+    )
     plt.show()
+    return fig
+
+
+def draw_order_multiple(
+    results_list: list, names_list: list, title: Optional[str] = None
+):
+    results_dict = {name: result for result, name in zip(results_list, names_list)}
+    draw_order_multiple_dict(results_dict, title)
 
 
 def plot_sol_general(sol):
@@ -100,13 +152,13 @@ def constant_step_strong_order(keys, sde, solver, levels, bm_tol=None):
 
     _saveat = diffrax.SaveAt(ts=_step_ts(levels[0]))
     if bm_tol is None:
-        bm_tol = (sde.t1 - sde.t0) * (2 ** -(levels[1] + 8))
+        bm_tol = (sde.t1 - sde.t0) * (2 ** -(levels[1] + 3))
     return simple_sde_order(
         keys, sde, solver, solver, levels, get_controller, _saveat, bm_tol
     )  # returns steps, errs, order
 
 
-def pid_strong_order(keys, sde, solver, levels, bm_tol=2**-18):
+def pid_strong_order(keys, sde, solver, levels, bm_tol=2**-14):
     save_ts_pid = jnp.linspace(sde.t0, sde.t1, 65, endpoint=True)
 
     def get_pid(level):
@@ -123,3 +175,23 @@ def pid_strong_order(keys, sde, solver, levels, bm_tol=2**-18):
     return simple_sde_order(
         keys, sde, solver, solver, levels, get_pid, saveat_pid, bm_tol
     )
+
+
+def save_order_results(order_results, name):
+    steps, errs, order = order_results
+    filename = f"order_results/order_results_{name}.npy"
+    with open(filename, "wb") as f:
+        np.save(f, steps)
+        np.save(f, errs)
+        np.save(f, order)
+    print(f"Saved {filename}")
+
+
+def load_order_results(name):
+    filename = f"order_results/order_results_{name}.npy"
+    with open(filename, "rb") as f:
+        steps = np.load(f)
+        errs = np.load(f)
+        order = np.load(f)
+    print(f"Loaded {filename}")
+    return steps, errs, order

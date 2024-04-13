@@ -48,20 +48,20 @@ class HOStS(AbstractStratonovichSolver):
 
     term_structure = MultiTerm[tuple[ODETerm, AbstractTerm]]
     interpolation_cls = LocalLinearInterpolation
-    half_stepping: bool = eqx.field(static=True)
-    negative_error_multiplier: RealScalarLike = eqx.field(static=True)
+    half_stepping: bool = eqx.field(static=True, default=False)
+    negative_error_multiplier: RealScalarLike = eqx.field(static=True, default=0.0)
 
     @staticmethod
     def minimal_levy_area():
         return "space-time"
 
-    def __init__(
-        self,
-        negative_error_multiplier: RealScalarLike = 0.0,
-        half_stepping: bool = False,
-    ):
-        self.half_stepping = half_stepping
-        self.negative_error_multiplier = negative_error_multiplier
+    # def __init__(
+    #     self,
+    #     negative_error_multiplier: RealScalarLike = 0.0,
+    #     half_stepping: bool = False,
+    # ):
+    #     self.half_stepping = half_stepping
+    #     self.negative_error_multiplier = negative_error_multiplier
 
     def order(self, terms):
         return 2

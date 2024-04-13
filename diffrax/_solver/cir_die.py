@@ -1,5 +1,7 @@
+from typing import Optional
 from typing_extensions import TypeAlias
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
@@ -17,7 +19,7 @@ from .._term import AbstractTerm, MultiTerm, ODETerm
 from .base import AbstractStratonovichSolver
 
 
-_ErrorEstimate: TypeAlias = Y
+_ErrorEstimate: TypeAlias = Optional[Y]
 _SolverState: TypeAlias = Y
 
 
@@ -27,6 +29,7 @@ class DriftImplicitEulerCIR(AbstractStratonovichSolver):
 
     term_structure = MultiTerm[tuple[ODETerm, AbstractTerm]]
     interpolation_cls = LocalLinearInterpolation
+    half_stepping: bool = eqx.field(static=True, default=False)
 
     def order(self, terms):
         return 1
@@ -88,15 +91,19 @@ class DriftImplicitEulerCIR(AbstractStratonovichSolver):
         assert isinstance(y0, jax.Array)
         assert y0.shape == ()
 
-        dt = t1 - t0
         y_coarse = self._substep(terms, t0, t1, y0, args)
         x_coarse = jnp.square(y_coarse)
-        t_half = t0 + dt / 2.0
-        y_half = self._substep(terms, t0, t_half, y0, args)
-        y1 = self._substep(terms, t_half, t1, y_half, args)
-        x1 = jnp.square(y1)
-
-        error = jnp.abs(x1 - x_coarse)
+        if self.half_stepping:
+            dt = t1 - t0
+            t_half = t0 + dt / 2.0
+            y_half = self._substep(terms, t0, t_half, y0, args)
+            y1 = self._substep(terms, t_half, t1, y_half, args)
+            x1 = jnp.square(y1)
+            error = jnp.abs(x1 - x_coarse)
+        else:
+            x1 = x_coarse
+            y1 = y_coarse
+            error = None
         dense_info = dict(y0=x0, y1=x1)
         return x1, error, dense_info, y1, RESULTS.successful
 
