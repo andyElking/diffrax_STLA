@@ -1,7 +1,7 @@
 import abc
 import operator
 from collections.abc import Callable
-from typing import cast, Generic, Optional, TypeVar, Union
+from typing import Any, cast, Generic, Optional, TypeVar, Union
 
 import equinox as eqx
 import jax
@@ -9,9 +9,18 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jaxtyping import ArrayLike, PyTree, PyTreeDef
+from jaxtyping import Array, ArrayLike, Float, PyTree, PyTreeDef, Shaped
 
-from ._custom_types import Args, Control, IntScalarLike, RealScalarLike, VF, Y
+from ._brownian import AbstractBrownianPath
+from ._custom_types import (
+    AbstractBrownianIncrement,
+    Args,
+    Control,
+    IntScalarLike,
+    RealScalarLike,
+    VF,
+    Y,
+)
 from ._misc import upcast_or_raise
 from ._path import AbstractPath
 
@@ -625,3 +634,133 @@ class AdjointTerm(AbstractTerm[_VF, _Control]):
         dy, vjp = jax.vjp(_to_vjp, y, diff_args, diff_term)
         da_y, da_diff_args, da_diff_term = vjp((-(a_y**ω)).ω)
         return dy, da_y, da_diff_args, da_diff_term
+
+
+_BrownianControl = TypeVar(
+    "_BrownianControl", bound=Union[ArrayLike, AbstractBrownianIncrement]
+)
+LangevinArray = Shaped[Float, "*langevin"]
+LangevinY = tuple[LangevinArray, LangevinArray]
+
+
+class _LangevinDiffusionTerm(AbstractTerm[ArrayLike, _BrownianControl]):
+    r"""Represents the diffusion term in the Langevin SDE:
+
+    $d \mathbf{x}_t = \mathbf{v}_t \, dt$
+
+    $d \mathbf{v}_t = - \gamma \, \mathbf{v}_t \, dt - u \,
+    \nabla \! f( \mathbf{x}_t ) \, dt + \sqrt{2 \gamma u} \, d W_t.$
+    """
+
+    gamma: ArrayLike
+    u: ArrayLike
+    control: AbstractBrownianPath
+
+    def __init__(self, gamma, u, control: AbstractBrownianPath):
+        assert gamma.shape == u.shape
+        self.gamma = gamma
+        self.u = u
+        self.control = control
+
+    def vf(self, t: RealScalarLike, y: LangevinY, args: Args) -> LangevinArray:
+        dtype = y[1].dtype
+        d_v = jnp.sqrt(2 * self.gamma * self.u) * jnp.ones(y[1].shape, dtype=dtype)
+        return d_v
+
+    def contr(
+        self, t0: RealScalarLike, t1: RealScalarLike, **kwargs
+    ) -> _BrownianControl:
+        # Since the vector field is of the form (dx, dv) and since x is
+        # not influenced by the Brownian motion, the PyTree structure of
+        # the control must also be a tuple, with an arbitrary first entry.
+        # Hence, this replaces all entries in the output of control with.
+        # if "use_levy" in kwargs and kwargs["use_levy"]:
+        #     contr_out = self.control.evaluate(t0, t1, **kwargs)
+        #     # for each entry of LevyVal, replace it with a tuple(0, entry)
+        #     return jtu.tree_map(
+        #         lambda lf: (jnp.zeros_like(lf), lf),
+        #         contr_out,
+        #     )
+        # else:
+        #     contr_out = self.control.evaluate(t0, t1, **kwargs)
+        #     assert isinstance(contr_out, ArrayLike)
+        #     return jnp.zeros_like(contr_out), contr_out
+        return self.control.evaluate(t0, t1, **kwargs)
+
+    def prod(self, vf: LangevinArray, control: _BrownianControl) -> LangevinY:
+        if isinstance(control, AbstractBrownianIncrement):
+            control = control.W
+
+        dv = vf
+        dw = control
+        out = dv * dw
+        return jnp.zeros_like(out), out
+
+
+_LangevinArgs = tuple[Array, Array, Callable[[LangevinArray], LangevinArray]]
+
+
+def _langevin_drift(t, y: LangevinY, args: _LangevinArgs) -> LangevinY:
+    gamma, u, grad_f = args
+    x, v = y
+    d_x = v
+    d_v = -gamma * v - u * grad_f(x)
+    d_y = (d_x, d_v)
+    return d_y
+
+
+# TODO: Let me know if you think there is a better way to handle this.
+# The requirements are:
+# (1) this term can be passed into SRK, which only accepts a
+# MultiTerm[ODETerm, AbstractTerm]
+# (2) this term needs to carry an `args` attribute. You said that
+# since ALIGN, SORT and ShOULD, use the `args` in a very special way, we
+# cannot just pass them as usual (i.e. in `vf(t, y, args)`), but that they
+# should be part of the term itself.
+#
+# Frankly, I could just use a tuple (args, MultiTerm[ODETerm, AbstractTerm])
+# and pass that around, but the issue is that if the user mishandles
+# the tuple (e.g. changes the args but not the term), then the solution from
+# ALIGN (which depends on the args) will be different than the one from SRK,
+# which depends only on the MultiTerm (which has the args baked into the VF).
+
+
+class LangevinTerm(AbstractTerm):
+    r"""Used to represent the Langevin SDE, given by:
+
+    $d \mathbf{x}_t = \mathbf{v}_t \, dt$
+
+    $d \mathbf{v}_t = - \gamma \, \mathbf{v}_t \, dt - u \,
+    \nabla \! f( \mathbf{x}_t ) \, dt + \sqrt{2 \gamma u} \, d W_t.$
+
+    where $\mathbf{x}_t, \mathbf{v}_t \in \mathbb{R}^d$ represent the position
+    and velocity, $W$ is a Brownian motion in $\mathbb{R}^d$,
+    $f: \mathbb{R}^d \rightarrow \mathbb{R}$ is a potential function, and
+    $ \gamma,\, u\in\mathbb{R}^{d\times d}$ are diagonal matrices representing
+    friction and a dampening parameter.
+    """
+
+    args: _LangevinArgs = eqx.field(static=True)
+    term: MultiTerm[tuple[ODETerm, _LangevinDiffusionTerm]]
+
+    def __init__(self, args, bm: AbstractBrownianPath):
+        r"""**Arguments:**
+
+        - `args`: a tuple of the form $(\gamma, \, u, \, \nabla \! f)$
+        """
+        g1, u1, grad_f = args
+        gamma, u = jnp.broadcast_arrays(jnp.asarray(g1), jnp.asarray(u1))
+        assert gamma.ndim <= 1
+        self.args = (gamma, u, grad_f)
+        drift = ODETerm(lambda t, y, _: _langevin_drift(t, y, self.args))
+        diffusion = _LangevinDiffusionTerm(gamma, u, bm)
+        self.term = MultiTerm(drift, diffusion)
+
+    def vf(self, t: RealScalarLike, y: LangevinY, args: Args) -> tuple[Any, ...]:
+        return self.term.vf(t, y, args)
+
+    def contr(self, t0: RealScalarLike, t1: RealScalarLike, **kwargs) -> Any:
+        return self.term.contr(t0, t1, **kwargs)
+
+    def prod(self, vf: tuple[Any, ...], control: Any) -> LangevinY:
+        return self.term.prod(vf, control)
