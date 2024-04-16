@@ -50,8 +50,8 @@ def _solvers_and_orders():
 def test_sde_strong_order_new(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order, dtype
 ):
-    bmkey = jr.PRNGKey(5678)
-    sde_key = jr.PRNGKey(11)
+    bmkey = jr.key(5678)
+    sde_key = jr.key(11)
     num_samples = 100
     bmkeys = jr.split(bmkey, num=num_samples)
     t0 = 0.3
@@ -123,8 +123,8 @@ solutions = {
 def test_sde_strong_limit(
     solver_ctr, noise: Literal["any", "com", "add"], theoretical_order, dtype
 ):
-    bmkey = jr.PRNGKey(5678)
-    sde_key = jr.PRNGKey(11)
+    bmkey = jr.key(5678)
+    sde_key = jr.key(11)
     num_samples = 100
     bmkeys = jr.split(bmkey, num=num_samples)
     t0 = 0.3
@@ -228,7 +228,7 @@ def test_sde_solver_shape(shape, solver_ctr, dtype):
     additive = solver_ctr in [diffrax.ShARK, diffrax.SRA1, diffrax.SEA]
     args = (pytree, additive)
     solver = solver_ctr()
-    bmkey = jr.PRNGKey(1)
+    bmkey = jr.key(1)
     struct = jax.ShapeDtypeStruct((3,), dtype)
     bm_shape = jtu.tree_map(lambda _: struct, pytree)
     bm = diffrax.VirtualBrownianTree(
@@ -258,7 +258,7 @@ def _weakly_diagonal_noise_helper(solver, dtype):
     y0 = jnp.ones(w_shape, dtype)
 
     bm = diffrax.VirtualBrownianTree(
-        0.0, 1.0, 0.05, w_shape, jr.PRNGKey(0), diffrax.SpaceTimeLevyArea
+        0.0, 1.0, 0.05, w_shape, jr.key(0), diffrax.SpaceTimeLevyArea
     )
 
     terms = MultiTerm(ODETerm(_drift), WeaklyDiagonalControlTerm(_diffusion, bm))

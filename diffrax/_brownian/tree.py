@@ -371,7 +371,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             bkk = None
 
         else:
-            assert False
+            assert False, f"Unknown levy_area: {self.levy_area}"
 
         w_0 = jnp.zeros(shape, dtype)
         w_1 = jr.normal(init_key_w, shape, dtype)

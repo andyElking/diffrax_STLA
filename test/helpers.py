@@ -12,6 +12,7 @@ from diffrax import (
     AbstractBrownianPath,
     AbstractTerm,
     ControlTerm,
+    LangevinTerm,
     MultiTerm,
     ODETerm,
     VirtualBrownianTree,
@@ -466,3 +467,105 @@ def get_time_sde(t0, t1, dtype, key, noise_dim):
         return MultiTerm(ODETerm(_drift), ControlTerm(_diffusion, bm))
 
     return SDE(get_terms, args, y0, t0, t1, (noise_dim,))
+
+
+def get_bqp(t0=0.3, t1=15.0, dtype=jnp.float32):
+    grad_f_bqp = lambda x: 4 * x * (jnp.square(x) - 1)
+    args_bqp = (dtype(0.8), dtype(0.2), grad_f_bqp)
+    y0_bqp = (dtype(0), dtype(0))
+    w_shape_bqp = ()
+
+    def get_terms_bqp(bm):
+        return LangevinTerm(args_bqp, bm)
+
+    return SDE(get_terms_bqp, None, y0_bqp, t0, t1, w_shape_bqp)
+
+
+def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
+    gamma_hosc = jnp.array([2, 0.5], dtype=dtype)
+    u_hosc = jnp.array([0.5, 2], dtype=dtype)
+    args_hosc = (gamma_hosc, u_hosc, lambda x: 2 * x)
+    x0 = jnp.zeros((2,), dtype=dtype)
+    v0 = jnp.zeros((2,), dtype=dtype)
+    y0_hosc = (x0, v0)
+    w_shape_hosc = (2,)
+
+    def get_terms_hosc(bm):
+        return LangevinTerm(args_hosc, bm)
+
+    return SDE(get_terms_hosc, None, y0_hosc, t0, t1, w_shape_hosc)
+
+
+def get_neals_funnel(t0=0.0, t1=16.0, dtype=jnp.float32):
+    def log_p(x):
+        z_term = x[0] ** 2 / 6.0
+        y_term = jnp.sum(x[1:] ** 2) / jax.lax.stop_gradient(2.0 * jnp.exp(x[0] / 4.0))
+        return z_term + y_term
+
+    grad_log_p = jax.grad(log_p)
+
+    gamma = 2.0
+    u = 1.0
+    args_neal = (gamma, u, grad_log_p)
+    y0_neal = (jnp.zeros((10,), dtype=dtype), jnp.zeros((10,), dtype=dtype))
+    w_shape_neal = (10,)
+
+    def get_terms_neal(bm):
+        return LangevinTerm(args_neal, bm)
+
+    return SDE(get_terms_neal, None, y0_neal, t0, t1, w_shape_neal)
+
+
+def get_uld3_langevin(t0=0.3, t1=15.0, dtype=jnp.float32):
+    # Three particles in 3D space with a potential that has three local minima,
+    # at (2, 2, 2), (-2, -2, -2) and (3, -1, 0).
+    def single_particle_potential(x):
+        assert x.shape == (3,)
+        return 1.0 * (
+            jnp.sum((x - 2.0 * jnp.ones((3,), dtype=dtype)) ** 2)
+            * jnp.sum((x + 2.0 * jnp.ones((3,), dtype=dtype)) ** 2)
+            * jnp.sum((x - jnp.array([3, -1, 0], dtype=dtype)) ** 2)
+        )
+
+    def potential(x):
+        assert x.shape == (9,)
+        return (
+            single_particle_potential(x[:3])
+            + single_particle_potential(x[3:6])
+            + single_particle_potential(x[6:])
+        )
+
+    grad_potential = jax.grad(potential)
+
+    def single_circ(x):
+        assert x.shape == (3,)
+        return 0.1 * jnp.array([x[1], -x[0], 0.0])
+
+    def circular_term(x):
+        assert x.shape == (9,)
+        return jnp.concatenate(
+            [
+                single_circ(x[:3]),
+                single_circ(x[3:6]),
+                single_circ(x[6:]),
+            ]
+        )
+
+    def grad_f(x):
+        assert x.shape == (9,)
+        # x0 and x1 will do a circular motion, so we will add a term of the form
+        force = grad_potential(x) + circular_term(x)
+        return 10.0 * force / (jnp.sum(jnp.abs(force)) + 10.0)
+
+    u = 1.0
+    gamma = 2.0
+    args = (u, gamma, grad_f)
+    x0 = jnp.array([-1, 0, 1, 1, 0, -1, 1, 0, -1], dtype=dtype)
+    v0 = jnp.zeros((9,), dtype=dtype)
+    y0_uld3 = (x0, v0)
+    w_shape_uld3 = (9,)
+
+    def get_terms_uld3(bm):
+        return LangevinTerm(args, bm)
+
+    return SDE(get_terms_uld3, None, y0_uld3, t0, t1, w_shape_uld3)
