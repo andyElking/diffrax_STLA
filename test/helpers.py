@@ -221,7 +221,7 @@ def sde_solver_strong_order(
     y0: PyTree[Array],
     args: PyTree,
     solver: diffrax.AbstractSolver,
-    ref_solver: diffrax.AbstractSolver,
+    ref_solver: Optional[diffrax.AbstractSolver],
     levels: tuple[int, int],
     ref_level: int,
     get_dt_and_controller: Callable[
@@ -229,30 +229,37 @@ def sde_solver_strong_order(
     ],
     saveat: diffrax.SaveAt,
     bm_tol: float,
+    levy_area: Optional[type[diffrax.AbstractBrownianIncrement]],
+    ref_solution: Optional[PyTree[Array]],
 ):
-    levy_area1 = _get_minimal_la(solver)
-    levy_area2 = _get_minimal_la(ref_solver)
-    # Stricter levy_area requirements inherit from less strict ones
-    levy_area = _resulting_levy_area(levy_area1, levy_area2)
+    if levy_area is None:
+        levy_area1 = _get_minimal_la(solver)
+        levy_area2 = _get_minimal_la(ref_solver)
+        # Stricter levy_area requirements inherit from less strict ones
+        levy_area = _resulting_levy_area(levy_area1, levy_area2)
 
     level_coarse, level_fine = levels
 
-    dt, step_controller = get_dt_and_controller(ref_level)
-    correct_sols, _ = _batch_sde_solve(
-        keys,
-        get_terms,
-        w_shape,
-        t0,
-        t1,
-        y0,
-        args,
-        ref_solver,
-        levy_area,
-        dt,
-        step_controller,
-        bm_tol,
-        saveat,
-    )
+    if ref_solution is None:
+        assert ref_solver is not None
+        dt, step_controller = get_dt_and_controller(ref_level)
+        correct_sols, _ = _batch_sde_solve(
+            keys,
+            get_terms,
+            w_shape,
+            t0,
+            t1,
+            y0,
+            args,
+            ref_solver,
+            levy_area,
+            dt,
+            step_controller,
+            bm_tol,
+            saveat,
+        )
+    else:
+        correct_sols = ref_solution
 
     errs_list, steps_list = [], []
     for level in range(level_coarse, level_fine + 1):
@@ -314,6 +321,8 @@ def simple_sde_order(
     get_dt_and_controller,
     saveat,
     bm_tol,
+    levy_area,
+    ref_solution,
 ):
     _, level_fine = levels
     ref_level = level_fine + 2
@@ -332,6 +341,8 @@ def simple_sde_order(
         get_dt_and_controller,
         saveat,
         bm_tol,
+        levy_area,
+        ref_solution,
     )
 
 

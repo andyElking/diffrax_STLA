@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, Float, PyTree, PyTreeDef, Shaped
+from jaxtyping import Array, ArrayLike, PyTree, PyTreeDef, Shaped
 
 from ._brownian import AbstractBrownianPath
 from ._custom_types import (
@@ -639,7 +639,7 @@ class AdjointTerm(AbstractTerm[_VF, _Control]):
 _BrownianControl = TypeVar(
     "_BrownianControl", bound=Union[ArrayLike, AbstractBrownianIncrement]
 )
-LangevinArray = Shaped[Float, "*langevin"]
+LangevinArray = Shaped[Array, "*langevin"]
 LangevinY = tuple[LangevinArray, LangevinArray]
 
 
@@ -687,13 +687,13 @@ class _LangevinDiffusionTerm(AbstractTerm[ArrayLike, _BrownianControl]):
         #     return jnp.zeros_like(contr_out), contr_out
         return self.control.evaluate(t0, t1, **kwargs)
 
-    def prod(self, vf: LangevinArray, control: _BrownianControl) -> LangevinY:
+    def prod(self, vf: ArrayLike, control: _BrownianControl) -> LangevinY:
         if isinstance(control, AbstractBrownianIncrement):
             control = control.W
 
         dv = vf
         dw = control
-        out = dv * dw
+        out = dv * dw  # type: ignore
         return jnp.zeros_like(out), out
 
 

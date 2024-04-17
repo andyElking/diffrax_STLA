@@ -9,6 +9,7 @@ from .helpers import (
     _abstract_la_to_la,
     get_bqp,
     get_harmonic_oscillator,
+    simple_batch_sde_solve,
     simple_sde_order,
 )
 
@@ -69,24 +70,64 @@ def test_shape(solver, order, dtype, dim):
 
 
 sdes = (
-    get_harmonic_oscillator,
-    get_bqp,
+    (get_harmonic_oscillator, "hosc"),
+    (get_bqp, "bqp"),
 )
 
 
-@pytest.mark.parametrize("get_sde", sdes)
-@pytest.mark.parametrize("solver,theoretical_order", _solvers())
-def test_langevin_strong_order(get_sde, solver, theoretical_order):
+@pytest.fixture(scope="module")
+def fine_langevin_solutions():
     bmkey = jr.key(5678)
-    num_samples = 1000
+    num_samples = 2000
     bmkeys = jr.split(bmkey, num=num_samples)
     t0 = 0.1
     t1 = 5.3
+    level_precise = 12
+    level_coarse, level_fine = 3, 7
+    saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True))
+    ref_solver = diffrax.ShARK()
+    levy_area = diffrax.SpaceTimeTimeLevyArea
+    controller = diffrax.StepTo(
+        ts=jnp.linspace(t0, t1, 2**level_precise + 1, endpoint=True)
+    )
+    bm_tol = 0.5 * (t1 - t0) * 2**-level_precise
+
+    hosc_sde = get_harmonic_oscillator(t0, t1, jnp.float64)
+    hosc_sol, _ = simple_batch_sde_solve(
+        bmkeys, hosc_sde, ref_solver, levy_area, None, controller, bm_tol, saveat
+    )
+
+    bqp_sde = get_bqp(t0, t1, jnp.float64)
+    bqp_sol, _ = simple_batch_sde_solve(
+        bmkeys, bqp_sde, ref_solver, levy_area, None, controller, bm_tol, saveat
+    )
+
+    sols = {
+        "hosc": hosc_sol,
+        "bqp": bqp_sol,
+    }
+    return sols, t0, t1, bmkeys, saveat, level_coarse, level_fine, levy_area, bm_tol
+
+
+@pytest.mark.parametrize("get_sde,sde_name", sdes)
+@pytest.mark.parametrize("solver,theoretical_order", _solvers())
+def test_langevin_strong_order(
+    get_sde, sde_name, solver, theoretical_order, fine_langevin_solutions
+):
+    (
+        true_sols,
+        t0,
+        t1,
+        bmkeys,
+        saveat,
+        level_coarse,
+        level_fine,
+        levy_area,
+        bm_tol,
+    ) = fine_langevin_solutions
+    true_sol = true_sols[sde_name]
 
     sde = get_sde(t0, t1, jnp.float64)
-
-    ref_solver = solver
-    level_coarse, level_fine = 3, 7
 
     # We specify the times to which we step in way that each level contains all the
     # steps of the previous level. This is so that we can compare the solutions at
@@ -95,17 +136,17 @@ def test_langevin_strong_order(get_sde, solver, theoretical_order):
         step_ts = jnp.linspace(t0, t1, 2**level + 1, endpoint=True)
         return None, diffrax.StepTo(ts=step_ts)
 
-    saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True))
-
     hs, errors, order = simple_sde_order(
         bmkeys,
         sde,
         solver,
-        ref_solver,
+        None,
         (level_coarse, level_fine),
         get_dt_and_controller,
         saveat,
-        bm_tol=2**-13,
+        bm_tol=2**-14,
+        levy_area=levy_area,
+        ref_solution=true_sol,
     )
     # The upper bound needs to be 0.25, otherwise we fail.
     # This still preserves a 0.05 buffer between the intervals
