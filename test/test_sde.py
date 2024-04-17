@@ -89,6 +89,8 @@ def test_sde_strong_order_new(
         get_dt_and_controller,
         saveat,
         bm_tol=2**-14,
+        levy_area=None,
+        ref_solution=None,
     )
     # The upper bound needs to be 0.25, otherwise we fail.
     # This still preserves a 0.05 buffer between the intervals
