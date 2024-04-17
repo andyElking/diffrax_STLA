@@ -63,7 +63,7 @@ def draw_order_multiple_dict(
     ax.set_ylabel("RMS error")
     ax.set_xlabel("Average number of vector field evaluations")
     ymin, ymax = ax.get_ylim()
-    ax.set_ylim([ymin, ymax])
+    ax.set_ylim([ymin / 1.3, ymax])
     xmin, xmax = ax.get_xlim()
     ax.set_xlim([xmin / 1.6, xmax])
     top_legend = ax.legend(
