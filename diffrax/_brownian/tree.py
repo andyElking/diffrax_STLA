@@ -477,7 +477,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             bkk_sr = sr2 * (k_mean + hat_kk_sr)
             bkk_r = (
-                bkk_s + bkk_sr + sr / 2 * bhh_s - s * bhh_sr + (r - 2 * s) / 12 * r_bb_s
+                bkk_s
+                + bkk_sr
+                + sr / 2 * bhh_s
+                - s / 2 * bhh_sr
+                + (r - 2 * s) / 12 * r_bb_s
             )
 
             # The above code is slow, so we will instead just snap to either

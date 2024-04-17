@@ -164,7 +164,7 @@ def pid_strong_order(keys, sde, solver, levels, bm_tol=2**-14):
     def get_pid(level):
         return PIDController(
             pcoeff=0.1,
-            icoeff=0.3,
+            icoeff=0.4,
             rtol=0,
             atol=2**-level,
             step_ts=save_ts_pid,
@@ -194,4 +194,13 @@ def load_order_results(name):
         errs = np.load(f)
         order = np.load(f)
     print(f"Loaded {filename}")
+    return steps, errs, order
+
+
+def remove_steps(results, lower, upper):
+    steps, errs, order = results
+    print(len(steps))
+    upper = len(steps) - upper
+    steps = steps[lower:upper]
+    errs = errs[lower:upper]
     return steps, errs, order

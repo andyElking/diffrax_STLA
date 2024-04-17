@@ -18,7 +18,8 @@ def run_sortmc(
     tol: float = 2**-6,
     warmup_mult: float = 32.0,
     warmup_tol_mult: float = 4.0,
-    use_sort_adaptive: bool = True,
+    use_adaptive: bool = True,
+    solver: diffrax.AbstractSolver = diffrax.SORT(0.1),
 ):
     key_warmup, key_mcmc = jr.split(key, 2)
     keys_warmup = jr.split(key_warmup, num_particles)
@@ -36,14 +37,14 @@ def run_sortmc(
 
     t_warmup = warmup_mult * chain_sep
     tol_warmup = warmup_tol_mult * tol
-    if use_sort_adaptive:
+
+    if use_adaptive:
         controller_warmup = diffrax.PIDController(
             rtol=0.0, atol=warmup_tol_mult * tol, pcoeff=0.1, icoeff=0.3, dtmin=2**-6
         )
-        solver = diffrax.HalfSolver(diffrax.SORT(0.1))
+        solver = diffrax.HalfSolver(solver)
     else:
         controller_warmup = diffrax.ConstantStepSize()
-        solver = diffrax.Euler()
 
     out_warmup, steps_warmup = _batch_sde_solve(
         keys_warmup,
@@ -68,9 +69,9 @@ def run_sortmc(
     t1_mcmc: float = chain_len * chain_sep + t0_mcmc
     save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
     saveat = diffrax.SaveAt(ts=save_ts)
-    if use_sort_adaptive:
-        dtmin = 2**-11
-        bm_tol = dtmin / 8.0
+    if use_adaptive:
+        dtmin = 2**-10
+        bm_tol = dtmin / 2.0
         controller_mcmc = diffrax.PIDController(
             rtol=0.0, atol=tol, pcoeff=0.1, icoeff=0.4, dtmin=dtmin, step_ts=save_ts
         )
@@ -99,10 +100,13 @@ def run_sortmc(
 
     avg_steps_warmup = jnp.mean(steps_warmup)
     avg_steps_mcmc = jnp.mean(steps_mcmc)
-    if use_sort_adaptive:
-        grad_evals_per_sample = 6 * (avg_steps_mcmc + avg_steps_warmup) / chain_len
-    else:
-        grad_evals_per_sample = (avg_steps_mcmc + avg_steps_warmup) / chain_len
+    grad_evals_per_sample = (avg_steps_mcmc + avg_steps_warmup) / chain_len
+    # When a HalfSolver is used, the number of gradient evaluations is tripled,
+    # but the output of batch_sde_solve already accounts for this.
+
+    if isinstance(solver, diffrax.SORT):
+        grad_evals_per_sample *= 2
+
     print(
         f"Steps warmup: {avg_steps_warmup}, steps mcmc: {avg_steps_mcmc},"
         f" gradient evaluations per output: {grad_evals_per_sample}"
