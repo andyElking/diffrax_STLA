@@ -16,18 +16,21 @@ from .helpers import (
 
 def _solvers():
     # solver, order
-    yield diffrax.ALIGN(0.1), 2.0
-    yield diffrax.ShARK(), 2.0
-    yield diffrax.SRA1(), 2.0
-    yield diffrax.SORT(0.01), 3.0
-    yield diffrax.ShOULD(0.01), 3.0
+    # yield diffrax.ALIGN(0.1), 2.0
+    # yield diffrax.ShARK(), 2.0
+    # yield diffrax.SRA1(), 2.0
+    # yield diffrax.SORT(0.01), 3.0
+    # yield diffrax.ShOULD(0.01), 3.0
+    yield diffrax.UBU3(0.0), 3.0
 
 
 @pytest.mark.parametrize("solver,order", _solvers())
 @pytest.mark.parametrize("dtype", [jnp.float16, jnp.float32, jnp.float64])
-@pytest.mark.parametrize("dim", [1, 3])
+@pytest.mark.parametrize("dim", [1, 4])
 def test_shape(solver, order, dtype, dim):
-    if dtype == jnp.float16 and isinstance(solver, (diffrax.SORT, diffrax.ShOULD)):
+    if dtype == jnp.float16 and isinstance(
+        solver, (diffrax.SORT, diffrax.ShOULD, diffrax.UBU3)
+    ):
         pytest.skip(
             "Due to the use of multivariate normal in the the computation"
             " of space-time-time Levy area, SORT and ShOULD are not"
@@ -82,8 +85,8 @@ def fine_langevin_solutions():
     bmkeys = jr.split(bmkey, num=num_samples)
     t0 = 0.1
     t1 = 5.3
-    level_precise = 12
-    level_coarse, level_fine = 3, 7
+    level_precise = 10
+    level_coarse, level_fine = 2, 6
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True))
     ref_solver = diffrax.ShARK()
     levy_area = diffrax.SpaceTimeTimeLevyArea

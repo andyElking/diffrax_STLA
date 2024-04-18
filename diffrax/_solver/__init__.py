@@ -54,3 +54,4 @@ from .srk import (
     StochasticButcherTableau as StochasticButcherTableau,
 )
 from .tsit5 import Tsit5 as Tsit5
+from .ubu3 import UBU3 as UBU3

@@ -7,4 +7,3 @@ site/
 .all_objects.cache
 .pymon
 .idea/
-notebooks/
