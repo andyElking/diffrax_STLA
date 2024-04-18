@@ -117,7 +117,7 @@ def path_l2_dist(
 def _get_minimal_la(solver):
     while isinstance(solver, diffrax.HalfSolver):
         solver = solver.solver
-    return getattr(solver, "minimal_levy_area", diffrax.BrownianIncrement)
+    return getattr(solver, "minimal_levy_area", diffrax.AbstractBrownianIncrement)
 
 
 def _abstract_la_to_la(abstract_la):
@@ -177,7 +177,10 @@ def _batch_sde_solve(
         stepsize_controller=controller,
         saveat=saveat,
     )
-    return sol.ys, sol.stats["num_accepted_steps"]
+    steps = sol.stats["num_accepted_steps"]
+    if isinstance(solver, diffrax.HalfSolver):
+        steps *= 3
+    return sol.ys, steps
 
 
 def _resulting_levy_area(

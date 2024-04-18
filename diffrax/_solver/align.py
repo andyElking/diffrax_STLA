@@ -152,7 +152,7 @@ class ALIGN(AbstractItoSolver):
         return 2
 
     def strong_order(self, terms):
-        return 2
+        return 2.0
 
     def recompute_coeffs(
         self, h: RealScalarLike, gamma: Array, u: Array, tay_cfs: _Coeffs

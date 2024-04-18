@@ -164,10 +164,10 @@ class SORT(AbstractItoSolver):
         self.taylor_threshold = taylor_threshold
 
     def order(self, terms):
-        return 2
+        return 3
 
     def strong_order(self, terms):
-        return 2
+        return 3.0
 
     def recompute_coeffs(
         self, h: RealScalarLike, gamma: Array, u: Array, tay_cfs: _Coeffs
@@ -276,8 +276,8 @@ class SORT(AbstractItoSolver):
             levy.H is not None and levy.K is not None
         ), "The Brownian motion must have `levy_area=diffrax.SpaceTimeTimeLevyArea`"
         w: ArrayLike = levy.W
-        hh: ArrayLike = levy.H  # type: ignore
-        kk: ArrayLike = levy.K  # type: ignore
+        hh: ArrayLike = levy.H
+        kk: ArrayLike = levy.K
 
         x0, v0 = y0
         assert x0.shape == v0.shape
