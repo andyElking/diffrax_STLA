@@ -132,11 +132,7 @@ def _abstract_la_to_la(abstract_la):
         raise ValueError(f"Unknown levy area {abstract_la}")
 
 
-@eqx.filter_jit
-@eqx.filter_vmap(
-    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None)
-)
-def _batch_sde_solve(
+def _sde_solve(
     key: PRNGKeyArray,
     get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
     w_shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
@@ -185,6 +181,49 @@ def _batch_sde_solve(
     if isinstance(solver, diffrax.HalfSolver):
         steps *= 3
     return sol.ys, steps
+
+
+_batch_sde_solve = eqx.filter_jit(
+    eqx.filter_vmap(
+        _sde_solve,
+        in_axes=(
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+)
+
+_batch_sde_solve_multi_y0 = eqx.filter_jit(
+    eqx.filter_vmap(
+        _sde_solve,
+        in_axes=(
+            0,
+            None,
+            None,
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+)
 
 
 def _resulting_levy_area(
