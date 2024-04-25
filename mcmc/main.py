@@ -1,14 +1,24 @@
 from test.helpers import _batch_sde_solve, _batch_sde_solve_multi_y0
 
-import diffrax
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
-from diffrax import LangevinTerm
+from diffrax import (
+    AbstractSolver,
+    ConstantStepSize,
+    HalfSolver,
+    LangevinTerm,
+    PIDController,
+    SaveAt,
+    SORT,
+    SpaceTimeTimeLevyArea,
+    StepTo,
+    UBU3,
+)
 
 
-def run_sortmc(
+def run_lmc(
     key,
     log_p,
     x0,
@@ -19,12 +29,12 @@ def run_sortmc(
     warmup_mult: float = 32.0,
     warmup_tol_mult: float = 4.0,
     use_adaptive: bool = True,
-    solver: diffrax.AbstractSolver = diffrax.SORT(0.1),
+    solver: AbstractSolver = UBU3(0.1),
 ):
     key_warmup, key_mcmc = jr.split(key, 2)
     keys_warmup = jr.split(key_warmup, num_particles)
     keys_mcmc = jr.split(key_mcmc, num_particles)
-    grad_f = jax.grad(log_p)
+    grad_f = jax.jit(jax.grad(log_p))
     v0 = jnp.zeros_like(x0)
     y0 = (x0, v0)
     w_shape: tuple[int, ...] = x0.shape
@@ -39,12 +49,17 @@ def run_sortmc(
     tol_warmup = warmup_tol_mult * tol
 
     if use_adaptive:
-        controller_warmup = diffrax.PIDController(
-            rtol=0.0, atol=warmup_tol_mult * tol, pcoeff=0.1, icoeff=0.3, dtmin=2**-6
+        controller_warmup = PIDController(
+            rtol=0.0,
+            atol=warmup_tol_mult * tol,
+            pcoeff=0.1,
+            icoeff=0.3,
+            dtmin=2**-6,
+            dtmax=1.0,
         )
-        solver = diffrax.HalfSolver(solver)
+        solver = HalfSolver(solver)
     else:
-        controller_warmup = diffrax.ConstantStepSize()
+        controller_warmup = ConstantStepSize()
 
     out_warmup, steps_warmup = _batch_sde_solve(
         keys_warmup,
@@ -55,11 +70,11 @@ def run_sortmc(
         y0,
         None,
         solver,
-        "space-time-time",
+        SpaceTimeTimeLevyArea,
         tol_warmup,
         controller_warmup,
         2**-9,
-        diffrax.SaveAt(t1=True),
+        SaveAt(t1=True),
     )
     y_warm = jtu.tree_map(
         lambda x: jnp.nan_to_num(x[:, 0], nan=0, posinf=0, neginf=0), out_warmup
@@ -68,17 +83,23 @@ def run_sortmc(
     t0_mcmc = 4 * chain_sep
     t1_mcmc: float = chain_len * chain_sep + t0_mcmc
     save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
-    saveat = diffrax.SaveAt(ts=save_ts)
+    saveat = SaveAt(ts=save_ts)
     if use_adaptive:
-        dtmin = 2**-10
+        dtmin = 2**-8
         bm_tol = dtmin / 2.0
-        controller_mcmc = diffrax.PIDController(
-            rtol=0.0, atol=tol, pcoeff=0.1, icoeff=0.4, dtmin=dtmin, step_ts=save_ts
+        controller_mcmc = PIDController(
+            rtol=0.0,
+            atol=tol,
+            pcoeff=0.1,
+            icoeff=0.3,
+            dtmin=dtmin,
+            step_ts=save_ts,
+            dtmax=1.0,
         )
     else:
         step_ts = jnp.linspace(0.0, t1_mcmc, num=int(t1_mcmc / tol) + 1)
         step_ts = jnp.unique(jnp.sort(jnp.concatenate((step_ts, save_ts))))
-        controller_mcmc = diffrax.StepTo(ts=step_ts)
+        controller_mcmc = StepTo(ts=step_ts)
         bm_tol = tol / 8.0
 
     out_mcmc, steps_mcmc = _batch_sde_solve_multi_y0(
@@ -90,7 +111,7 @@ def run_sortmc(
         y_warm,
         None,
         solver,
-        "space-time-time",
+        SpaceTimeTimeLevyArea,
         None,
         controller_mcmc,
         bm_tol,
@@ -104,7 +125,7 @@ def run_sortmc(
     # When a HalfSolver is used, the number of gradient evaluations is tripled,
     # but the output of batch_sde_solve already accounts for this.
 
-    if isinstance(solver, diffrax.SORT):
+    if isinstance(solver, (SORT, UBU3)):
         grad_evals_per_sample *= 2
 
     print(
