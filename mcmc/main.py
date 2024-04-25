@@ -129,7 +129,7 @@ def run_lmc(
         grad_evals_per_sample *= 2
 
     print(
-        f"Steps warmup: {avg_steps_warmup}, steps mcmc: {avg_steps_mcmc},"
+        f"LMC: Steps warmup: {avg_steps_warmup}, steps mcmc: {avg_steps_mcmc},"
         f" gradient evaluations per output: {grad_evals_per_sample}"
     )
 
