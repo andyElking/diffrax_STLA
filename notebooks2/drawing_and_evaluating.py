@@ -89,8 +89,11 @@ def plot_sol_general(sol):
 def plot_sol_langevin(sol):
     fig = plt.figure()
     ax = fig.add_subplot()
-    ax.plot(sol.ts, sol.ys[0], label="x")
-    ax.plot(sol.ts, sol.ys[1], label="v")
+    x, v = sol.ys
+    x = jnp.concat(jtu.tree_leaves(x), axis=-1)
+    v = jnp.concat(jtu.tree_leaves(v), axis=-1)
+    ax.plot(sol.ts, x, label="x")
+    ax.plot(sol.ts, v, label="v")
     # ax.set_ylim([-3.0, 3.0])
     ax.legend()
     plt.show()
