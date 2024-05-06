@@ -14,7 +14,7 @@ from .._custom_types import (
 )
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
-from .._term import LangevinArray, LangevinTerm, LangevinY
+from .._term import LangevinTerm, LangevinTuple, LangevinX
 from .base import AbstractItoSolver
 
 
@@ -35,7 +35,7 @@ class _SolverState(eqx.Module):
     taylor_coeffs: _Coeffs
     coeffs: _Coeffs
     rho: Array
-    prev_f: LangevinArray
+    prev_f: LangevinX
 
 
 # CONCERNING COEFFICIENTS:
@@ -235,7 +235,7 @@ class ShOULD(AbstractItoSolver):
         terms: LangevinTerm,
         t0: RealScalarLike,
         t1: RealScalarLike,
-        y0: LangevinY,
+        y0: LangevinTuple,
         args: PyTree,
     ) -> _SolverState:
         """Precompute _SolverState which carries the Taylor coefficients and the
@@ -271,11 +271,11 @@ class ShOULD(AbstractItoSolver):
         terms: LangevinTerm,
         t0: RealScalarLike,
         t1: RealScalarLike,
-        y0: LangevinY,
+        y0: LangevinTuple,
         args: PyTree,
         solver_state: _SolverState,
         made_jump: BoolScalarLike,
-    ) -> tuple[LangevinY, None, DenseInfo, _SolverState, RESULTS]:
+    ) -> tuple[LangevinTuple, None, DenseInfo, _SolverState, RESULTS]:
         del made_jump, args
         st = solver_state
         h = t1 - t0
@@ -362,7 +362,7 @@ class ShOULD(AbstractItoSolver):
         self,
         terms: LangevinTerm,
         t0: RealScalarLike,
-        y0: LangevinY,
+        y0: LangevinTuple,
         args: PyTree,
     ):
         return terms.vf(t0, y0, args)

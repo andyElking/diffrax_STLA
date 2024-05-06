@@ -16,7 +16,7 @@ from .._custom_types import (
 )
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
-from .._term import LangevinTerm, LangevinY
+from .._term import LangevinTerm, LangevinTuple
 from .base import AbstractItoSolver
 
 
@@ -234,7 +234,7 @@ class UBU3(AbstractItoSolver):
         terms: LangevinTerm,
         t0: RealScalarLike,
         t1: RealScalarLike,
-        y0: LangevinY,
+        y0: LangevinTuple,
         args: PyTree,
     ) -> _SolverState:
         """Precompute _SolverState which carries the Taylor coefficients and the
@@ -269,11 +269,11 @@ class UBU3(AbstractItoSolver):
         terms: LangevinTerm,
         t0: RealScalarLike,
         t1: RealScalarLike,
-        y0: LangevinY,
+        y0: LangevinTuple,
         args: PyTree,
         solver_state: _SolverState,
         made_jump: BoolScalarLike,
-    ) -> tuple[LangevinY, None, DenseInfo, _SolverState, RESULTS]:
+    ) -> tuple[LangevinTuple, None, DenseInfo, _SolverState, RESULTS]:
         del made_jump, args
         st = solver_state
         h = t1 - t0
@@ -298,8 +298,8 @@ class UBU3(AbstractItoSolver):
             levy.H is not None and levy.K is not None
         ), "The Brownian motion must have `levy_area=diffrax.SpaceTimeTimeLevyArea`"
         w: ArrayLike = levy.W
-        hh: ArrayLike = levy.H  # type: ignore
-        kk: ArrayLike = levy.K  # type: ignore
+        hh: ArrayLike = levy.H
+        kk: ArrayLike = levy.K
 
         x0, v0 = y0
         assert x0.shape == v0.shape
@@ -372,7 +372,7 @@ class UBU3(AbstractItoSolver):
         self,
         terms: LangevinTerm,
         t0: RealScalarLike,
-        y0: LangevinY,
+        y0: LangevinTuple,
         args: PyTree,
     ):
         return terms.vf(t0, y0, args)

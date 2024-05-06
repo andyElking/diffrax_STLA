@@ -1,6 +1,7 @@
 import abc
 from typing import Optional, TypeVar, Union
 
+import jax
 from equinox.internal import AbstractVar
 from jaxtyping import Array, PyTree
 
@@ -20,6 +21,7 @@ class AbstractBrownianPath(AbstractPath[_Control]):
     """Abstract base class for all Brownian paths."""
 
     levy_area: AbstractVar[type[Union[BrownianIncrement, SpaceTimeLevyArea]]]
+    shape: AbstractVar[PyTree[jax.ShapeDtypeStruct]]
 
     @abc.abstractmethod
     def evaluate(
