@@ -1,138 +1,42 @@
+from typing import TypeAlias
+
 import equinox as eqx
-import jax
-import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jax import vmap
-from jaxtyping import Array, ArrayLike, PyTree
+from equinox.internal import ω
+from jaxtyping import Array, PyTree
 
 from .._custom_types import (
     AbstractSpaceTimeTimeLevyArea,
-    BoolScalarLike,
-    DenseInfo,
     RealScalarLike,
 )
 from .._local_interpolation import LocalLinearInterpolation
-from .._solution import RESULTS
-from .._term import LangevinTerm, LangevinTuple, LangevinX
-from .base import AbstractItoSolver
+from .._term import _LangevinArgs, LangevinTerm, LangevinX
+from .langevin_srk import _AbstractCoeffs, _SolverState, AbstractLangevinSRK
 
 
-class _Coeffs(eqx.Module):
-    beta_half: Array
-    a_half: Array
-    b_half: Array
-    beta1: Array
-    a1: Array
-    b1: Array
-    aa: Array
+# UBU evaluates at l = (3 -sqrt(3))/6, at r = (3 + sqrt(3))/6 and at 1,
+# so we need 3 versions of each coefficient
 
 
-class _SolverState(eqx.Module):
-    h: RealScalarLike
-    taylor_coeffs: _Coeffs
-    coeffs: _Coeffs
-    rho: Array
-    prev_f: LangevinX
+class _SORTCoeffs(_AbstractCoeffs):
+    @property
+    def dtype(self):
+        return jtu.tree_leaves(self.beta1)[0].dtype
+
+    beta_half: PyTree[Array]
+    a_half: PyTree[Array]
+    b_half: PyTree[Array]
+    beta1: PyTree[Array]
+    a1: PyTree[Array]
+    b1: PyTree[Array]
+    aa: PyTree[Array]
 
 
-# CONCERNING COEFFICIENTS:
-# The coefficients used in a step of ALIGN depend on
-# the time increment h, and the parameters gamma and u.
-# Assuming the modelled SDE stays the same (i.e. gamma and u are fixed),
-# then these coefficients must be recomputed each time h changes.
-# Furthermore, for very small h, directly computing the coefficients
-# via the function below can cause large floating point errors.
-# Hence, we pre-compute the Taylor expansion of the ALIGN coefficients
-# around h=0. Then we can compute the ALIGN coefficients either via
-# the Taylor expansion, or via direct computation.
-# In short the Taylor coefficients give a Taylor expansion with which
-# one can compute the ALIGN coefficients more precisely for a small h.
+_ErrorEstimate: TypeAlias = None
 
 
-def _directly_compute_coeffs(h, gamma, u):
-    # compute the coefficients directly (as opposed to via Taylor expansion)
-    α = gamma * h
-    dtype = jnp.dtype(gamma)
-    β_half = jnp.exp(-α / 2)
-    β1 = jnp.exp(-α)
-    a_half = (1 - β_half) / gamma
-    a1 = (1 - β1) / gamma
-    b_half = (β_half + α / 2 - 1) / (α * gamma)
-    b1 = (β1 + α - 1) / (α * gamma)
-    aa = a1 / h
-
-    out = _Coeffs(
-        beta_half=β_half,
-        a_half=a_half,
-        b_half=b_half,
-        beta1=β1,
-        a1=a1,
-        b1=b1,
-        aa=aa,
-    )
-
-    return jtu.tree_map(lambda leaf: jnp.asarray(leaf, dtype=dtype), out)
-
-
-def _tay_cfs_single(c, u) -> _Coeffs:
-    # c is gamma
-    dtype = jnp.dtype(c)
-    c2 = jnp.square(c)
-    c3 = c2 * c
-    c4 = c3 * c
-    c5 = c4 * c
-
-    beta_half = jnp.array(
-        [1, -c / 2, c2 / 8, -c3 / 48, c4 / 384, -c5 / 3840], dtype=dtype
-    )
-    beta1 = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], dtype=dtype)
-
-    a_half = jnp.array([0, 1 / 2, -c / 8, c2 / 48, -c3 / 384, c4 / 3840], dtype=dtype)
-    a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120], dtype=dtype)
-    # aa = a1/h
-    aa = jnp.array([1, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], dtype=dtype)
-
-    # b_half is not exactly b(1/2 h), but 1/2 * b(1/2 h)
-    b_half = jnp.array(
-        [0, 1 / 8, -c / 48, c2 / 384, -c3 / 3840, c4 / 46080], dtype=dtype
-    )
-    b1 = jnp.array([0, 1 / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], dtype=dtype)
-    return _Coeffs(
-        beta_half=beta_half,
-        a_half=a_half,
-        b_half=b_half,
-        beta1=beta1,
-        a1=a1,
-        b1=b1,
-        aa=aa,
-    )
-
-
-def _comp_taylor_coeffs(gamma, u) -> _Coeffs:
-    # When the step-size h is small the coefficients (which depend on h) need
-    # to be computed via Taylor expansion to ensure numerical stability.
-    # This precomputes the Taylor coefficients (depending on gamma and u), which
-    # are then multiplied by powers of h, to get the coefficients of ALIGN.
-    assert gamma.shape == u.shape
-
-    if jnp.ndim(gamma) == 0:
-        return _tay_cfs_single(gamma, u)
-
-    return jax.vmap(_tay_cfs_single)(gamma, u)
-
-
-def _eval_taylor(h, tay_cfs: _Coeffs) -> _Coeffs:
-    # Multiplies the pre-computed Taylor coefficients by powers of h.
-    # jax.debug.print("eval taylor for h = {h}", h=h)
-    dtype = jnp.dtype(tay_cfs.a1)
-    h_powers = jnp.power(h, jnp.arange(0, 6, dtype=dtype)).astype(dtype)
-    return jtu.tree_map(
-        lambda tay_leaf: jnp.tensordot(tay_leaf, h_powers, axes=1), tay_cfs
-    )
-
-
-class SORT(AbstractItoSolver):
+class SORT(AbstractLangevinSRK[_SORTCoeffs, _ErrorEstimate]):
     r"""The Shifted-ODE Runge-Kutta Three method
     designed by James Foster. Only works for Underdamped Langevin Diffusion
     of the form
@@ -148,6 +52,17 @@ class SORT(AbstractItoSolver):
     term_structure = LangevinTerm
     interpolation_cls = LocalLinearInterpolation
     taylor_threshold: RealScalarLike = eqx.field(static=True)
+    _coeffs_structure = jtu.tree_structure(
+        _SORTCoeffs(
+            beta_half=jnp.array(0.0),
+            a_half=jnp.array(0.0),
+            b_half=jnp.array(0.0),
+            beta1=jnp.array(0.0),
+            a1=jnp.array(0.0),
+            b1=jnp.array(0.0),
+            aa=jnp.array(0.0),
+        )
+    )
 
     @property
     def minimal_levy_area(self):
@@ -169,169 +84,109 @@ class SORT(AbstractItoSolver):
     def strong_order(self, terms):
         return 3.0
 
-    def recompute_coeffs(
-        self, h: RealScalarLike, gamma: Array, u: Array, tay_cfs: _Coeffs
-    ):
-        # Used when the step-size h changes and coefficients need to be recomputed
-        # Depending on the size of h*gamma choose whether the Taylor expansion or
-        # direct computation is more accurate.
-        cond = h * gamma < self.taylor_threshold
-        if jnp.ndim(gamma) == 0 and jnp.ndim(u) == 0:
-            return lax.cond(
-                cond,
-                lambda h_: _eval_taylor(h_, tay_cfs),
-                lambda h_: _directly_compute_coeffs(h_, gamma, u),
-                h,
-            )
-        else:
-            tay_out = _eval_taylor(h, tay_cfs)
+    @staticmethod
+    def _directly_compute_coeffs_leaf(h, c) -> _SORTCoeffs:
+        # c is a leaf of gamma
+        # compute the coefficients directly (as opposed to via Taylor expansion)
+        al = c * h
+        beta_half = jnp.exp(-al / 2)
+        beta1 = jnp.exp(-al)
+        a_half = (1 - beta_half) / c
+        a1 = (1 - beta1) / c
+        b_half = (beta_half + al / 2 - 1) / (al * c)
+        b1 = (beta1 + al - 1) / (al * c)
+        aa = a1 / h
 
-            assert gamma.shape == u.shape
-
-            def select_tay_or_direct(dummy):
-                fun = lambda gam, _u: _directly_compute_coeffs(h, gam, _u)
-                direct_out = vmap(fun)(gamma, u)
-                return jtu.tree_map(
-                    lambda tay_leaf, direct_leaf: jnp.where(
-                        cond, tay_leaf, direct_leaf
-                    ),
-                    tay_out,
-                    direct_out,
-                )
-
-            # If all entries of h*gamma are below threshold, only compute tay_out
-            # otherwise, compute both tay_out and direct_out and select the
-            # correct one for each dimension
-            return lax.cond(
-                jnp.all(cond), lambda _: tay_out, select_tay_or_direct, None
-            )
-
-    def init(
-        self,
-        terms: LangevinTerm,
-        t0: RealScalarLike,
-        t1: RealScalarLike,
-        y0: LangevinTuple,
-        args: PyTree,
-    ) -> _SolverState:
-        """Precompute _SolverState which carries the Taylor coefficients and the
-        ALIGN coefficients (which can be computed from h and the Taylor coeffs).
-        This method is FSAL, so _SolverState also carries the previous evaluation
-        of grad_f.
-        """
-        assert isinstance(terms, LangevinTerm)
-        gamma, u, f = terms.args  # f is in fact grad(f)
-        assert gamma.shape == u.shape
-        h = t1 - t0
-
-        tay_cfs = _comp_taylor_coeffs(gamma, u)
-        coeffs = self.recompute_coeffs(h, gamma, u, tay_cfs)
-        rho = jnp.sqrt(2 * gamma * u)
-
-        x0, v0 = y0
-        assert x0.shape == v0.shape
-        assert x0.ndim in [0, 1]
-
-        state_out = _SolverState(
-            h=h,
-            taylor_coeffs=tay_cfs,
-            coeffs=coeffs,
-            rho=rho,
-            prev_f=f(x0),
+        return _SORTCoeffs(
+            beta_half=beta_half,
+            a_half=a_half,
+            b_half=b_half,
+            beta1=beta1,
+            a1=a1,
+            b1=b1,
+            aa=aa,
         )
 
-        return state_out
+    @staticmethod
+    def _tay_cfs_single(c: Array) -> _SORTCoeffs:
+        # c is a leaf of gamma
+        assert c.ndim == 0
+        dtype = jnp.dtype(c)
+        c2 = jnp.square(c)
+        c3 = c2 * c
+        c4 = c3 * c
+        c5 = c4 * c
 
-    def step(
-        self,
-        terms: LangevinTerm,
-        t0: RealScalarLike,
-        t1: RealScalarLike,
-        y0: LangevinTuple,
-        args: PyTree,
-        solver_state: _SolverState,
-        made_jump: BoolScalarLike,
-    ) -> tuple[LangevinTuple, None, DenseInfo, _SolverState, RESULTS]:
-        del made_jump, args
-        st = solver_state
-        h = t1 - t0
-        assert isinstance(terms, LangevinTerm)
-        gamma, u, f = terms.args
+        beta_half = jnp.array(
+            [1, -c / 2, c2 / 8, -c3 / 48, c4 / 384, -c5 / 3840], dtype=dtype
+        )
+        beta1 = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], dtype=dtype)
 
-        h_state = st.h
-        tay: _Coeffs = st.taylor_coeffs
-        cfs = st.coeffs
+        a_half = jnp.array(
+            [0, 1 / 2, -c / 8, c2 / 48, -c3 / 384, c4 / 3840], dtype=dtype
+        )
+        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120], dtype=dtype)
+        # aa = a1/h
+        aa = jnp.array([1, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], dtype=dtype)
 
-        # If h changed recompute coefficients
-        cond = jnp.isclose(h_state, h)
-        cfs: _Coeffs = lax.cond(
-            cond, lambda x: x, lambda _: self.recompute_coeffs(h, gamma, u, tay), cfs
+        # b_half is not exactly b(1/2 h), but 1/2 * b(1/2 h)
+        b_half = jnp.array(
+            [0, 1 / 8, -c / 48, c2 / 384, -c3 / 3840, c4 / 46080], dtype=dtype
+        )
+        b1 = jnp.array([0, 1 / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], dtype=dtype)
+        return _SORTCoeffs(
+            beta_half=beta_half,
+            a_half=a_half,
+            b_half=b_half,
+            beta1=beta1,
+            a1=a1,
+            b1=b1,
+            aa=aa,
         )
 
-        drift, diffusion = terms.term.terms
-        # compute the Brownian increment and space-time Levy area
-        levy = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(levy, AbstractSpaceTimeTimeLevyArea)
-        assert (
-            levy.H is not None and levy.K is not None
-        ), "The Brownian motion must have `levy_area=diffrax.SpaceTimeTimeLevyArea`"
-        w: ArrayLike = levy.W
-        hh: ArrayLike = levy.H
-        kk: ArrayLike = levy.K
+    @staticmethod
+    def _compute_step(
+        h: RealScalarLike,
+        levy: AbstractSpaceTimeTimeLevyArea,
+        x0: LangevinX,
+        v0: LangevinX,
+        langevin_args: _LangevinArgs,
+        cfs: _SORTCoeffs,
+        st: _SolverState,
+    ) -> tuple[LangevinX, LangevinX, LangevinX, _ErrorEstimate]:
+        w: LangevinX = levy.W
+        hh: LangevinX = levy.H
+        kk: LangevinX = levy.K
 
-        x0, v0 = y0
-        assert x0.shape == v0.shape
-        assert x0.ndim in [0, 1]
+        gamma, u, f = langevin_args
 
-        assert cfs.a1.shape == gamma.shape or cfs.a1.shape == u.shape
-        assert gamma.shape in [(), x0.shape]
-
-        rho_w_k = st.rho * (w - 12 * kk)
-        uh = u * h
+        rho_w_k = (st.rho**ω * (w**ω - 12 * kk**ω)).ω
+        uh = (u**ω * h).ω
 
         f0 = st.prev_f
-        v1 = v0 + st.rho * (hh + 6 * kk)
-        x1 = x0 + cfs.a_half * v1 + cfs.b_half * (-uh * f0 + rho_w_k)
+        v1 = (v0**ω + st.rho**ω * (hh**ω + 6 * kk**ω)).ω
+        x1 = (
+            x0**ω
+            + cfs.a_half**ω * v1**ω
+            + cfs.b_half**ω * (-(uh**ω) * f0**ω + rho_w_k**ω)
+        ).ω
         f1 = f(x1)
-        x_out = x0 + cfs.a1 * v1 + cfs.b1 * (-uh * (1 / 3 * f0 + 2 / 3 * f1) + rho_w_k)
+        x_out = (
+            x0**ω
+            + cfs.a1**ω * v1**ω
+            + cfs.b1**ω * (-(uh**ω) * (1 / 3 * f0**ω + 2 / 3 * f1**ω) + rho_w_k**ω)
+        ).ω
         f_out = f(x_out)
-        assert f_out.shape == f0.shape, (
-            f"Shapes don't match." f" f0: {f0.shape}, f_out: {f_out.shape}"
-        )
         v_out = (
-            cfs.beta1 * v1
-            - uh * (cfs.beta1 / 6 * f0 + 2 / 3 * cfs.beta_half * f1 + 1 / 6 * f_out)
-            + cfs.aa * rho_w_k
-            - st.rho * (hh - 6 * kk)
-        )
+            cfs.beta1**ω * v1**ω
+            - uh**ω
+            * (
+                cfs.beta1**ω / 6 * f0**ω
+                + 2 / 3 * cfs.beta_half**ω * f1**ω
+                + 1 / 6 * f_out**ω
+            )
+            + cfs.aa**ω * rho_w_k**ω
+            - st.rho**ω * (hh**ω - 6 * kk**ω)
+        ).ω
 
-        y1 = (x_out, v_out)
-        assert v_out.dtype == x_out.dtype == x0.dtype, (
-            f"dtypes don't match. x0: {x0.dtype},"
-            f" v_out: {v_out.dtype}, x_out: {x_out.dtype}"
-        )
-        assert x_out.shape == v_out.shape == x0.shape, (
-            f"Shapes don't match. x0: {x0.shape},"
-            f" v_out: {v_out.shape}, x_out: {x_out.shape}"
-        )
-
-        # TODO: compute error estimate
-
-        dense_info = dict(y0=y0, y1=y1)
-        st = _SolverState(
-            h=h,
-            taylor_coeffs=tay,
-            coeffs=cfs,
-            rho=st.rho,
-            prev_f=f_out,
-        )
-        return y1, None, dense_info, st, RESULTS.successful
-
-    def func(
-        self,
-        terms: LangevinTerm,
-        t0: RealScalarLike,
-        y0: LangevinTuple,
-        args: PyTree,
-    ):
-        return terms.vf(t0, y0, args)
+        return x_out, v_out, f_out, None
