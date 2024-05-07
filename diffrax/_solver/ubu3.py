@@ -83,6 +83,7 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
     @staticmethod
     def _directly_compute_coeffs_leaf(h, c) -> _UBU3Coeffs:
         # compute the coefficients directly (as opposed to via Taylor expansion)
+        dtype = jnp.dtype(c)
         assert c.ndim in [0, 1]
         original_shape = c.shape
         c = jnp.expand_dims(c, axis=-1)
@@ -104,13 +105,14 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
 
         assert a_third.shape == a_div_h.shape == original_shape + (1,)
 
-        return _UBU3Coeffs(
+        out = _UBU3Coeffs(
             beta_lr1=beta_lr1,
             a_lr1=a_lr1,
             b_lr1=b_lr1,
             a_third=a_third,
             a_div_h=a_div_h,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=dtype), out)
 
     @staticmethod
     def _tay_cfs_single(c: Array) -> _UBU3Coeffs:
@@ -150,13 +152,14 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
         a_div_h = jnp.expand_dims(a_div_h, axis=0)
         assert a_third.shape == a_div_h.shape == (1, 6)
 
-        return _UBU3Coeffs(
+        out = _UBU3Coeffs(
             beta_lr1=beta_lr1,
             a_lr1=a_lr1,
             b_lr1=b_lr1,
             a_third=a_third,
             a_div_h=a_div_h,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=dtype), out)
 
     @staticmethod
     def _compute_step(

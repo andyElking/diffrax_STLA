@@ -106,7 +106,7 @@ class ShOULD(AbstractLangevinSRK[_ShOULDCoeffs, _ErrorEstimate]):
         chh = 6 * (beta1 * (al + 2) + al - 2) / (al2 * c)
         ckk = 60 * (beta1 * (al * (al + 6) + 12) - al * (al - 6) - 12) / (al3 * c)
 
-        return _ShOULDCoeffs(
+        out = _ShOULDCoeffs(
             beta_half=beta_half,
             a_half=a_half,
             b_half=b_half,
@@ -117,6 +117,7 @@ class ShOULD(AbstractLangevinSRK[_ShOULDCoeffs, _ErrorEstimate]):
             chh=chh,
             ckk=ckk,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=jnp.dtype(c)), out)
 
     @staticmethod
     def _tay_cfs_single(c: Array) -> _ShOULDCoeffs:

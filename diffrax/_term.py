@@ -696,7 +696,7 @@ class _LangevinDiffusionTerm(AbstractTerm[LangevinX, _LangevinBM]):
         return jtu.tree_map(lambda _leaf: jnp.zeros_like(_leaf), out), out
 
 
-_LangevinArgs = tuple[Array, Array, Callable[[LangevinX], LangevinX]]
+_LangevinArgs = tuple[LangevinX, LangevinX, Callable[[LangevinX], LangevinX]]
 
 
 def _langevin_drift(t, y: LangevinTuple, args: _LangevinArgs) -> LangevinTuple:

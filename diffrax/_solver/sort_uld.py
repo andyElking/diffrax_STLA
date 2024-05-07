@@ -97,7 +97,7 @@ class SORT(AbstractLangevinSRK[_SORTCoeffs, _ErrorEstimate]):
         b1 = (beta1 + al - 1) / (al * c)
         aa = a1 / h
 
-        return _SORTCoeffs(
+        out = _SORTCoeffs(
             beta_half=beta_half,
             a_half=a_half,
             b_half=b_half,
@@ -106,6 +106,7 @@ class SORT(AbstractLangevinSRK[_SORTCoeffs, _ErrorEstimate]):
             b1=b1,
             aa=aa,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=jnp.dtype(c)), out)
 
     @staticmethod
     def _tay_cfs_single(c: Array) -> _SORTCoeffs:
