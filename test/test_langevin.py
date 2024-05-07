@@ -9,6 +9,7 @@ from .helpers import (
     _abstract_la_to_la,
     get_bqp,
     get_harmonic_oscillator,
+    get_pytree_langevin,
     simple_batch_sde_solve,
     simple_sde_order,
 )
@@ -16,11 +17,11 @@ from .helpers import (
 
 def _solvers():
     # solver, order
-    # yield diffrax.ALIGN(0.1), 2.0
-    # yield diffrax.ShARK(), 2.0
-    # yield diffrax.SRA1(), 2.0
-    # yield diffrax.SORT(0.01), 3.0
-    # yield diffrax.ShOULD(0.01), 3.0
+    yield diffrax.ALIGN(0.1), 2.0
+    yield diffrax.ShARK(), 2.0
+    yield diffrax.SRA1(), 2.0
+    yield diffrax.SORT(0.01), 3.0
+    yield diffrax.ShOULD(0.01), 3.0
     yield diffrax.UBU3(0.0), 3.0
 
 
@@ -62,7 +63,7 @@ def test_shape(solver, order, dtype, dim):
         (gam, vec_u, f),
         (vec_gam, vec_u, f),
     ]:
-        terms = LangevinTerm(args, bm)
+        terms = LangevinTerm(args, bm, x0)
         sol = diffeqsolve(
             terms, solver, t0, t1, dt0=0.3, y0=y0, args=None, saveat=saveat
         )
@@ -75,6 +76,7 @@ def test_shape(solver, order, dtype, dim):
 sdes = (
     (get_harmonic_oscillator, "hosc"),
     (get_bqp, "bqp"),
+    (get_pytree_langevin, "pytree"),
 )
 
 
@@ -86,7 +88,7 @@ def fine_langevin_solutions():
     t0 = 0.1
     t1 = 5.3
     level_precise = 10
-    level_coarse, level_fine = 2, 6
+    level_coarse, level_fine = 3, 6
     saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t1, 2**level_coarse + 1, endpoint=True))
     ref_solver = diffrax.ShARK()
     levy_area = diffrax.SpaceTimeTimeLevyArea
@@ -105,9 +107,15 @@ def fine_langevin_solutions():
         bmkeys, bqp_sde, ref_solver, levy_area, None, controller, bm_tol, saveat
     )
 
+    pytree_sde = get_pytree_langevin(t0, t1, jnp.float64)
+    pytree_sol, _ = simple_batch_sde_solve(
+        bmkeys, pytree_sde, ref_solver, levy_area, None, controller, bm_tol, saveat
+    )
+
     sols = {
         "hosc": hosc_sol,
         "bqp": bqp_sol,
+        "pytree": pytree_sol,
     }
     return sols, t0, t1, bmkeys, saveat, level_coarse, level_fine, levy_area, bm_tol
 

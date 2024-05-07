@@ -94,13 +94,14 @@ class ALIGN(AbstractLangevinSRK[_ALIGNCoeffs, _ErrorEstimate]):
         al2 = al**2
         chh = 6 * (beta * (al + 2) + al - 2) / (al2 * c)
 
-        return _ALIGNCoeffs(
+        out = _ALIGNCoeffs(
             beta=beta,
             a1=a1,
             b1=b1,
             aa=aa,
             chh=chh,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=jnp.dtype(c)), out)
 
     @staticmethod
     def _tay_cfs_single(c: Array) -> _ALIGNCoeffs:

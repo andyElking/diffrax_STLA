@@ -17,6 +17,7 @@ from diffrax import (
     ODETerm,
     VirtualBrownianTree,
 )
+from diffrax._misc import is_tuple_of_ints
 from jax import Array
 from jaxtyping import PRNGKeyArray, PyTree, Shaped
 
@@ -138,7 +139,7 @@ def _abstract_la_to_la(abstract_la):
 def _batch_sde_solve(
     key: PRNGKeyArray,
     get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
-    w_shape: tuple[int, ...],
+    w_shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
     t0: float,
     t1: float,
     y0: PyTree[Array],
@@ -153,7 +154,10 @@ def _batch_sde_solve(
     abstract_levy_area = _get_minimal_la(solver) if levy_area is None else levy_area
     concrete_la = _abstract_la_to_la(abstract_levy_area)
     dtype = jnp.result_type(*jtu.tree_leaves(y0))
-    struct = jax.ShapeDtypeStruct(w_shape, dtype)
+    if is_tuple_of_ints(w_shape):
+        struct = jax.ShapeDtypeStruct(w_shape, dtype)
+    else:
+        struct = w_shape
     bm = diffrax.VirtualBrownianTree(
         t0=t0,
         t1=t1,
@@ -292,14 +296,21 @@ def sde_solver_strong_order(
     return steps_arr, errs_arr, order
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(unsafe_hash=True)
 class SDE:
     get_terms: Callable[[AbstractBrownianPath], AbstractTerm]
     args: PyTree
     y0: PyTree[Array]
     t0: float
     t1: float
-    w_shape: tuple[int, ...]
+    _w_shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]]
+
+    @property
+    def w_shape(self):
+        if is_tuple_of_ints(self._w_shape):
+            return self._w_shape
+        else:
+            return self._w_shape
 
     def get_dtype(self):
         return jnp.result_type(*jtu.tree_leaves(self.y0))
@@ -310,8 +321,9 @@ class SDE:
         levy_area: type[Union[diffrax.BrownianIncrement, diffrax.SpaceTimeLevyArea]],
         tol: float,
     ):
-        shp_dtype = jax.ShapeDtypeStruct(self.w_shape, dtype=self.get_dtype())
-        return VirtualBrownianTree(self.t0, self.t1, tol, shp_dtype, bm_key, levy_area)
+        return VirtualBrownianTree(
+            self.t0, self.t1, tol, self.w_shape, bm_key, levy_area
+        )
 
 
 # A more concise function for use in the examples
@@ -490,7 +502,7 @@ def get_bqp(t0=0.3, t1=15.0, dtype=jnp.float32):
     w_shape_bqp = ()
 
     def get_terms_bqp(bm):
-        return LangevinTerm(args_bqp, bm)
+        return LangevinTerm(args_bqp, bm, x0=y0_bqp[0])
 
     return SDE(get_terms_bqp, None, y0_bqp, t0, t1, w_shape_bqp)
 
@@ -505,7 +517,7 @@ def get_harmonic_oscillator(t0=0.3, t1=15.0, dtype=jnp.float32):
     w_shape_hosc = (2,)
 
     def get_terms_hosc(bm):
-        return LangevinTerm(args_hosc, bm)
+        return LangevinTerm(args_hosc, bm, x0)
 
     return SDE(get_terms_hosc, None, y0_hosc, t0, t1, w_shape_hosc)
 
@@ -521,11 +533,13 @@ def get_neals_funnel(t0=0.0, t1=16.0, dtype=jnp.float32):
     gamma = 2.0
     u = 1.0
     args_neal = (gamma, u, grad_log_p)
-    y0_neal = (jnp.zeros((10,), dtype=dtype), jnp.zeros((10,), dtype=dtype))
+    x0 = jnp.zeros((10,), dtype=dtype)
+    v0 = jnp.zeros((10,), dtype=dtype)
+    y0_neal = (x0, v0)
     w_shape_neal = (10,)
 
     def get_terms_neal(bm):
-        return LangevinTerm(args_neal, bm)
+        return LangevinTerm(args_neal, bm, x0)
 
     return SDE(get_terms_neal, None, y0_neal, t0, t1, w_shape_neal)
 
@@ -580,6 +594,51 @@ def get_uld3_langevin(t0=0.3, t1=15.0, dtype=jnp.float32):
     w_shape_uld3 = (9,)
 
     def get_terms_uld3(bm):
-        return LangevinTerm(args, bm)
+        return LangevinTerm(args, bm, x0)
 
     return SDE(get_terms_uld3, None, y0_uld3, t0, t1, w_shape_uld3)
+
+
+def get_pytree_langevin(t0=0.3, t1=15.0, dtype=jnp.float32):
+    def make_pytree(array_factory):
+        return {
+            "rr": (
+                array_factory((2,), dtype),
+                array_factory((2,), dtype),
+                array_factory((2,), dtype),
+            ),
+            "qq": (
+                array_factory((5,), dtype),
+                array_factory((3,), dtype),
+            ),
+        }
+
+    x0 = make_pytree(jnp.ones)
+    v0 = make_pytree(jnp.zeros)
+    y0 = (x0, v0)
+
+    g1 = {
+        "rr": 0.5 * jnp.ones((2,), dtype),
+        "qq": (
+            jnp.ones((), dtype),
+            jnp.ones((3,), dtype),
+        ),
+    }
+
+    u1 = {
+        "rr": (jnp.ones((), dtype), 10.0, 5 * jnp.ones((2,), dtype)),
+        "qq": jnp.ones((), dtype),
+    }
+
+    def grad_f(x):
+        xa = x["rr"]
+        xb = x["qq"]
+        return {"rr": jtu.tree_map(lambda _x: 0.2 * _x, xa), "qq": xb}
+
+    args = g1, u1, grad_f
+    w_shape = jtu.tree_map(lambda _x: jax.ShapeDtypeStruct(_x.shape, _x.dtype), x0)
+
+    def get_terms(bm):
+        return LangevinTerm(args, bm, x0)
+
+    return SDE(get_terms, None, y0, t0, t1, w_shape)
