@@ -16,6 +16,36 @@ from diffrax import (
     StepTo,
     UBU3,
 )
+from jaxtyping import PyTree
+
+
+def run_lmc_numpyro(
+    key,
+    model,
+    num_particles: int,
+    chain_len: int,
+    chain_sep: float = 0.1,
+    tol: float = 2**-6,
+    warmup_mult: float = 32.0,
+    warmup_tol_mult: float = 4.0,
+    use_adaptive: bool = True,
+    solver: AbstractSolver = UBU3(0.1),
+):
+    log_p = jax.jit(model.potential_fn)
+    x0 = model.param_info.z
+    return run_lmc(
+        key,
+        log_p,
+        x0,
+        num_particles,
+        chain_len,
+        chain_sep,
+        tol,
+        warmup_mult,
+        warmup_tol_mult,
+        use_adaptive,
+        solver,
+    )
 
 
 def run_lmc(
@@ -35,15 +65,17 @@ def run_lmc(
     keys_warmup = jr.split(key_warmup, num_particles)
     keys_mcmc = jr.split(key_mcmc, num_particles)
     grad_f = jax.jit(jax.grad(log_p))
-    v0 = jnp.zeros_like(x0)
+    v0 = jtu.tree_map(lambda x: jnp.zeros_like(x), x0)
     y0 = (x0, v0)
-    w_shape: tuple[int, ...] = x0.shape
+    w_shape: PyTree[jax.ShapeDtypeStruct] = jtu.tree_map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), x0
+    )
 
     gamma, u = 1.0, 1.0
 
     def get_terms(bm):
         args = (gamma, u, grad_f)
-        return LangevinTerm(args, bm)
+        return LangevinTerm(args, bm, x0)
 
     t_warmup = warmup_mult * chain_sep
     tol_warmup = warmup_tol_mult * tol
@@ -117,7 +149,10 @@ def run_lmc(
         bm_tol,
         saveat,
     )
-    ys_mcmc = jnp.nan_to_num(out_mcmc[0], nan=0, posinf=0, neginf=0)
+    ys_mcmc = out_mcmc[0]
+    ys_mcmc = jtu.tree_map(
+        lambda x: jnp.nan_to_num(x, nan=0, posinf=0, neginf=0), ys_mcmc
+    )
 
     avg_steps_warmup = jnp.mean(steps_warmup)
     avg_steps_mcmc = jnp.mean(steps_mcmc)
