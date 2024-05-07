@@ -1,5 +1,5 @@
 import abc
-from typing import Callable, Generic, TypeVar
+from typing import Generic, TypeVar
 
 import equinox as eqx
 import jax
@@ -7,7 +7,7 @@ import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jax import vmap
-from jaxlib.xla_extension.pytree import PyTreeDef
+from jax._src.tree_util import PyTreeDef
 from jaxtyping import Array, ArrayLike, PyTree
 
 from .._custom_types import (
@@ -19,7 +19,7 @@ from .._custom_types import (
 )
 from .._local_interpolation import LocalLinearInterpolation
 from .._solution import RESULTS
-from .._term import LangevinTerm, LangevinTuple, LangevinX
+from .._term import _LangevinArgs, LangevinTerm, LangevinTuple, LangevinX
 from .base import AbstractItoSolver, AbstractStratonovichSolver
 
 
@@ -37,7 +37,8 @@ _Coeffs = TypeVar("_Coeffs", bound=_AbstractCoeffs)
 
 
 # TODO: I'm not sure if I can use the _Coeffs type here,
-# given that I do not use Generic[_Coeffs] in the class definition
+# given that I do not use Generic[_Coeffs] in the class definition.
+# How should I work around this?
 class _SolverState(eqx.Module):
     h: RealScalarLike
     taylor_coeffs: PyTree[_Coeffs, "LangevinX"]
@@ -93,8 +94,9 @@ class AbstractLangevinSRK(
         else:
             out = jax.vmap(self._tay_cfs_single)(c)
 
-        def check_shape(x):
-            assert x.shape == c.shape + (3, 6) or x.shape == c.shape + (1, 6)
+        def check_shape(coeff_leaf):
+            permitted_shapes = [c.shape + (3, 6), c.shape + (1, 6), c.shape + (6,)]
+            assert coeff_leaf.shape in permitted_shapes
 
         jtu.tree_map(check_shape, out)
         return out
@@ -125,15 +127,20 @@ class AbstractLangevinSRK(
                     h,
                 )
             else:
-                cond = jnp.expand_dims(cond, axis=-1)
                 tay_out = self._eval_taylor(h, _tay_cfs)
+                if cond.ndim < jtu.tree_leaves(tay_out)[0].ndim:
+                    cond = jnp.expand_dims(cond, axis=-1)
 
                 def select_tay_or_direct(dummy):
                     fun = lambda _c: self._directly_compute_coeffs_leaf(h, _c)
                     direct_out = vmap(fun)(c)
 
                     def _choose(tay_leaf, direct_leaf):
-                        assert tay_leaf.ndim == direct_leaf.ndim == cond.ndim
+                        assert tay_leaf.ndim == direct_leaf.ndim == cond.ndim, (
+                            f"tay_leaf.ndim: {tay_leaf.ndim},"
+                            f" direct_leaf.ndim: {direct_leaf.ndim},"
+                            f" cond.ndim: {cond.ndim}"
+                        )
                         return jnp.where(cond, tay_leaf, direct_leaf)
 
                     return jtu.tree_map(_choose, tay_out, direct_out)
@@ -201,8 +208,7 @@ class AbstractLangevinSRK(
         levy,
         x0: LangevinX,
         v0: LangevinX,
-        f: Callable[[LangevinX], LangevinX],
-        u: LangevinX,
+        langevin_args: _LangevinArgs,
         cfs: _Coeffs,
         st: _SolverState,
     ) -> tuple[LangevinX, LangevinX, LangevinX, _ErrorEstimate]:
@@ -243,7 +249,9 @@ class AbstractLangevinSRK(
         ), "The Brownian motion must have `levy_area=diffrax.SpaceTimeTimeLevyArea`"
 
         x0, v0 = y0
-        x_out, v_out, f_fsal, error = self._compute_step(h, levy, x0, v0, f, u, cfs, st)
+        x_out, v_out, f_fsal, error = self._compute_step(
+            h, levy, x0, v0, terms.args, cfs, st
+        )
 
         def check_shapes_dtypes(_x, _v, _f, _x0):
             assert _x.dtype == _v.dtype == _f.dtype == _x0.dtype, (

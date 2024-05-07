@@ -1,5 +1,5 @@
 import math
-from typing import Callable, TypeAlias
+from typing import TypeAlias
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -12,7 +12,7 @@ from .._custom_types import (
     RealScalarLike,
 )
 from .._local_interpolation import LocalLinearInterpolation
-from .._term import LangevinTerm, LangevinX
+from .._term import _LangevinArgs, LangevinTerm, LangevinX
 from .langevin_srk import _AbstractCoeffs, _SolverState, AbstractLangevinSRK
 
 
@@ -32,16 +32,6 @@ class _UBU3Coeffs(_AbstractCoeffs):
     a_div_h: PyTree[Array]  # (gamma, 1, *taylor)
 
 
-_coeffs_structure = jtu.tree_structure(
-    _UBU3Coeffs(
-        beta_lr1=jnp.array(0.0),
-        a_lr1=jnp.array(0.0),
-        b_lr1=jnp.array(0.0),
-        a_third=jnp.array(0.0),
-        a_div_h=jnp.array(0.0),
-    )
-)
-
 _ErrorEstimate: TypeAlias = None
 
 
@@ -56,6 +46,19 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
     where $v$ is the velocity, $f$ is the potential, $gamma$ is the friction, and
     $W$ is a Brownian motion.
     """
+
+    term_structure = LangevinTerm
+    interpolation_cls = LocalLinearInterpolation
+    taylor_threshold: RealScalarLike = eqx.field(static=True)
+    _coeffs_structure = jtu.tree_structure(
+        _UBU3Coeffs(
+            beta_lr1=jnp.array(0.0),
+            a_lr1=jnp.array(0.0),
+            b_lr1=jnp.array(0.0),
+            a_third=jnp.array(0.0),
+            a_div_h=jnp.array(0.0),
+        )
+    )
 
     @property
     def minimal_levy_area(self):
@@ -161,14 +164,15 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
         levy: AbstractSpaceTimeTimeLevyArea,
         x0: LangevinX,
         v0: LangevinX,
-        f: Callable[[LangevinX], LangevinX],
-        u: LangevinX,
+        langevin_args: _LangevinArgs,
         cfs: _UBU3Coeffs,
         st: _SolverState,
     ) -> tuple[LangevinX, LangevinX, LangevinX, _ErrorEstimate]:
         w: LangevinX = levy.W
         hh: LangevinX = levy.H
         kk: LangevinX = levy.K
+
+        gamma, u, f = langevin_args
 
         def _l(coeff):
             return jtu.tree_map(lambda arr: arr[..., 0], coeff)
@@ -223,16 +227,3 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
 
         # TODO: compute error estimate
         return x_out, v_out, f_fsal, None
-
-    term_structure = LangevinTerm
-    interpolation_cls = LocalLinearInterpolation
-    taylor_threshold: RealScalarLike = eqx.field(static=True)
-    _coeffs_structure = jtu.tree_structure(
-        _UBU3Coeffs(
-            beta_lr1=jnp.array(0.0),
-            a_lr1=jnp.array(0.0),
-            b_lr1=jnp.array(0.0),
-            a_third=jnp.array(0.0),
-            a_div_h=jnp.array(0.0),
-        )
-    )
