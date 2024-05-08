@@ -213,11 +213,21 @@ class VirtualBrownianTree(AbstractBrownianPath):
         ```
 
         The implementation here is an improvement on the above, in that it additionally
-        simulates space-time and space-time-time Levy areas. This is due to the paper
+        simulates space-time and space-time-time Levy areas, and exactly matches the
+        distribution of the Brownian motion and its Levy areas at all query times.
+        This is due to the paper
 
-        "Single-seed generation of Brownian paths and integrals
-        for adaptive and high order SDE solvers"
-        TODO: add the paper bitex
+        ```bibtex
+        @misc{jelinčič2024singleseed,
+          title={Single-seed generation of Brownian paths and integrals
+          for adaptive and high order SDE solvers},
+          author={Andraž Jelinčič and James Foster and Patrick Kidger},
+          year={2024},
+          eprint={2405.06464},
+          archivePrefix={arXiv},
+          primaryClass={math.NA}
+        }
+        ```
 
         and Theorem 6.1.6 of
 
@@ -230,9 +240,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
           year = {2020}
         }
         ```
-
-        In addition, the implementation here is a further improvement on these by using
-        an interpolation method which ensures the conditional 2nd moments are correct.
     """
 
     t0: RealScalarLike

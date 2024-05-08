@@ -159,7 +159,7 @@ def _batch_sde_solve(
         shape=struct,
         tol=bm_tol,
         key=key,
-        levy_area=concrete_la,  # pyright: ignore
+        levy_area=concrete_la,
     )
     terms = get_terms(bm)
     if controller is None:
