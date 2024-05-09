@@ -17,12 +17,13 @@ from diffrax import (
     UBU3,
 )
 from jaxtyping import PyTree
-from numpyro.infer.util import initialize_model
+from numpyro.infer.util import initialize_model  # pyright: ignore
 
 
 def run_lmc_numpyro(
     key,
     model,
+    model_args,
     num_particles: int,
     chain_len: int,
     chain_sep: float = 0.1,
@@ -33,7 +34,7 @@ def run_lmc_numpyro(
     solver: AbstractSolver = UBU3(0.1),
 ):
     model_key, lmc_key = jr.split(key, 2)
-    model_info = initialize_model(model_key, model)
+    model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
     x0 = model_info.param_info.z
     return run_lmc(
