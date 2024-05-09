@@ -122,35 +122,36 @@ class ShOULD(AbstractLangevinSRK[_ShOULDCoeffs, _ErrorEstimate]):
     @staticmethod
     def _tay_cfs_single(c: Array) -> _ShOULDCoeffs:
         # c is a leaf of gamma
-        assert c.ndim == 0
+        zero = jnp.zeros_like(c)
+        one = jnp.ones_like(c)
         dtype = jnp.dtype(c)
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
         c5 = c4 * c
 
-        beta_half = jnp.array(
-            [1, -c / 2, c2 / 8, -c3 / 48, c4 / 384, -c5 / 3840], dtype=dtype
+        beta_half = jnp.stack(
+            [one, -c / 2, c2 / 8, -c3 / 48, c4 / 384, -c5 / 3840], axis=-1
         )
-        beta1 = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], dtype=dtype)
+        beta1 = jnp.stack([one, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], axis=-1)
 
-        a_half = jnp.array(
-            [0, 1 / 2, -c / 8, c2 / 48, -c3 / 384, c4 / 3840], dtype=dtype
+        a_half = jnp.stack(
+            [zero, one / 2, -c / 8, c2 / 48, -c3 / 384, c4 / 3840], axis=-1
         )
-        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120], dtype=dtype)
+        a1 = jnp.stack([zero, one, -c / 2, c2 / 6, -c3 / 24, c4 / 120], axis=-1)
         # aa = a1/h
-        aa = jnp.array([1, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], dtype=dtype)
+        aa = jnp.stack([one, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], axis=-1)
 
         # b_half is not exactly b(1/2 h), but 1/2 * b(1/2 h)
-        b_half = jnp.array(
-            [0, 1 / 8, -c / 48, c2 / 384, -c3 / 3840, c4 / 46080], dtype=dtype
+        b_half = jnp.stack(
+            [zero, one / 8, -c / 48, c2 / 384, -c3 / 3840, c4 / 46080], axis=-1
         )
-        b1 = jnp.array([0, 1 / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], dtype=dtype)
+        b1 = jnp.stack([zero, one / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], axis=-1)
 
-        chh = jnp.array([0, 1, -c / 2, 3 * c2 / 20, -c3 / 30, c4 / 168], dtype=dtype)
-        ckk = jnp.array([0, 0, -c, c2 / 2, -c3 / 7, 5 * c4 / 168], dtype=dtype)
+        chh = jnp.stack([zero, one, -c / 2, 3 * c2 / 20, -c3 / 30, c4 / 168], axis=-1)
+        ckk = jnp.stack([zero, zero, -c, c2 / 2, -c3 / 7, 5 * c4 / 168], axis=-1)
 
-        return _ShOULDCoeffs(
+        out = _ShOULDCoeffs(
             beta_half=beta_half,
             a_half=a_half,
             b_half=b_half,
@@ -161,6 +162,7 @@ class ShOULD(AbstractLangevinSRK[_ShOULDCoeffs, _ErrorEstimate]):
             chh=chh,
             ckk=ckk,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=dtype), out)
 
     @staticmethod
     def _compute_step(

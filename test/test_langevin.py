@@ -15,6 +15,13 @@ from .helpers import (
 )
 
 
+def _only_langevin_solvers_cls():
+    yield diffrax.ALIGN
+    yield diffrax.SORT
+    yield diffrax.ShOULD
+    yield diffrax.UBU3
+
+
 def _solvers():
     # solver, order
     yield diffrax.ALIGN(0.1), 2.0
@@ -25,10 +32,16 @@ def _solvers():
     yield diffrax.UBU3(0.0), 3.0
 
 
-@pytest.mark.parametrize("solver,order", _solvers())
+@pytest.mark.parametrize("solver_cls", _only_langevin_solvers_cls())
+@pytest.mark.parametrize("taylor", [True, False])
 @pytest.mark.parametrize("dtype", [jnp.float16, jnp.float32, jnp.float64])
 @pytest.mark.parametrize("dim", [1, 4])
-def test_shape(solver, order, dtype, dim):
+def test_shape(solver_cls, taylor, dtype, dim):
+    if taylor:
+        solver = solver_cls(100.0)
+    else:
+        solver = solver_cls(0.0)
+
     if dtype == jnp.float16 and isinstance(
         solver, (diffrax.SORT, diffrax.ShOULD, diffrax.UBU3)
     ):

@@ -2,7 +2,6 @@ import abc
 from typing import Generic, TypeVar
 
 import equinox as eqx
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -12,7 +11,6 @@ from jaxtyping import Array, ArrayLike, PyTree
 
 from .._custom_types import (
     AbstractBrownianIncrement,
-    AbstractSpaceTimeTimeLevyArea,
     BoolScalarLike,
     DenseInfo,
     RealScalarLike,
@@ -89,14 +87,18 @@ class AbstractLangevinSRK(
         # to be computed via Taylor expansion to ensure numerical stability.
         # This precomputes the Taylor coefficients (depending on gamma and u), which
         # are then multiplied by powers of h, to get the coefficients of ALIGN.
-        if jnp.ndim(c) == 0:
-            out = self._tay_cfs_single(c)
-        else:
-            out = jax.vmap(self._tay_cfs_single)(c)
+        # if jnp.ndim(c) == 0:
+        #     out = self._tay_cfs_single(c)
+        # else:
+        #     c_axes = tuple(range(c.ndim))
+        #     out = jax.vmap(self._tay_cfs_single, in_axes=c_axes, out_axes=c_axes)(c)
+        out = self._tay_cfs_single(c)
 
         def check_shape(coeff_leaf):
             permitted_shapes = [c.shape + (3, 6), c.shape + (1, 6), c.shape + (6,)]
-            assert coeff_leaf.shape in permitted_shapes
+            assert (
+                coeff_leaf.shape in permitted_shapes
+            ), f"leaf shape: {coeff_leaf.shape}, c shape: {c.shape}"
 
         jtu.tree_map(check_shape, out)
         return out
@@ -177,7 +179,7 @@ class AbstractLangevinSRK(
         x0, v0 = y0
 
         def _check_shapes(_c, _u, _x, _v):
-            assert _x.ndim in [0, 1]
+            # assert _x.ndim in [0, 1]
             assert _c.shape == _u.shape == _x.shape == _v.shape
 
         assert jtu.tree_all(jtu.tree_map(_check_shapes, gamma, u, x0, v0))
@@ -243,10 +245,10 @@ class AbstractLangevinSRK(
         drift, diffusion = terms.term.terms
         # compute the Brownian increment and space-time Levy area
         levy = diffusion.contr(t0, t1, use_levy=True)
-        assert isinstance(levy, AbstractSpaceTimeTimeLevyArea)
-        assert (
-            levy.H is not None and levy.K is not None
-        ), "The Brownian motion must have `levy_area=diffrax.SpaceTimeTimeLevyArea`"
+        assert isinstance(levy, self.minimal_levy_area), (
+            f"The Brownian motion must have"
+            f" `levy_area={self.minimal_levy_area.__name__}`"
+        )
 
         x0, v0 = y0
         x_out, v_out, f_fsal, error = self._compute_step(
