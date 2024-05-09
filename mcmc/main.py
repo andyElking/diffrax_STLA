@@ -17,6 +17,7 @@ from diffrax import (
     UBU3,
 )
 from jaxtyping import PyTree
+from numpyro.infer.util import initialize_model
 
 
 def run_lmc_numpyro(
@@ -31,10 +32,12 @@ def run_lmc_numpyro(
     use_adaptive: bool = True,
     solver: AbstractSolver = UBU3(0.1),
 ):
-    log_p = jax.jit(model.potential_fn)
-    x0 = model.param_info.z
+    model_key, lmc_key = jr.split(key, 2)
+    model_info = initialize_model(model_key, model)
+    log_p = jax.jit(model_info.potential_fn)
+    x0 = model_info.param_info.z
     return run_lmc(
-        key,
+        lmc_key,
         log_p,
         x0,
         num_particles,

@@ -176,6 +176,7 @@ def _sde_solve(
         max_steps=2**19,
         stepsize_controller=controller,
         saveat=saveat,
+        progress_meter=diffrax.TqdmProgressMeter(),
     )
     steps = sol.stats["num_accepted_steps"]
     if isinstance(solver, diffrax.HalfSolver):
