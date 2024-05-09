@@ -2,6 +2,7 @@ import math
 from typing import TypeAlias
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
@@ -84,15 +85,12 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
     def _directly_compute_coeffs_leaf(h, c) -> _UBU3Coeffs:
         # compute the coefficients directly (as opposed to via Taylor expansion)
         dtype = jnp.dtype(c)
-        assert c.ndim in [0, 1]
         original_shape = c.shape
-        c = jnp.expand_dims(c, axis=-1)
+        c = jnp.expand_dims(c, axis=c.ndim)
         alpha = c * h
         l = 0.5 - math.sqrt(3) / 6
         r = 0.5 + math.sqrt(3) / 6
         l_r_1 = jnp.array([l, r, 1.0], dtype=jnp.dtype(c))
-        if c.ndim == 1:
-            jnp.expand_dims(l_r_1, axis=0)
         alpha_lr1 = alpha * l_r_1
         assert alpha_lr1.shape == original_shape + (
             3,
@@ -117,8 +115,9 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
     @staticmethod
     def _tay_cfs_single(c: Array) -> _UBU3Coeffs:
         # c is a leaf of gamma
-        assert c.ndim == 0
         dtype = jnp.dtype(c)
+        zero = jnp.zeros_like(c)
+        one = jnp.ones_like(c)
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
@@ -131,26 +130,27 @@ class UBU3(AbstractLangevinSRK[_UBU3Coeffs, _ErrorEstimate]):
         lr1_pows = jnp.power(lr1, exponents)
         assert lr1_pows.shape == (3, 6)
 
-        beta = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], dtype=dtype)
-        a = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120], dtype=dtype)
-        b = jnp.array([0, 1 / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], dtype=dtype)
+        beta = jnp.stack([one, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], axis=-1)
+        a = jnp.stack([zero, one, -c / 2, c2 / 6, -c3 / 24, c4 / 120], axis=-1)
+        b = jnp.stack([zero, one / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], axis=-1)
 
-        beta_lr1 = lr1_pows * jnp.expand_dims(beta, axis=0)
-        a_lr1 = lr1_pows * jnp.expand_dims(a, axis=0)
-        # b needs an extra power of l and r
-        b_lr1 = lr1_pows * lr1 * jnp.expand_dims(b, axis=0)
-        assert beta_lr1.shape == a_lr1.shape == b_lr1.shape == (3, 6)
+        with jax.numpy_rank_promotion("allow"):
+            beta_lr1 = lr1_pows * jnp.expand_dims(beta, axis=c.ndim)
+            a_lr1 = lr1_pows * jnp.expand_dims(a, axis=c.ndim)
+            # b needs an extra power of l and r
+            b_lr1 = lr1_pows * lr1 * jnp.expand_dims(b, axis=c.ndim)
+        assert beta_lr1.shape == a_lr1.shape == b_lr1.shape == c.shape + (3, 6)
 
         # a_third = (1 - exp(-1/3 * gamma * h))/gamma
-        a_third = jnp.array(
-            [0, 1 / 3, -c / 18, c2 / 162, -c3 / 1944, c4 / 29160], dtype=dtype
+        a_third = jnp.stack(
+            [zero, one / 3, -c / 18, c2 / 162, -c3 / 1944, c4 / 29160], axis=-1
         )
-        a_third = jnp.expand_dims(a_third, axis=0)
-        a_div_h = jnp.array(
-            [1, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], dtype=dtype
+        a_third = jnp.expand_dims(a_third, axis=c.ndim)
+        a_div_h = jnp.stack(
+            [one, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], axis=-1
         )
-        a_div_h = jnp.expand_dims(a_div_h, axis=0)
-        assert a_third.shape == a_div_h.shape == (1, 6)
+        a_div_h = jnp.expand_dims(a_div_h, axis=c.ndim)
+        assert a_third.shape == a_div_h.shape == c.shape + (1, 6)
 
         out = _UBU3Coeffs(
             beta_lr1=beta_lr1,

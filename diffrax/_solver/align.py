@@ -8,7 +8,6 @@ from jaxtyping import Array, PyTree
 
 from .._custom_types import (
     AbstractSpaceTimeLevyArea,
-    AbstractSpaceTimeTimeLevyArea,
     RealScalarLike,
 )
 from .._local_interpolation import LocalLinearInterpolation
@@ -106,31 +105,33 @@ class ALIGN(AbstractLangevinSRK[_ALIGNCoeffs, _ErrorEstimate]):
     @staticmethod
     def _tay_cfs_single(c: Array) -> _ALIGNCoeffs:
         # c is a leaf of gamma
-        assert c.ndim == 0
         dtype = jnp.dtype(c)
+        zero = jnp.zeros_like(c)
+        one = jnp.ones_like(c)
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
         c5 = c4 * c
 
-        beta = jnp.array([1, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], dtype=dtype)
-        a1 = jnp.array([0, 1, -c / 2, c2 / 6, -c3 / 24, c4 / 120], dtype=dtype)
-        b1 = jnp.array([0, 1 / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], dtype=dtype)
-        aa = jnp.array([1, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], dtype=dtype)
-        chh = jnp.array([0, 1, -c / 2, 3 * c2 / 20, -c3 / 30, c4 / 168], dtype=dtype)
+        beta = jnp.stack([one, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], axis=-1)
+        a1 = jnp.stack([zero, one, -c / 2, c2 / 6, -c3 / 24, c4 / 120], axis=-1)
+        b1 = jnp.stack([zero, one / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], axis=-1)
+        aa = jnp.stack([one, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], axis=-1)
+        chh = jnp.stack([zero, one, -c / 2, 3 * c2 / 20, -c3 / 30, c4 / 168], axis=-1)
 
-        return _ALIGNCoeffs(
+        out = _ALIGNCoeffs(
             beta=beta,
             a1=a1,
             b1=b1,
             aa=aa,
             chh=chh,
         )
+        return jtu.tree_map(lambda x: jnp.array(x, dtype=dtype), out)
 
     @staticmethod
     def _compute_step(
         h: RealScalarLike,
-        levy: AbstractSpaceTimeTimeLevyArea,
+        levy: AbstractSpaceTimeLevyArea,
         x0: LangevinX,
         v0: LangevinX,
         langevin_args: _LangevinArgs,
