@@ -173,7 +173,7 @@ def _sde_solve(
         dt0=dt0,
         y0=y0,
         args=args,
-        max_steps=2**19,
+        max_steps=2**18,
         stepsize_controller=controller,
         saveat=saveat,
         progress_meter=diffrax.TqdmProgressMeter(),
