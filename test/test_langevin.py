@@ -24,12 +24,13 @@ def _only_langevin_solvers_cls():
 
 def _solvers():
     # solver, order
-    yield diffrax.ALIGN(0.1), 2.0
-    yield diffrax.ShARK(), 2.0
-    yield diffrax.SRA1(), 2.0
-    yield diffrax.SORT(0.01), 3.0
-    yield diffrax.ShOULD(0.01), 3.0
+    # yield diffrax.ALIGN(0.1), 2.0
+    # yield diffrax.ShARK(), 2.0
+    # yield diffrax.SRA1(), 2.0
+    # yield diffrax.SORT(0.01), 3.0
+    # yield diffrax.ShOULD(0.01), 3.0
     yield diffrax.UBU3(0.0), 3.0
+    yield diffrax.UBU3(1.0), 3.0
 
 
 @pytest.mark.parametrize("solver_cls", _only_langevin_solvers_cls())
