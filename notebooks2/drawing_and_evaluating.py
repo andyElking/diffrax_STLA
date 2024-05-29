@@ -81,6 +81,19 @@ def draw_order_multiple(
     return draw_order_multiple_dict(results_dict, title)
 
 
+def draw_order_single(results):
+    steps, errs, order = results
+    plt.plot(steps, errs)
+    plt.yscale("log")
+    plt.xscale("log")
+    pretty_steps = [int(step) for step in steps]
+    plt.xticks(ticks=pretty_steps, labels=pretty_steps)
+    plt.ylabel("RMS error")
+    plt.xlabel("average number of steps")
+    plt.show()
+    print(f"Order of convergence: {order:.4f}")
+
+
 def plot_sol_general(sol):
     plt.plot(sol.ts, sol.ys)
     plt.show()
