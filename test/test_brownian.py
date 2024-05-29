@@ -9,8 +9,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import numpy as np
 import pytest
 import scipy.stats as stats
+from jax import Array
 
 
 _levy_areas = (
@@ -693,3 +695,85 @@ def test_levy_area_reverse_time():
     assert jtu.tree_map(
         lambda fwd, bck: jnp.allclose(fwd, -bck), fwd_increments, back_increments
     )
+
+
+def _indices(order: int, start: int, stop: int) -> tuple[np.ndarray, ...]:
+    if order == 1:
+        return (np.arange(start, stop),)
+
+    elif order == 2:
+        one, two = np.triu_indices(stop - start, k=0)
+        return one + start, two + start
+
+    elif order > 2:
+        new_arr_list = []
+        lower_order_lists = tuple([[] for _ in range(order - 1)])
+        for i in range(start, stop):
+            lower_ord = _indices(order - 1, i, stop)
+            for j, arr in enumerate(lower_ord):
+                lower_order_lists[j].append(arr)
+            new_arr_list.append(np.full_like(lower_ord[0], i))
+        list_of_outputs = [np.concatenate(new_arr_list)]
+        for list_of_arrs in lower_order_lists:
+            list_of_outputs.append(np.concatenate(list_of_arrs))
+        return tuple(list_of_outputs)
+
+    else:
+        assert False
+
+
+def nth_moment_indices(d, n):
+    """Compute indices using which one can compute all nth cross-moments of
+    a d-dimensional random variable."""
+    return _indices(n, 0, d)
+
+
+def empirical_4th_moments(samples: Array) -> Array:
+    assert samples.ndim == 2, f"Expected 2D array, got shape {samples.shape}"
+    assert samples.shape[1] == 6, f"Expected 6 columns, got shape {samples.shape}"
+    indices = nth_moment_indices(6, 4)
+    num_moments = indices[0].shape[0]
+    num_samples = samples.shape[0]
+
+    @jax.jit
+    def compute_fast(samples, indices):
+        init = jnp.ones((num_samples, num_moments), dtype=samples.dtype)
+        indices_arr = jnp.stack(indices, axis=0)
+
+        def step(carry, idx):
+            return carry * samples[:, idx], None
+
+        result, _ = jax.lax.scan(step, init, indices_arr)
+        return jnp.mean(result, axis=0)
+
+    return compute_fast(samples, indices)
+
+
+def test_space_space_levy_area():
+    key = jr.key(5)
+
+    num_paths = 2**18
+    t0 = jnp.asarray(0.6, dtype=jnp.float64)
+    t1 = jnp.asarray(5.2, dtype=jnp.float64)
+    dt = t1 - t0
+    shape = jax.ShapeDtypeStruct((4,), jnp.float64)
+
+    keys = jr.split(key, num_paths)
+    paths = jax.vmap(
+        lambda k: diffrax.UnsafeBrownianPath(shape, k, diffrax.SpaceSpaceLevyArea)
+    )(keys)
+    values = jax.vmap(lambda p: p.evaluate(0.0, dt, use_levy=True))(paths)
+
+    assert isinstance(values, diffrax.SpaceSpaceLevyArea)
+    aa = values.A
+    assert aa.shape == (num_paths, 6)
+    aa_rescaled = aa / dt
+
+    emp_4moms = empirical_4th_moments(aa_rescaled)
+
+    true_4moms = jnp.array(np.load("levy_area_4th_moments_dim4.npy"), aa.dtype)
+    diff = jnp.abs(emp_4moms - true_4moms)
+    max_err = jnp.max(diff)
+    avg_err = jnp.mean(diff)
+    assert max_err < 1e-2, f"Max error: {max_err}"
+    assert avg_err < 1e-3, f"Avg error: {avg_err}"

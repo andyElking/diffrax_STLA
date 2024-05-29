@@ -1,5 +1,4 @@
-import math
-from typing import cast, Optional, Union
+from typing import cast, Optional, TypeAlias, Union
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -8,14 +7,19 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import lineax.internal as lxi
+import numpy as np
 from jaxtyping import Array, PRNGKeyArray, PyTree
 from lineax.internal import complex_to_real_dtype
 
 from .._custom_types import (
     AbstractBrownianIncrement,
+    AbstractSpaceSpaceLevyArea,
+    AbstractSpaceTimeLevyArea,
+    AbstractSpaceTimeTimeLevyArea,
     BrownianIncrement,
     levy_tree_transpose,
     RealScalarLike,
+    SpaceSpaceLevyArea,
     SpaceTimeLevyArea,
     SpaceTimeTimeLevyArea,
 )
@@ -25,6 +29,16 @@ from .._misc import (
     split_by_tree,
 )
 from .base import AbstractBrownianPath
+
+
+_AcceptedLevyAreas: TypeAlias = type[
+    Union[
+        BrownianIncrement,
+        SpaceTimeLevyArea,
+        SpaceTimeTimeLevyArea,
+        SpaceSpaceLevyArea,
+    ]
+]
 
 
 class UnsafeBrownianPath(AbstractBrownianPath):
@@ -46,34 +60,44 @@ class UnsafeBrownianPath(AbstractBrownianPath):
     motion. Hence the restrictions above. (They describe the general case for which the
     correlation structure isn't needed.)
 
-    !!! info "Lévy Area"
+    Depending on the `levy_area` argument, this can also be used to generate Levy area.
+    `levy_area` can be one of the following:
 
-        Can be initialised with `levy_area` set to `diffrax.BrownianIncrement`, or
-        `diffrax.SpaceTimeLevyArea`. If `levy_area=diffrax.SpaceTimeLevyArea`, then it
-        also computes space-time Lévy area `H`. This is an additional source of
-        randomness required for certain stochastic Runge--Kutta solvers; see
-        [`diffrax.AbstractSRK`][] for more information.
+    - `BrownianIncrement`: Only generate Brownian increments W.
 
-        An error will be thrown during tracing if Lévy area is required but is not
-        available.
+    - `SpaceTimeLevyArea`: Generate W and the space-time Levy area H.
 
-        The choice here will impact the Brownian path, so even with the same key, the
-        trajectory will be different depending on the value of `levy_area`.
+    - `SpaceTimeTimeLevyArea`: Generate W, H, and the space-time-time Levy area K.
+
+    - `SpaceSpaceLevyArea`: In addition to W, H, and K, generate an approximate
+    space-space Levy area A. This is done via Foster's approximation, which matches
+    all the fourth cross moments of A conditional on the values of W, H, and K.
+
+    ??? cite "Reference"
+
+        The space-space Levy area approximation is based on Definition 7.3.5 of
+
+        ```bibtex
+        @phdthesis{foster2020a,
+          publisher = {University of Oxford},
+          school = {University of Oxford},
+          title = {Numerical approximations for stochastic differential equations},
+          author = {Foster, James M.},
+          year = {2020}
+        }
+        ```
+
     """
 
     shape: PyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
-    levy_area: type[
-        Union[BrownianIncrement, SpaceTimeLevyArea, SpaceTimeTimeLevyArea]
-    ] = eqx.field(static=True)
+    levy_area: _AcceptedLevyAreas = eqx.field(static=True)
     key: PRNGKeyArray
 
     def __init__(
         self,
         shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
         key: PRNGKeyArray,
-        levy_area: type[
-            Union[BrownianIncrement, SpaceTimeLevyArea, SpaceTimeTimeLevyArea]
-        ] = BrownianIncrement,
+        levy_area: _AcceptedLevyAreas = BrownianIncrement,
     ):
         self.shape = (
             jax.ShapeDtypeStruct(shape, lxi.default_floating_dtype())
@@ -141,38 +165,49 @@ class UnsafeBrownianPath(AbstractBrownianPath):
         t1: RealScalarLike,
         key,
         shape: jax.ShapeDtypeStruct,
-        levy_area: type[
-            Union[BrownianIncrement, SpaceTimeLevyArea, SpaceTimeTimeLevyArea]
-        ],
+        levy_area: _AcceptedLevyAreas,
         use_levy: bool,
     ):
-        w_std = jnp.sqrt(t1 - t0).astype(shape.dtype)
-        dt = jnp.asarray(t1 - t0, dtype=complex_to_real_dtype(shape.dtype))
+        key_w, key_hh, key_kk, key_aa = jr.split(key, 4)
+        w_01 = jr.normal(key_w, shape.shape, shape.dtype)
+        dt = jnp.asarray(t1 - t0, dtype=shape.dtype)
+        tdtype = complex_to_real_dtype(shape.dtype)
+        real_dt = jnp.asarray(dt, dtype=tdtype)
+        root_dt = jnp.sqrt(dt)
+        w = w_01 * root_dt
+        if not use_levy:
+            # We don't need to generate Levy area.
+            # Due to how we split the keys `w` will not depend on `levy_area`.
+            return w
 
-        if levy_area is SpaceTimeTimeLevyArea:
-            key_w, key_hh, key_kk = jr.split(key, 3)
-            w = jr.normal(key_w, shape.shape, shape.dtype) * w_std
-            hh_std = w_std / math.sqrt(12)
-            hh = jr.normal(key_hh, shape.shape, shape.dtype) * hh_std
-            kk_std = w_std / math.sqrt(720)
-            kk = jr.normal(key_kk, shape.shape, shape.dtype) * kk_std
-            levy_val = SpaceTimeTimeLevyArea(dt=dt, W=w, H=hh, K=kk)
-
-        elif levy_area is SpaceTimeLevyArea:
-            key_w, key_hh = jr.split(key, 2)
-            w = jr.normal(key_w, shape.shape, shape.dtype) * w_std
-            hh_std = w_std / math.sqrt(12)
-            hh = jr.normal(key_hh, shape.shape, shape.dtype) * hh_std
-            levy_val = SpaceTimeLevyArea(dt=dt, W=w, H=hh)
-        elif levy_area is BrownianIncrement:
-            w = jr.normal(key, shape.shape, shape.dtype) * w_std
-            levy_val = BrownianIncrement(dt=dt, W=w)
+        if issubclass(levy_area, AbstractSpaceTimeLevyArea):
+            hh_01 = jr.normal(key_hh, shape.shape, shape.dtype) / np.sqrt(12)
+            hh = hh_01 * root_dt
         else:
-            assert False
+            assert levy_area == BrownianIncrement
+            return BrownianIncrement(dt=real_dt, W=w)  # noqa
 
-        if use_levy:
-            return levy_val
-        return w
+        if issubclass(levy_area, AbstractSpaceTimeTimeLevyArea):
+            kk_01 = jr.normal(key_kk, shape.shape, shape.dtype) / np.sqrt(720)
+            kk = kk_01 * root_dt
+        else:
+            assert levy_area == SpaceTimeLevyArea
+            return SpaceTimeLevyArea(dt=real_dt, W=w, H=hh)  # noqa
+
+        if issubclass(levy_area, AbstractSpaceSpaceLevyArea):
+            assert levy_area == SpaceSpaceLevyArea
+            assert shape.shape[-1] >= 2, (
+                f"SpaceSpaceLevyArea requires the Brownian motion to have"
+                f" shape (..., d), where d > 1. Got {shape.shape}."
+            )
+            bm_dim = shape.shape[-1]
+            triu_indices = np.triu_indices(bm_dim, k=1)
+            aa_01 = _4moment_levy_area(key_aa, triu_indices, w_01, hh_01, kk_01)  # noqa
+            aa = dt * aa_01
+            return SpaceSpaceLevyArea(dt=real_dt, W=w, H=hh, K=kk, A=aa)  # noqa
+        else:
+            assert levy_area == SpaceTimeTimeLevyArea
+            return SpaceTimeTimeLevyArea(dt=real_dt, W=w, H=hh, K=kk)  # noqa
 
 
 UnsafeBrownianPath.__init__.__doc__ = """
@@ -186,3 +221,56 @@ UnsafeBrownianPath.__init__.__doc__ = """
 - `levy_area`: Whether to additionally generate Lévy area. This is required by some SDE
     solvers.
 """
+
+
+def _4moment_levy_area(key, triu_indices, w: Array, hh: Array, kk: Array):
+    """Foster's approxiamtion of space-space Levy area  based on Definition 7.3.5 of
+
+    ```bibtex
+    @phdthesis{foster2020a,
+      publisher = {University of Oxford},
+      school = {University of Oxford},
+      title = {Numerical approximations for stochastic differential equations},
+      author = {Foster, James M.},
+      year = {2020}
+    }
+    ```
+
+    """
+    bm_dim = w.shape[-1]
+    assert w.shape == hh.shape == kk.shape
+    levy_dim = int(bm_dim * (bm_dim - 1) // 2)
+    levy_shape = w.shape[:-1] + (levy_dim,)
+
+    key_exp, key_ber, key_uni, key_rad = jr.split(key, 4)
+
+    squared_kk = jnp.square(kk)
+    C = jr.exponential(key_exp, w.shape) * (8 / 15)
+    c = np.sqrt(1 / 3) - (8 / 15)
+    p = 21130 / 25621
+    ber = jnp.astype(jr.bernoulli(key_ber, p, shape=levy_shape), w.dtype)
+    uni = jr.uniform(key_uni, shape=levy_shape, minval=-np.sqrt(3), maxval=np.sqrt(3))
+    rademacher = jnp.astype(jr.rademacher(key_rad, shape=levy_shape), w.dtype)
+
+    ksi = ber * uni + (1 - ber) * rademacher
+
+    C_plus_c = C + c
+    sigma = (3 / 28) * (C_plus_c[..., triu_indices[0]] * C_plus_c[..., triu_indices[1]])
+
+    sigma = sigma + (144 / 28) * (
+        squared_kk[..., triu_indices[0]] + squared_kk[..., triu_indices[1]]
+    )
+    sigma = jnp.sqrt(sigma)
+
+    w_i = w[..., triu_indices[0]]
+    w_j = w[..., triu_indices[1]]
+    hh_i = hh[..., triu_indices[0]]
+    hh_j = hh[..., triu_indices[1]]
+    kk_i = kk[..., triu_indices[0]]
+    kk_j = kk[..., triu_indices[1]]
+
+    tilde_a = ksi * sigma
+
+    aa_out = hh_i * w_j - w_i * hh_j + 12.0 * (kk_i * hh_j - hh_i * kk_j) + tilde_a
+
+    return aa_out
