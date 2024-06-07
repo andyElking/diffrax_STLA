@@ -146,6 +146,7 @@ def _sde_solve(
     controller: Optional[diffrax.AbstractStepSizeController],
     bm_tol: float,
     saveat: diffrax.SaveAt,
+    use_progress_meter: bool,
 ):
     abstract_levy_area = _get_minimal_la(solver) if levy_area is None else levy_area
     concrete_la = _abstract_la_to_la(abstract_levy_area)
@@ -165,6 +166,10 @@ def _sde_solve(
     terms = get_terms(bm)
     if controller is None:
         controller = diffrax.ConstantStepSize()
+
+    meter = (
+        diffrax.TqdmProgressMeter() if use_progress_meter else diffrax.NoProgressMeter()
+    )
     sol = diffrax.diffeqsolve(
         terms,
         solver,
@@ -176,7 +181,7 @@ def _sde_solve(
         max_steps=2**18,
         stepsize_controller=controller,
         saveat=saveat,
-        # progress_meter=diffrax.TqdmProgressMeter(),
+        progress_meter=meter,
     )
     steps = sol.stats["num_accepted_steps"]
     if isinstance(solver, diffrax.HalfSolver):
@@ -189,6 +194,7 @@ _batch_sde_solve = eqx.filter_jit(
         _sde_solve,
         in_axes=(
             0,
+            None,
             None,
             None,
             None,
@@ -215,6 +221,7 @@ _batch_sde_solve_multi_y0 = eqx.filter_jit(
             None,
             None,
             0,
+            None,
             None,
             None,
             None,
@@ -304,6 +311,7 @@ def sde_solver_strong_order(
             step_controller,
             bm_tol,
             saveat,
+            use_progress_meter=False,
         )
     else:
         correct_sols = ref_solution
@@ -325,6 +333,7 @@ def sde_solver_strong_order(
             step_controller,
             bm_tol,
             saveat,
+            use_progress_meter=False,
         )
         errs = path_l2_dist(sols, correct_sols)
         errs_list.append(errs)
@@ -402,7 +411,15 @@ def simple_sde_order(
 
 
 def simple_batch_sde_solve(
-    keys, sde: SDE, solver, levy_area, dt0, controller, bm_tol, saveat
+    keys,
+    sde: SDE,
+    solver,
+    levy_area,
+    dt0,
+    controller,
+    bm_tol,
+    saveat,
+    use_progress_meter: bool = True,
 ):
     return _batch_sde_solve(
         keys,
@@ -418,6 +435,7 @@ def simple_batch_sde_solve(
         controller,
         bm_tol,
         saveat,
+        use_progress_meter,
     )
 
 
