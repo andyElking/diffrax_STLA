@@ -117,25 +117,18 @@ class SORT(AbstractLangevinSRK[_SORTCoeffs, _ErrorEstimate]):
         c2 = jnp.square(c)
         c3 = c2 * c
         c4 = c3 * c
-        c5 = c4 * c
 
-        beta_half = jnp.stack(
-            [one, -c / 2, c2 / 8, -c3 / 48, c4 / 384, -c5 / 3840], axis=-1
-        )
-        beta1 = jnp.stack([one, -c, c2 / 2, -c3 / 6, c4 / 24, -c5 / 120], axis=-1)
+        beta_half = jnp.stack([one, -c / 2, c2 / 8, -c3 / 48, c4 / 384], axis=-1)
+        beta1 = jnp.stack([one, -c, c2 / 2, -c3 / 6, c4 / 24], axis=-1)
 
-        a_half = jnp.stack(
-            [zero, one / 2, -c / 8, c2 / 48, -c3 / 384, c4 / 3840], axis=-1
-        )
-        a1 = jnp.stack([zero, one, -c / 2, c2 / 6, -c3 / 24, c4 / 120], axis=-1)
+        a_half = jnp.stack([zero, one / 2, -c / 8, c2 / 48, -c3 / 384], axis=-1)
+        a1 = jnp.stack([zero, one, -c / 2, c2 / 6, -c3 / 24], axis=-1)
         # aa = a1/h
-        aa = jnp.stack([one, -c / 2, c2 / 6, -c3 / 24, c4 / 120, -c5 / 720], axis=-1)
+        aa = jnp.stack([one, -c / 2, c2 / 6, -c3 / 24, c4 / 120], axis=-1)
 
         # b_half is not exactly b(1/2 h), but 1/2 * b(1/2 h)
-        b_half = jnp.stack(
-            [zero, one / 8, -c / 48, c2 / 384, -c3 / 3840, c4 / 46080], axis=-1
-        )
-        b1 = jnp.stack([zero, one / 2, -c / 6, c2 / 24, -c3 / 120, c4 / 720], axis=-1)
+        b_half = jnp.stack([zero, one / 8, -c / 48, c2 / 384, -c3 / 3840], axis=-1)
+        b1 = jnp.stack([zero, one / 2, -c / 6, c2 / 24, -c3 / 120], axis=-1)
         out = _SORTCoeffs(
             beta_half=beta_half,
             a_half=a_half,

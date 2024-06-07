@@ -90,24 +90,24 @@ def run_lmc(
     saveat = SaveAt(ts=save_ts)
 
     if use_adaptive:
-        dtmin = 2**-10
+        dtmin = 2**-8
         bm_tol = dtmin / 2.0
         controller_warmup = PIDController(
             rtol=0.0,
             atol=warmup_tol_mult * tol,
-            pcoeff=0.1,
-            icoeff=0.4,
-            dtmin=2**-8,
+            pcoeff=0.2,
+            icoeff=0.5,
+            dtmin=2**-6,
             dtmax=1.0,
         )
         controller_mcmc = PIDController(
             rtol=0.0,
             atol=tol,
-            pcoeff=0.1,
-            icoeff=0.4,
+            pcoeff=0.2,
+            icoeff=0.5,
             dtmin=dtmin,
             step_ts=save_ts,
-            dtmax=1.0,
+            dtmax=0.25,
         )
         solver = HalfSolver(solver)
     else:
