@@ -95,12 +95,15 @@ class AbstractLangevinSRK(
         out = self._tay_cfs_single(c)
 
         def check_shape(coeff_leaf):
-            permitted_shapes = [c.shape + (3, 6), c.shape + (1, 6), c.shape + (6,)]
+            if coeff_leaf.shape[-1] == 6:
+                coeff_leaf = coeff_leaf[..., :-1]
+            permitted_shapes = [c.shape + (3, 5), c.shape + (1, 5), c.shape + (5,)]
             assert (
                 coeff_leaf.shape in permitted_shapes
             ), f"leaf shape: {coeff_leaf.shape}, c shape: {c.shape}"
+            return coeff_leaf
 
-        jtu.tree_map(check_shape, out)
+        out = jtu.tree_map(check_shape, out)
         return out
 
     @staticmethod
@@ -108,7 +111,7 @@ class AbstractLangevinSRK(
         # Multiplies the pre-computed Taylor coefficients by powers of h.
         # jax.debug.print("eval taylor for h = {h}", h=h)
         dtype = tay_cfs.dtype
-        h_powers = jnp.power(h, jnp.arange(0, 6, dtype=h.dtype)).astype(dtype)
+        h_powers = jnp.power(h, jnp.arange(0, 5, dtype=h.dtype)).astype(dtype)
         return jtu.tree_map(
             lambda tay_leaf: jnp.tensordot(tay_leaf, h_powers, axes=1), tay_cfs
         )
@@ -188,7 +191,7 @@ class AbstractLangevinSRK(
 
         tay_cfs = jtu.tree_map(self._comp_taylor_coeffs_leaf, gamma)
         # tay_cfs have the same tree structure as gamma, with each leaf being a _Coeffs
-        # and the arrays have an extra trailing dimension of 6
+        # and the arrays have an extra trailing dimension of 5
 
         coeffs = self._recompute_coeffs(h, gamma, tay_cfs)
         rho = jtu.tree_map(lambda c, _u: jnp.sqrt(2 * c * _u), gamma, u)
