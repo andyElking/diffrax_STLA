@@ -1,7 +1,26 @@
-<h1 align='center'>Diffrax</h1>
+<h1 align='center'>Diffrax with new SDE-solving capabilities</h1>
 <h2 align='center'>Numerical differential equation solvers in JAX. Autodifferentiable and GPU-capable.</h2>
 
 Diffrax is a [JAX](https://github.com/google/jax)-based library providing numerical differential equation solvers.
+This fork adds additional methods for solving stochastic differential equations (SDEs),
+including a third order method for the Underdamped Langevin Diffusion (ULD) process,
+and a method for generating Brownian paths in a way that enables the use of high order
+SDE solvers with adaptive time-stepping.
+These improvements are based on the paper
+
+```bibtex
+@misc{jelinčič2024singleseed,
+    title={Single-seed generation of Brownian paths and integrals
+    for adaptive and high order SDE solvers},
+    author={Andraž Jelinčič and James Foster and Patrick Kidger},
+    year={2024},
+    eprint={2405.06464},
+    archivePrefix={arXiv},
+    primaryClass={math.NA}
+}
+```
+
+The original Diffrax library is described below.
 
 Features include:
 
@@ -43,6 +62,10 @@ solution = diffeqsolve(term, solver, t0=0, t1=1, dt0=0.1, y0=y0)
 ```
 
 Here, `Dopri5` refers to the Dormand--Prince 5(4) numerical differential equation solver, which is a standard choice for many problems.
+
+## SDE example
+
+For guidance on how to simulate SDEs in Diffrax see `notebooks2/sde_exmaple.ipynb`.
 
 ## Citation
 

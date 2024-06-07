@@ -58,10 +58,10 @@ def run_lmc(
     x0,
     num_particles: int,
     chain_len: int,
-    chain_sep: float = 0.1,
+    chain_sep: float = 0.5,
     tol: float = 2**-6,
     warmup_mult: float = 32.0,
-    warmup_tol_mult: float = 4.0,
+    warmup_tol_mult: float = 32.0,
     use_adaptive: bool = True,
     solver: AbstractSolver = UBU3(0.1),
 ):
@@ -90,13 +90,13 @@ def run_lmc(
     saveat = SaveAt(ts=save_ts)
 
     if use_adaptive:
-        dtmin = 2**-8
+        dtmin = 2**-10
         bm_tol = dtmin / 2.0
         controller_warmup = PIDController(
             rtol=0.0,
             atol=warmup_tol_mult * tol,
             pcoeff=0.1,
-            icoeff=0.5,
+            icoeff=0.4,
             dtmin=2**-8,
             dtmax=1.0,
         )
@@ -104,7 +104,7 @@ def run_lmc(
             rtol=0.0,
             atol=tol,
             pcoeff=0.1,
-            icoeff=0.5,
+            icoeff=0.4,
             dtmin=dtmin,
             step_ts=save_ts,
             dtmax=1.0,
@@ -131,6 +131,7 @@ def run_lmc(
         controller_warmup,
         2**-9,
         SaveAt(t1=True),
+        use_progress_meter=True,
     )
     y_warm = jtu.tree_map(
         lambda x: jnp.nan_to_num(x[:, 0], nan=0, posinf=0, neginf=0), out_warmup
@@ -150,6 +151,7 @@ def run_lmc(
         controller_mcmc,
         bm_tol,
         saveat,
+        use_progress_meter=True,
     )
     ys_mcmc = out_mcmc[0]
     ys_mcmc = jtu.tree_map(
