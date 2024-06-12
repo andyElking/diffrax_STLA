@@ -94,7 +94,7 @@ def run_lmc(
         bm_tol = dtmin / 2.0
         controller_warmup = PIDController(
             rtol=0.0,
-            atol=warmup_tol_mult * tol,
+            atol=tol_warmup,
             pcoeff=0.2,
             icoeff=0.5,
             dtmin=2**-6,
@@ -127,7 +127,7 @@ def run_lmc(
         None,
         solver,
         SpaceTimeTimeLevyArea,
-        tol_warmup,
+        0.25,
         controller_warmup,
         2**-9,
         SaveAt(t1=True),
