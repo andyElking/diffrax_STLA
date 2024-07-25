@@ -154,7 +154,10 @@ class AbstractLangevinSRK(
                 # otherwise, compute both tay_out and direct_out and select the
                 # correct one for each dimension
                 return lax.cond(
-                    jnp.all(cond), lambda _: tay_out, select_tay_or_direct, None
+                    eqx.internal.unvmap_all(cond),
+                    lambda _: tay_out,
+                    select_tay_or_direct,
+                    None,
                 )
 
         tree_with_cfs = jtu.tree_map(recompute_coeffs_leaf, gamma, tay_cfs)

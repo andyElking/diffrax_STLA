@@ -1,5 +1,6 @@
 from test.helpers import _batch_sde_solve, _batch_sde_solve_multi_y0
 
+import diffrax
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -75,7 +76,7 @@ def run_lmc(
         lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), x0
     )
 
-    gamma, u = 1.0, 1.0
+    gamma, u = 2.0, 4.0
 
     def get_terms(bm):
         args = (gamma, u, grad_f)
@@ -95,21 +96,22 @@ def run_lmc(
         controller_warmup = PIDController(
             rtol=0.0,
             atol=tol_warmup,
-            pcoeff=0.2,
-            icoeff=0.5,
-            dtmin=2**-6,
-            dtmax=1.0,
+            pcoeff=0.1,
+            icoeff=0.4,
+            dtmin=2**-5,
+            dtmax=4.0,
         )
         controller_mcmc = PIDController(
             rtol=0.0,
             atol=tol,
-            pcoeff=0.2,
-            icoeff=0.5,
+            pcoeff=0.1,
+            icoeff=0.4,
             dtmin=dtmin,
             step_ts=save_ts,
-            dtmax=0.25,
+            dtmax=1.0,
         )
-        solver = HalfSolver(solver)
+        if not isinstance(solver, diffrax.ShARK):
+            solver = HalfSolver(solver)
     else:
         controller_warmup = ConstantStepSize()
         step_ts = jnp.linspace(0.0, t1_mcmc, num=int(t1_mcmc / tol) + 1)
@@ -129,7 +131,7 @@ def run_lmc(
         SpaceTimeTimeLevyArea,
         0.25,
         controller_warmup,
-        2**-9,
+        2**-6,
         SaveAt(t1=True),
         use_progress_meter=True,
     )
