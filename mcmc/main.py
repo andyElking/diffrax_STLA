@@ -92,14 +92,16 @@ def run_lmc(
 
     if use_adaptive:
         dtmin = 2**-8
+        dtmin_warmup = 2**-6
+        bm_tol_warmup = dtmin_warmup / 2.0
         bm_tol = dtmin / 2.0
         controller_warmup = PIDController(
             rtol=0.0,
             atol=tol_warmup,
             pcoeff=0.1,
             icoeff=0.4,
-            dtmin=2**-5,
-            dtmax=4.0,
+            dtmin=dtmin_warmup,
+            dtmax=5.0,
         )
         controller_mcmc = PIDController(
             rtol=0.0,
@@ -117,7 +119,8 @@ def run_lmc(
         step_ts = jnp.linspace(0.0, t1_mcmc, num=int(t1_mcmc / tol) + 1)
         step_ts = jnp.unique(jnp.sort(jnp.concatenate((step_ts, save_ts))))
         controller_mcmc = StepTo(ts=step_ts)
-        bm_tol = tol / 8.0
+        bm_tol = tol / 4.0
+        bm_tol_warmup = tol_warmup / 4.0
 
     out_warmup, steps_warmup = _batch_sde_solve(
         keys_warmup,
@@ -129,9 +132,9 @@ def run_lmc(
         None,
         solver,
         SpaceTimeTimeLevyArea,
-        0.25,
+        tol_warmup,
         controller_warmup,
-        2**-6,
+        bm_tol_warmup,
         SaveAt(t1=True),
         use_progress_meter=True,
     )
