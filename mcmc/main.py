@@ -76,7 +76,7 @@ def run_lmc(
         lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), x0
     )
 
-    gamma, u = 2.0, 4.0
+    gamma, u = 1.0, 1.0
 
     def get_terms(bm):
         args = (gamma, u, grad_f)
@@ -91,7 +91,7 @@ def run_lmc(
     saveat = SaveAt(ts=save_ts)
 
     if use_adaptive:
-        dtmin = 2**-8
+        dtmin = 2**-9
         dtmin_warmup = 2**-6
         bm_tol_warmup = dtmin_warmup / 2.0
         bm_tol = dtmin / 2.0
@@ -101,7 +101,7 @@ def run_lmc(
             pcoeff=0.1,
             icoeff=0.4,
             dtmin=dtmin_warmup,
-            dtmax=5.0,
+            dtmax=1.0,
         )
         controller_mcmc = PIDController(
             rtol=0.0,
@@ -110,7 +110,7 @@ def run_lmc(
             icoeff=0.4,
             dtmin=dtmin,
             step_ts=save_ts,
-            dtmax=1.0,
+            dtmax=0.2,
         )
         if not isinstance(solver, diffrax.ShARK):
             solver = HalfSolver(solver)
