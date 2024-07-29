@@ -1,6 +1,7 @@
 # SDE solvers
 
-See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochastic-differential-equations).
+See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochastic-differential-equations)
+and [SDE example](../../devdocs/sde_example.ipynb/#table-of-available-srk-methods-in-diffrax) which contains a table of SDE solvers and their properties.
 
 !!! info "Term structure"
 
