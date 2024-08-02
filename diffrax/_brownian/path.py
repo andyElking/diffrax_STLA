@@ -9,7 +9,7 @@ import jax.tree_util as jtu
 import lineax.internal as lxi
 import numpy as np
 from jaxtyping import Array, PRNGKeyArray, PyTree
-from lineax.internal import complex_to_real_dtype
+from lineax.internal import complex_to_real_dtype  # pyright: ignore
 
 from .._custom_types import (
     AbstractBrownianIncrement,
@@ -202,7 +202,7 @@ class UnsafeBrownianPath(AbstractBrownianPath):
             )
             bm_dim = shape.shape[-1]
             triu_indices = np.triu_indices(bm_dim, k=1)
-            aa_01 = _4moment_levy_area(key_aa, triu_indices, w_01, hh_01, kk_01)  # noqa
+            aa_01 = foster_levy_area(key_aa, triu_indices, w_01, hh_01, kk_01)  # noqa
             aa = dt * aa_01
             return SpaceSpaceLevyArea(dt=real_dt, W=w, H=hh, K=kk, A=aa)  # noqa
         else:
@@ -223,7 +223,7 @@ UnsafeBrownianPath.__init__.__doc__ = """
 """
 
 
-def _4moment_levy_area(key, triu_indices, w: Array, hh: Array, kk: Array):
+def foster_levy_area(key, triu_indices, w: Array, hh: Array, kk: Array):
     """Foster's approxiamtion of space-space Levy area  based on Definition 7.3.5 of
 
     ```bibtex

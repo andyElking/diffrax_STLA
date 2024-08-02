@@ -1,3 +1,4 @@
+import math
 from test.helpers import _batch_sde_solve, _batch_sde_solve_multi_y0
 
 import diffrax
@@ -86,7 +87,7 @@ def run_lmc(
     tol_warmup = warmup_tol_mult * tol
 
     t0_mcmc = 4 * chain_sep
-    t1_mcmc: float = chain_len * chain_sep + t0_mcmc
+    t1_mcmc: float = (chain_len - 1) * chain_sep + t0_mcmc
     save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
     saveat = SaveAt(ts=save_ts)
 
@@ -116,8 +117,15 @@ def run_lmc(
             solver = HalfSolver(solver)
     else:
         controller_warmup = ConstantStepSize()
-        step_ts = jnp.linspace(0.0, t1_mcmc, num=int(t1_mcmc / tol) + 1)
-        step_ts = jnp.unique(jnp.sort(jnp.concatenate((step_ts, save_ts))))
+        steps_per_sample = int(math.ceil(chain_sep / tol))
+        num_steps = (chain_len + 3) * steps_per_sample + 1
+        step_ts = jnp.linspace(0.0, t1_mcmc, num=num_steps, endpoint=True)
+        num_steps_before_t0 = 4 * steps_per_sample
+        save_ts = step_ts[num_steps_before_t0::steps_per_sample]
+        assert save_ts.shape == (
+            chain_len,
+        ), f"{save_ts.shape}, expected {(chain_len,)}"
+
         controller_mcmc = StepTo(ts=step_ts)
         bm_tol = tol / 4.0
         bm_tol_warmup = tol_warmup / 4.0
