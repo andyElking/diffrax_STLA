@@ -241,7 +241,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     ] = eqx.field(static=True)
     key: PyTree[PRNGKeyArray]
     _spline: _Spline = eqx.field(static=True)
-    _init_state: _State = eqx.field(static=True)
+    _init_state: PyTree[_State]
 
     @eqxi.doc_remove_args("_spline")
     def __init__(
@@ -308,8 +308,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
             w_1 = jr.normal(init_key_w, shape, dtype)
             w = (w_0, w_1, w_1)
 
+            tdtype = complex_to_real_dtype(dtype)
+            _t0 = jnp.zeros((), tdtype)
+
             state0 = _State(
-                level=0, s=t0, w_s_u_su=w, key=state_key, bhh_s_u_su=bhh, bkk_s_u_su=bkk
+                level=0,
+                s=_t0,
+                w_s_u_su=w,
+                key=state_key,
+                bhh_s_u_su=bhh,
+                bkk_s_u_su=bkk,
             )
             return state0
 
