@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import lineax.internal as lxi
-from jaxtyping import Array, Inexact, PRNGKeyArray, PyTree
+from jaxtyping import Array, Inexact, PRNGKeyArray, PyTree, Real
 from lineax.internal import complex_to_real_dtype
 
 from .._custom_types import (
@@ -29,7 +29,6 @@ from .._misc import (
     split_by_tree,
 )
 from .base import AbstractBrownianPath
-
 
 #
 # The notation here comes from section 5.5.2 of
@@ -92,6 +91,17 @@ class _State(eqx.Module):
     bkk_s_u_su: Optional[FloatTriple]  # \bar{K}_s, _u, _{s,u}
 
 
+_DeepReal: TypeAlias = Inexact[Array, " depth *shape"]
+_DeepInexact: TypeAlias = Inexact[Array, " depth *shape"]
+_DeepDouble: TypeAlias = tuple[_DeepInexact, _DeepInexact]
+_DeepTriple: TypeAlias = tuple[_DeepInexact, _DeepInexact, _DeepInexact]
+
+
+class _Cache(eqx.Module):
+    state_key: PRNGKeyArray
+    arch_output: tuple[_DeepReal, _DeepTriple, _DeepDouble, tuple[PRNGKeyArray, PRNGKeyArray], Optional[_DeepTriple], Optional[_DeepDouble], Optional[_DeepTriple], Optional[_DeepDouble]]
+
+
 def _levy_diff(_, x0: _LevyVal, x1: _LevyVal) -> AbstractBrownianIncrement:
     r"""Computes $(W_{s,u}, H_{s,u})$ from $(W_s, \bar{H}_{s,u})$ and
     $(W_u, \bar{H}_u)$, where $\bar{H}_u = u * H_u$.
@@ -135,11 +145,11 @@ def _levy_diff(_, x0: _LevyVal, x1: _LevyVal) -> AbstractBrownianIncrement:
         assert x1.bar_K is not None
         with jax.numpy_dtype_promotion("standard"):
             bkk_su = (
-                x1.bar_K
-                - x0.bar_K
-                - (su / 2) * x0.bar_H
-                + (x0.dt / 2) * bhh_su
-                - ((x1.dt - 2 * x0.dt) / 12) * u_bb_s
+                    x1.bar_K
+                    - x0.bar_K
+                    - (su / 2) * x0.bar_H
+                    + (x0.dt / 2) * bhh_su
+                    - ((x1.dt - 2 * x0.dt) / 12) * u_bb_s
             )
             su2 = jnp.square(su)
             inverse_su2 = 1 / jnp.where(jnp.abs(su2) < jnp.finfo(su2).eps, jnp.inf, su2)
@@ -161,7 +171,7 @@ def _make_levy_val(_, x: _LevyVal) -> AbstractBrownianIncrement:
 
 
 def _split_interval(
-    pred: BoolScalarLike, x_stu: Optional[FloatTriple], x_st_tu: Optional[FloatDouble]
+        pred: BoolScalarLike, x_stu: Optional[FloatTriple], x_st_tu: Optional[FloatDouble]
 ) -> Optional[FloatTriple]:
     if x_stu is None:
         assert x_st_tu is None
@@ -245,16 +255,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
     @eqxi.doc_remove_args("_spline")
     def __init__(
-        self,
-        t0: RealScalarLike,
-        t1: RealScalarLike,
-        tol: RealScalarLike,
-        shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
-        key: PRNGKeyArray,
-        levy_area: type[
-            Union[BrownianIncrement, SpaceTimeLevyArea, SpaceTimeTimeLevyArea]
-        ] = BrownianIncrement,
-        _spline: _Spline = "sqrt",
+            self,
+            t0: RealScalarLike,
+            t1: RealScalarLike,
+            tol: RealScalarLike,
+            shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
+            key: PRNGKeyArray,
+            levy_area: type[
+                Union[BrownianIncrement, SpaceTimeLevyArea, SpaceTimeTimeLevyArea]
+            ] = BrownianIncrement,
+            _spline: _Spline = "sqrt",
     ):
         (t0, t1) = eqx.error_if((t0, t1), t0 >= t1, "t0 must be strictly less than t1")
         self.t0 = t0
@@ -270,8 +280,8 @@ class VirtualBrownianTree(AbstractBrownianPath):
             else shape
         )
         if any(
-            not jnp.issubdtype(x.dtype, jnp.inexact)
-            for x in jtu.tree_leaves(self.shape)
+                not jnp.issubdtype(x.dtype, jnp.inexact)
+                for x in jtu.tree_leaves(self.shape)
         ):
             raise ValueError(
                 "VirtualBrownianTree dtypes all have to be floating-point."
@@ -345,19 +355,53 @@ class VirtualBrownianTree(AbstractBrownianPath):
         other_normalized = jtu.tree_map(sqrt_mult, other)
         return eqx.combine(dt_normalized, other_normalized)
 
+    def create_empty_cache(self):
+
+        key_dtype = jr.key(0).dtype
+        depth = jnp.ceil(-jnp.log2(self.tol)).astype(jnp.int32)
+
+        def create_empty_cache_leaf(struct):
+            shape = (depth,) + struct.shape
+            dtype = struct.dtype
+            tdtype = complex_to_real_dtype(dtype)
+
+            def zeros():
+                return jnp.zeros(shape, dtype)
+
+            def key_zeros():
+                return jnp.full((depth,), jr.key(0), dtype=key_dtype)
+
+            state_key = key_zeros()
+            t = jnp.zeros((depth,), dtype=tdtype)
+            w_stu = (zeros(), zeros(), zeros())
+            w_st_tu = (zeros(), zeros())
+            keys = (key_zeros(), key_zeros())
+            bhh_stu = (zeros(), zeros(), zeros())
+            bkk_stu = (zeros(), zeros(), zeros())
+            bhh_st_tu = (zeros(), zeros())
+            bkk_st_tu = (zeros(), zeros())
+            return _Cache(state_key=state_key, arch_output=(t, w_stu, w_st_tu, keys, bhh_stu, bhh_st_tu, bkk_stu, bkk_st_tu))
+
+        return jtu.tree_map(create_empty_cache_leaf, self.shape)
+
     @eqx.filter_jit
     def evaluate(
-        self,
-        t0: RealScalarLike,
-        t1: Optional[RealScalarLike] = None,
-        left: bool = True,
-        use_levy: bool = False,
-        cache: Optional[tuple[Array, Array]] = None,
+            self,
+            t0: RealScalarLike,
+            t1: Optional[RealScalarLike] = None,
+            left: bool = True,
+            use_levy: bool = False,
+            cache: Optional[PyTree[_Cache]] = None,
+            return_cache: bool = False,
     ) -> Union[PyTree[Array], AbstractBrownianIncrement]:
         t0 = eqxi.nondifferentiable(t0, name="t0")
         # map the interval [self.t0, self.t1] onto [0,1]
         t0 = linear_rescale(self.t0, t0, self.t1)
-        levy_0 = self._evaluate(t0)
+
+        if cache is None:
+            cache = self.create_empty_cache()
+
+        levy_0, cache = self._evaluate(t0, cache)
         if t1 is None:
             levy_out = levy_0
             levy_out = jtu.tree_map(_make_levy_val, self.shape, levy_out)
@@ -365,7 +409,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             t1 = eqxi.nondifferentiable(t1, name="t1")
             # map the interval [self.t0, self.t1] onto [0,1]
             t1 = linear_rescale(self.t0, t1, self.t1)
-            levy_1 = self._evaluate(t1)
+            levy_1, cache = self._evaluate(t1, cache)
             # take the difference between the output for t0 and t1 via Chen's relation
             levy_out = jtu.tree_map(_levy_diff, self.shape, levy_0, levy_1)
 
@@ -373,24 +417,34 @@ class VirtualBrownianTree(AbstractBrownianPath):
         # now map [0,1] back onto [self.t0, self.t1]
         levy_out = self._denormalise_bm_inc(levy_out)
         assert isinstance(levy_out, self.levy_area)
-        return levy_out if use_levy else levy_out.W
+        return_value = levy_out if use_levy else levy_out.W
+        if return_cache:
+            return return_value, cache
+        return return_value
 
-    def _evaluate(self, r: RealScalarLike) -> PyTree:
+    def _evaluate(self, r: RealScalarLike, cache: PyTree[_Cache]) -> PyTree:
         """Maps the _evaluate_leaf function at time r using self.key onto self.shape"""
         r = eqxi.error_if(
             r,
             (r < 0) | (r > 1),
             "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
         )
-        map_func = lambda shape, init_state: self._evaluate_leaf(r, shape, init_state)
-        return jtu.tree_map(map_func, self.shape, self._init_state)
+
+        def map_func(shape, init_state, cache_leaf):
+            return self._evaluate_leaf(r, shape, init_state, cache_leaf)
+
+        val_cache_pytree = jtu.tree_map(map_func, self.shape, self._init_state, cache)
+        val_pytree = jtu.tree_map(lambda _, x: x[0], self.shape, val_cache_pytree)
+        cache_pytree = jtu.tree_map(lambda _, x: x[1], self.shape, val_cache_pytree)
+        return val_pytree, cache_pytree
 
     def _evaluate_leaf(
-        self,
-        r: RealScalarLike,
-        struct: jax.ShapeDtypeStruct,
-        init_state: _State,
-    ) -> _LevyVal:
+            self,
+            r: RealScalarLike,
+            struct: jax.ShapeDtypeStruct,
+            init_state: _State,
+            cache: _Cache,
+    ) -> tuple[_LevyVal, _Cache]:
         shape, dtype = struct.shape, struct.dtype
         tdtype = complex_to_real_dtype(dtype)
         r = jnp.asarray(r, tdtype)
@@ -400,8 +454,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
             # If true, continue splitting the interval and descending the tree.
             return 2.0 ** (-_state.level) > self.tol
 
-        def _body_fun(_state: _State):
+        def _body_fun(_state: _State, _cache: _Cache):
             """Single-step of the binary search for r."""
+
+            cached_arch = jtu.tree_map(lambda x: x[_state.level], _cache)
+
 
             (
                 _t,
@@ -437,7 +494,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         final_state = lax.while_loop(_cond_fun, _body_fun, init_state)
 
         s = final_state.s
-        su = jnp.asarray(2.0**-final_state.level, dtype=tdtype)
+        su = jnp.asarray(2.0 ** -final_state.level, dtype=tdtype)
 
         sr = jax.nn.relu(r - s)
         # make sure su = sr + ru regardless of cancellation error
@@ -467,23 +524,23 @@ class VirtualBrownianTree(AbstractBrownianPath):
             # (W_s, H_s, K_s, W_u, H_u, K_u)
             with jax.numpy_dtype_promotion("standard"):
                 bb_mean = (6 * sr_ru_by_su2 / su) * bhh_su + (
-                    120 * sr_ru_by_su2 * (0.5 - sr_by_su) / su2
+                        120 * sr_ru_by_su2 * (0.5 - sr_by_su) / su2
                 ) * bkk_su
                 w_mean = sr_by_su * w_su + bb_mean
-                h_mean = (sr_by_su**2 / su) * (bhh_su + (30 * ru_by_su / su) * bkk_su)
+                h_mean = (sr_by_su ** 2 / su) * (bhh_su + (30 * ru_by_su / su) * bkk_su)
                 k_mean = (sr_by_su_3 / su2) * bkk_su
 
                 # compute the covariance matrix of (W_sr, H_sr, K_sr) conditioned on
                 # (W_s, H_s, K_s, W_u, H_u, K_u)
                 ww_cov = (
-                    sr_by_su * ru_by_su * ((sr - ru) ** 4 + 4 * (sr2 * ru2))
-                ) / su3
+                                 sr_by_su * ru_by_su * ((sr - ru) ** 4 + 4 * (sr2 * ru2))
+                         ) / su3
                 wh_cov = -(sr_by_su_3 * ru_by_su * (sr2 - 3 * sr * ru + 6 * ru2)) / (
-                    2 * su
+                        2 * su
                 )
-                wk_cov = (sr_by_su**4) * ru_by_su * (sr - ru) / 12
+                wk_cov = (sr_by_su ** 4) * ru_by_su * (sr - ru) / 12
                 hh_cov = (sr / 12) * (
-                    1 - sr_by_su_3 * (sr2 + 2 * sr * ru + 16 * ru2) / su2
+                        1 - sr_by_su_3 * (sr2 + 2 * sr * ru + 16 * ru2) / su2
                 )
                 hk_cov = -(ru / 24) * sr_by_su_5
                 kk_cov = (sr / 720) * (1.0 - sr_by_su_5)
@@ -536,16 +593,16 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
                 bkk_sr = sr2 * (k_mean + hat_kk_sr)
                 bkk_r = (
-                    bkk_s
-                    + bkk_sr
-                    + (sr / 2) * bhh_s
-                    - (s / 2) * bhh_sr
-                    + ((r - 2 * s) / 12) * r_bb_s
+                        bkk_s
+                        + bkk_sr
+                        + (sr / 2) * bhh_s
+                        - (s / 2) * bhh_sr
+                        + ((r - 2 * s) / 12) * r_bb_s
                 )
 
                 inverse_r = 1 / jnp.where(jnp.square(r) < jnp.finfo(r).eps, jnp.inf, r)
                 hh_r = inverse_r * bhh_r
-                kk_r = inverse_r**2 * bkk_r
+                kk_r = inverse_r ** 2 * bkk_r
 
             return _LevyVal(dt=r, W=w_r, H=hh_r, bar_H=bhh_r, K=kk_r, bar_K=bkk_r)
 
@@ -581,7 +638,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
 
             with jax.numpy_dtype_promotion("standard"):
                 w_sr = (
-                    sr / su * w_su + 6 * sr * ru / su3 * bhh_su + 2 * (a + b) / su * x1
+                        sr / su * w_su + 6 * sr * ru / su3 * bhh_su + 2 * (a + b) / su * x1
                 )
                 w_r = w_s + w_sr
                 c = jnp.sqrt(3 * sr3 * ru3) / (6 * d)
@@ -613,7 +670,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
             assert False
 
     def _brownian_arch(
-        self, _state: _State, shape, dtype
+            self, _state: _State, shape, dtype
     ) -> tuple[
         RealScalarLike,
         FloatTriple,
@@ -655,7 +712,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
         key_st, midpoint_key, key_tu = jr.split(_state.key, 3)
         keys = (key_st, key_tu)
         tdtype = complex_to_real_dtype(dtype)
-        su = jnp.asarray(2.0**-_state.level, dtype=tdtype)
+        su = jnp.asarray(2.0 ** -_state.level, dtype=tdtype)
         st = su / 2
         s = jnp.asarray(_state.s, dtype=tdtype)
         t = s + st
@@ -680,7 +737,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 x1 = z2 * jnp.sqrt(su / 768)
                 x2 = z3 * jnp.sqrt(su / 2880)
 
-                su2 = su**2
+                su2 = su ** 2
 
                 w_term1 = w_su / 2
                 w_term2 = (3 / (2 * su)) * bhh_su + z
@@ -702,11 +759,11 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 t_bb_s = t * w_s - s * w_t
                 bhh_t = bhh_s + bhh_st + t_bb_s / 2
                 bkk_t = (
-                    bkk_s
-                    + bkk_st
-                    + (st / 2) * bhh_s
-                    - (s / 2) * bhh_st
-                    + ((t - 2 * s) / 12) * t_bb_s
+                        bkk_s
+                        + bkk_st
+                        + (st / 2) * bhh_s
+                        - (s / 2) * bhh_st
+                        + ((t - 2 * s) / 12) * t_bb_s
                 )
 
                 w_stu = (w_s, w_t, w_u)
