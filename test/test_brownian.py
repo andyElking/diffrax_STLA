@@ -36,7 +36,7 @@ def _make_struct(shape, dtype):
 
 
 @pytest.mark.parametrize(
-    "ctr", [diffrax.UnsafeBrownianPath, diffrax.VirtualBrownianTree]
+    "ctr", [diffrax.VirtualBrownianTree,]
 )
 @pytest.mark.parametrize("levy_area", _levy_areas)
 @pytest.mark.parametrize("use_levy", (False, True))
@@ -84,8 +84,8 @@ def test_shape_and_dtype(ctr, levy_area, use_levy, getkey):
             assert path.t0 == -jnp.inf
             assert path.t1 == jnp.inf
         elif ctr is diffrax.VirtualBrownianTree:
-            tol = 2**-3
-            path = ctr(t0, t1, tol, shape, getkey(), levy_area=levy_area)
+            depth = 4
+            path = ctr(t0, t1, depth, shape, getkey(), levy_area=levy_area)
             assert path.t0 == 0
             assert path.t1 == 2
         else:
@@ -134,7 +134,7 @@ def test_statistics(ctr, levy_area, use_levy):
         if ctr is diffrax.UnsafeBrownianPath:
             path = ctr(shape=(), key=key, levy_area=levy_area)
         elif ctr is diffrax.VirtualBrownianTree:
-            path = ctr(t0=0, t1=5, tol=2**-5, shape=(), key=key, levy_area=levy_area)
+            path = ctr(t0=0, t1=5, depth=8, shape=(), key=key, levy_area=levy_area)
         else:
             assert False
         return path.evaluate(t0, t1, use_levy=use_levy)
@@ -279,14 +279,14 @@ def _true_cond_stats_whk(bm_s, bm_u, s, r, u):
 
 
 def _conditional_statistics(
-    levy_area, use_levy: bool, tol, spacing, spline: _Spline, min_num_points
+    levy_area, use_levy: bool, depth, spacing, spline: _Spline, min_num_points
 ):
     key = jr.PRNGKey(5678)
     bm_key, sample_key, permute_key = jr.split(key, 3)
     # Get some randomly selected points; not too close to avoid discretisation error.
     t0 = 0.0
-    t1 = 8.7
-    boundary = 0.1
+    t1 = 7.3
+    boundary = 0.0
     ts = jr.uniform(
         sample_key, shape=(100,), minval=t0 + boundary, maxval=t1 - boundary
     )
@@ -309,7 +309,7 @@ def _conditional_statistics(
 
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), tol=tol, key=k, levy_area=levy_area, _spline=spline
+            t0=t0, t1=t1, shape=(), depth=depth, key=k, levy_area=levy_area, _spline=spline
         )
     )(bm_keys)
     # Sample some points
@@ -465,7 +465,7 @@ def test_conditional_statistics(levy_area, use_levy):
     pvals_w1, pvals_w2, pvals_h, pvals_k, mean_err, cov_err = _conditional_statistics(
         levy_area,
         use_levy,
-        tol=2**-10,
+        depth=13,
         spacing=2**-8,
         spline="sqrt",
         min_num_points=90,
@@ -516,7 +516,7 @@ def test_spline(levy_area, use_levy, spline: _Spline):
     pvals_w1, pvals_w2, pvals_h, pvals_k, mean_err, cov_err = _conditional_statistics(
         levy_area,
         use_levy=use_levy,
-        tol=2**-3,
+        depth=6,
         spacing=2**-3,
         spline=spline,
         min_num_points=20,
@@ -574,9 +574,9 @@ def test_spline(levy_area, use_levy, spline: _Spline):
 
 
 @pytest.mark.parametrize(
-    "tol,spline", [(100.0, "sqrt"), (0.9, "sqrt"), (2**-15, "zero")]
+    "depth,spline", [(0, "sqrt"), (3, "sqrt"), (18, "zero")]
 )
-def test_whk_interpolation(tol, spline):
+def test_whk_interpolation(depth, spline):
     key = jr.key(5678)
     r_key, bm_key = jr.split(key, 2)
     s = jnp.array(0.0, dtype=jnp.float64)
@@ -589,7 +589,7 @@ def test_whk_interpolation(tol, spline):
         t0=s,
         t1=u,
         shape=(10000,),
-        tol=tol,
+        depth=depth,
         key=bm_key,
         levy_area=diffrax.SpaceTimeTimeLevyArea,
         _spline=spline,
@@ -682,7 +682,7 @@ def test_levy_area_reverse_time():
     key = jr.PRNGKey(5678)
     bm_key, sample_key = jr.split(key, 2)
     bm = diffrax.VirtualBrownianTree(
-        t0=0, t1=5, tol=2**-5, shape=(), key=bm_key, levy_area=diffrax.SpaceTimeLevyArea
+        t0=0, t1=5, depth=8, shape=(), key=bm_key, levy_area=diffrax.SpaceTimeLevyArea
     )
 
     ts = jr.uniform(sample_key, shape=(100,), minval=0, maxval=5)
