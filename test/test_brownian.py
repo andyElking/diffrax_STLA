@@ -35,8 +35,15 @@ def _make_struct(shape, dtype):
     return jax.ShapeDtypeStruct(shape, dtype)
 
 
+def is_tuple_of_ints(obj):
+    return isinstance(obj, tuple) and all(isinstance(x, int) for x in obj)
+
+
 @pytest.mark.parametrize(
-    "ctr", [diffrax.VirtualBrownianTree,]
+    "ctr",
+    [
+        diffrax.VirtualBrownianTree,
+    ],
 )
 @pytest.mark.parametrize("levy_area", _levy_areas)
 @pytest.mark.parametrize("use_levy", (False, True))
@@ -48,16 +55,16 @@ def test_shape_and_dtype(ctr, levy_area, use_levy, getkey):
         ((), None),
         ((0,), None),
         ((1, 0), None),
-        ((3, 4), jnp.float32),
-        ((1, 2, 3, 4), jnp.float64),
-        ({"a": (1,), "b": (2, 3)}, {"a": None, "b": jnp.float64}),
+        ((3, 2), jnp.float32),
+        ((1, 2, 3), jnp.float64),
+        ({"a": (3,), "b": (2, 1)}, {"a": None, "b": jnp.float64}),
         ((2,), jnp.float16),
-        (((1, 2), ((3, 4), (5, 6))), (jnp.float16, (jnp.float32, jnp.float64))),
+        (((2, 2), ((3, 1), (2, 3))), (jnp.float16, (jnp.float32, jnp.float64))),
     )
 
     shapes_dtypes2 = (
-        ((1, 2, 3, 4), jnp.complex128),
-        ({"a": (1,), "b": (2, 3)}, {"a": jnp.float64, "b": jnp.complex128}),
+        ((1, 2, 3), jnp.complex128),
+        ({"a": (2,), "b": (1, 3)}, {"a": jnp.float64, "b": jnp.complex128}),
     )
 
     if (
@@ -71,9 +78,6 @@ def test_shape_and_dtype(ctr, levy_area, use_levy, getkey):
     else:
         shapes_dtypes = shapes_dtypes1 + shapes_dtypes2
 
-    def is_tuple_of_ints(obj):
-        return isinstance(obj, tuple) and all(isinstance(x, int) for x in obj)
-
     for shape, dtype in shapes_dtypes:
         # Shape to pass as input
         if dtype is not None:
@@ -84,7 +88,7 @@ def test_shape_and_dtype(ctr, levy_area, use_levy, getkey):
             assert path.t0 == -jnp.inf
             assert path.t1 == jnp.inf
         elif ctr is diffrax.VirtualBrownianTree:
-            depth = 4
+            depth = 2
             path = ctr(t0, t1, depth, shape, getkey(), levy_area=levy_area)
             assert path.t0 == 0
             assert path.t1 == 2
@@ -309,7 +313,13 @@ def _conditional_statistics(
 
     path = jax.vmap(
         lambda k: diffrax.VirtualBrownianTree(
-            t0=t0, t1=t1, shape=(), depth=depth, key=k, levy_area=levy_area, _spline=spline
+            t0=t0,
+            t1=t1,
+            shape=(),
+            depth=depth,
+            key=k,
+            levy_area=levy_area,
+            _spline=spline,
         )
     )(bm_keys)
     # Sample some points
@@ -573,9 +583,7 @@ def test_spline(levy_area, use_levy, spline: _Spline):
             pass
 
 
-@pytest.mark.parametrize(
-    "depth,spline", [(0, "sqrt"), (3, "sqrt"), (18, "zero")]
-)
+@pytest.mark.parametrize("depth,spline", [(0, "sqrt"), (3, "sqrt"), (18, "zero")])
 def test_whk_interpolation(depth, spline):
     key = jr.key(5678)
     r_key, bm_key = jr.split(key, 2)
@@ -777,3 +785,28 @@ def test_space_space_levy_area():
     avg_err = jnp.mean(diff)
     assert max_err < 1e-2, f"Max error: {max_err}"
     assert avg_err < 1e-3, f"Avg error: {avg_err}"
+
+
+@pytest.mark.parametrize("levy_area", _levy_areas)
+@pytest.mark.parametrize("use_levy", (True, False))
+def test_caching(levy_area, use_levy):
+    key = jr.key(0)
+    key_vbt, key_times = jr.split(key, 2)
+    t0 = jnp.asarray(0.0, dtype=jnp.float64)
+    t1 = jnp.asarray(5.0, dtype=jnp.float64)
+    shape = {"a": (3,), "b": (2, 1)}
+    dtype = {"a": jnp.float32, "b": jnp.float64}
+    struct = jtu.tree_map(_make_struct, shape, dtype, is_leaf=is_tuple_of_ints)
+    vbt = diffrax.VirtualBrownianTree(t0, t1, 6, struct, key_vbt, levy_area)
+    times = jr.uniform(key_times, (100,), minval=t0, maxval=t1)
+
+    vbt_cache = vbt.create_empty_cache()
+
+    for t in times:
+        uncached_val = vbt.evaluate(t, use_levy=use_levy)
+        cached_val, vbt_cache = vbt.evaluate(t, use_levy=use_levy, cache=vbt_cache)  # pyright: ignore
+
+        def check(val1, val2):
+            assert jnp.all(val1 == val2)
+
+        jtu.tree_map(check, uncached_val, cached_val)
