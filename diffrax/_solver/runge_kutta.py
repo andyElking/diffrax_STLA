@@ -428,10 +428,10 @@ class AbstractRungeKutta(AbstractAdaptiveSolver[_SolverState]):
                 if type(_terms) is ODETerm:
                     f0 = jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), y0)
                 elif type(_terms) is MultiTerm:
-                    if all(type(x) is ODETerm for x in _terms.terms):
+                    if all(type(x) is ODETerm for x in _terms.semi_terms):
                         f0 = tuple(
                             jtu.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), y0)
-                            for _ in range(len(_terms.terms))
+                            for _ in range(len(_terms.semi_terms))
                         )
             if f0 is sentinel:
                 # Must be initialiased at zero as it is inserted into `ks` which must be

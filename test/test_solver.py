@@ -296,7 +296,7 @@ def test_sil3(dtype):
 
         def step(self, terms, t0, t1, y0, args, solver_state, made_jump):
             del solver_state, made_jump
-            explicit, implicit = terms.terms
+            explicit, implicit = terms.semi_terms
             dt = t1 - t0
             ex_vf_prod = lambda t, y: explicit.vf(t, y, args) * dt
             im_vf_prod = lambda t, y: implicit.vf(t, y, args) * dt

@@ -41,6 +41,11 @@ from .runge_kutta import (
 )
 from .sea import SEA as SEA
 from .semi_implicit_euler import SemiImplicitEuler as SemiImplicitEuler
+from .semi_shark import (
+    SemiLinearTerm as SemiLinearTerm,
+    SemiSEA as SemiSEA,
+    SemiShARK as SemiShARK,
+)
 from .shark import ShARK as ShARK
 from .shark_general import GeneralShARK as GeneralShARK
 from .should import ShOULD as ShOULD

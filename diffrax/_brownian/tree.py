@@ -352,7 +352,6 @@ class VirtualBrownianTree(AbstractBrownianPath):
         t1: Optional[RealScalarLike] = None,
         left: bool = True,
         use_levy: bool = False,
-        cache: Optional[tuple[Array, Array]] = None,
     ) -> Union[PyTree[Array], AbstractBrownianIncrement]:
         t0 = eqxi.nondifferentiable(t0, name="t0")
         # map the interval [self.t0, self.t1] onto [0,1]
