@@ -1,7 +1,9 @@
 # SDE solvers
 
 See also [How to choose a solver](../../usage/how-to-choose-a-solver.md#stochastic-differential-equations)
-and [SDE example](../../devdocs/sde_example.ipynb/#table-of-available-srk-methods-in-diffrax) which contains a table of SDE solvers and their properties.
+and [Advanced SDE example](../../examples/sde_example.ipynb) which gives a walkthrough of how to simulate SDEs
+and how to perform optimisation with respect to SDE parameters.
+For a table of all SDE solvers and their properties see [SDE solver table](../../devdocs/SDE_solver_table.md).
 
 !!! info "Term structure"
 
