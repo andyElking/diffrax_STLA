@@ -1,3 +1,4 @@
+import abc
 from collections.abc import Callable
 from typing import Any, ClassVar
 from typing_extensions import TypeAlias
@@ -175,7 +176,7 @@ def diffusion_vf_check(diffusion, t0, y0, args):
         )
 
 
-class SemiShARK(AbstractStratonovichSolver):
+class AbstractSemiShARK(AbstractStratonovichSolver):
     r"""Exponential version of the Shifted Additive-noise Runge-Kutta-Three method,
      designed by James Foster.
      Only works for semi-linear additive noise SDEs of the form
@@ -215,6 +216,10 @@ class SemiShARK(AbstractStratonovichSolver):
         cond = x < self.taylor_threshold
         return lax.cond(cond, phi_01_taylor, phi_01_direct, x)
 
+    @abc.abstractmethod
+    def inner_step(self, t0, t1, y0, w, hh, g, f, args) -> Y:
+        raise NotImplementedError
+
     def step(
         self,
         terms: _TermStructure,
@@ -239,39 +244,8 @@ class SemiShARK(AbstractStratonovichSolver):
         hh = jtu.tree_map(lambda x: jnp.asarray(x, dtype), bm_inc.H)
 
         gamma = jnp.asarray(drift.gamma, dtype)
-        h = t1 - t0
 
-        gh = h * gamma
-        exp_gh, phi1_gh, phi2_gh, phi3_gh, phi4_gh, phi5_gh = self.phi_0_to_5(gh)
-
-        w_tilde = (phi1_gh * w**ω + phi3_gh * hh**ω).ω
-        hh_tilde = (phi4_gh * w**ω + phi5_gh * hh**ω).ω
-
-        # The first stage y1 is evaluated at time t0
-        y1 = (y0**ω + hh_tilde**ω).ω
-
-        f1 = drift.f(t0, y1, args)
-
-        # The second stage y2 is evaluated at time t0 + alpha * h
-        alpha = 5 / 6
-        agh = alpha * gh
-        exp_agh, phi1_agh = self.phi_01(agh)
-
-        y2 = (
-            exp_agh * y0**ω
-            + h * alpha * phi1_agh * f1**ω
-            + alpha * w_tilde**ω
-            + exp_agh * hh_tilde**ω
-        ).ω
-
-        f2 = drift.f(t0 + alpha * h, y2, args)
-
-        y_out = (
-            exp_gh * y0**ω
-            + h * phi1_gh * f1**ω
-            + h / alpha * phi2_gh * (f2**ω - f1**ω)
-            + w_tilde**ω
-        ).ω
+        y_out = self.inner_step(t0, t1, y0, w, hh, gamma, drift.f, args)
 
         dense_info = dict(y0=y0, y1=y_out)
         return y_out, None, dense_info, None, RESULTS.successful
@@ -284,6 +258,47 @@ class SemiShARK(AbstractStratonovichSolver):
         args: Args,
     ) -> VF:
         return terms.vf(t0, y0, args)
+
+
+class SemiShARK(AbstractSemiShARK):
+    def inner_step(self, t0, t1, y0, w, hh, g, f, args) -> Y:
+        h = t1 - t0
+
+        gh = h * g
+        exp_gh, phi1_gh, phi2_gh, phi3_gh, phi4_gh, phi5_gh = self.phi_0_to_5(gh)
+
+        # w_tilde = (phi1_gh * w**ω + phi3_gh * hh**ω).ω
+        w_tilde = ((1 + gh / 2) * w**ω + gh * hh**ω).ω
+        hh_tilde = (phi4_gh * w**ω + phi5_gh * hh**ω).ω
+
+        # The first stage y1 is evaluated at time t0
+        y1 = (y0**ω + hh_tilde**ω).ω
+
+        f1 = f(t0, y1, args)
+
+        # The second stage y2 is evaluated at time t0 + alpha * h
+        alpha = 5 / 6
+        agh = alpha * gh
+        exp_agh, phi1_agh = self.phi_01(agh)
+
+        y2 = (
+            exp_agh * y0**ω
+            + h * alpha * phi1_agh * f1**ω
+            + alpha * w_tilde**ω
+            + exp_agh * hh_tilde**ω
+            # + hh_tilde ** ω
+        ).ω
+
+        f2 = f(t0 + alpha * h, y2, args)
+
+        y_out = (
+            exp_gh * y0**ω
+            + h * phi1_gh * f1**ω
+            + h / alpha * phi2_gh * (f2**ω - f1**ω)
+            + w_tilde**ω
+        ).ω
+
+        return y_out
 
 
 class SemiSEA(AbstractStratonovichSolver):
