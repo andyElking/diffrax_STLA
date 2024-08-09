@@ -26,14 +26,6 @@ from .base import AbstractStratonovichSolver
 
 _ErrorEstimate: TypeAlias = None
 _SolverState: TypeAlias = None
-_SixScalars: TypeAlias = tuple[
-    RealScalarLike,
-    RealScalarLike,
-    RealScalarLike,
-    RealScalarLike,
-    RealScalarLike,
-    RealScalarLike,
-]
 _FiveScalars: TypeAlias = tuple[
     RealScalarLike, RealScalarLike, RealScalarLike, RealScalarLike, RealScalarLike
 ]
@@ -79,21 +71,21 @@ def phi_01_taylor(x) -> _TwoScalars:
     return exp_x, phi1x
 
 
-def phi_0_to_5_direct(x) -> _SixScalars:
+def coeffs_shark_direct(x) -> _FiveScalars:
     # phi0(x) = exp(x)
     exp_x = jnp.exp(x)
     expm1_x = jnp.expm1(x)
     phi1x = expm1_x / x
     phi2x = (expm1_x - x) / (x**2)
-    phi3_top = (exp_x + 1) * x - 2 * expm1_x
-    phi3x = 6 * phi3_top / (x**2)
+    c3_top = (exp_x + 1) * x - 2 * expm1_x
+    c3x = 6 * c3_top / (x**2)
     expm1_2x = jnp.expm1(2 * x)
-    phi4x = -phi3_top / (x * expm1_2x)
-    phi5x = 2 * phi3x / expm1_2x
-    return exp_x, phi1x, phi2x, phi3x, phi4x, phi5x
+    c4x = -c3_top / (x * expm1_2x)
+    c5x = 2 * c3x / expm1_2x
+    return exp_x, phi1x, phi2x, c4x, c5x
 
 
-def phi_0_to_5_taylor(x) -> _SixScalars:
+def coeffs_shark_taylor(x) -> _FiveScalars:
     dtype = x.dtype
     # We use an order 5 Taylor expansion
     x_powers = jnp.power(x, jnp.arange(0, 5, dtype=dtype))
@@ -103,45 +95,45 @@ def phi_0_to_5_taylor(x) -> _SixScalars:
 
     phi1_coeffs = jnp.array([1, 1 / 2, 1 / 6, 1 / 24, 1 / 120], dtype=dtype)
     phi2_coeffs = jnp.array([1 / 2, 1 / 6, 1 / 24, 1 / 120, 1 / 720], dtype=dtype)
-    phi3_coeffs = jnp.array([0, 1 / 2, 3 / 20, 1 / 30, 1 / 168], dtype=dtype)
-    phi4_coeffs = jnp.array([0, -1 / 12, 1 / 24, 1 / 720, -1 / 240], dtype=dtype)
-    phi5_coeffs = jnp.array([1, -1 / 2, -1 / 60, 1 / 20, 1 / 2520], dtype=dtype)
+    # c3_coeffs = jnp.array([0, 1 / 2, 3 / 20, 1 / 30, 1 / 168], dtype=dtype)
+    c4_coeffs = jnp.array([0, -1 / 12, 1 / 24, 1 / 720, -1 / 240], dtype=dtype)
+    c5_coeffs = jnp.array([1, -1 / 2, -1 / 60, 1 / 20, 1 / 2520], dtype=dtype)
 
     phi1x = jnp.dot(phi1_coeffs, x_powers)
     phi2x = jnp.dot(phi2_coeffs, x_powers)
-    phi3x = jnp.dot(phi3_coeffs, x_powers)
-    phi4x = jnp.dot(phi4_coeffs, x_powers)
-    phi5x = jnp.dot(phi5_coeffs, x_powers)
+    # c3x = jnp.dot(c3_coeffs, x_powers)
+    c4x = jnp.dot(c4_coeffs, x_powers)
+    c5x = jnp.dot(c5_coeffs, x_powers)
 
-    return exp_x, phi1x, phi2x, phi3x, phi4x, phi5x
+    return exp_x, phi1x, phi2x, c4x, c5x
 
 
-def phi_01367_direct(x) -> _FiveScalars:
+def coeffs_sea_direct(x) -> _FiveScalars:
     exp_x = jnp.exp(x)
     expm1_x = jnp.expm1(x)
     phi1x = expm1_x / x
-    phi3x = 6 * ((exp_x + 1) * x - 2 * expm1_x) / (x**2)
-    phi6x = (expm1_x - x) / (x * (expm1_x))
-    phi7x = phi3x / expm1_x
-    return exp_x, phi1x, phi3x, phi6x, phi7x
+    c3x = 6 * ((exp_x + 1) * x - 2 * expm1_x) / (x**2)
+    c6x = (expm1_x - x) / (x * (expm1_x))
+    c7x = c3x / expm1_x
+    return exp_x, phi1x, c3x, c6x, c7x
 
 
-def phi_01367_taylor(x) -> _FiveScalars:
+def coeffs_sea_taylor(x) -> _FiveScalars:
     dtype = x.dtype
     x_powers = jnp.power(x, jnp.arange(0, 5, dtype=dtype))
 
     exp_x = jnp.exp(x)
     phi1_coeffs = jnp.array([1, 1 / 2, 1 / 6, 1 / 24, 1 / 120], dtype=dtype)
-    phi3_coeffs = jnp.array([0, 1 / 2, 3 / 20, 1 / 30, 1 / 168], dtype=dtype)
-    phi6_coeffs = jnp.array([1 / 2, -1 / 12, 0, 1 / 720, 0], dtype=dtype)
-    phi7_coeffs = jnp.array([1, 0, -1 / 60, 0, 1 / 2520], dtype=dtype)
+    c3_coeffs = jnp.array([0, 1 / 2, 3 / 20, 1 / 30, 1 / 168], dtype=dtype)
+    c6_coeffs = jnp.array([1 / 2, -1 / 12, 0, 1 / 720, 0], dtype=dtype)
+    c7_coeffs = jnp.array([1, 0, -1 / 60, 0, 1 / 2520], dtype=dtype)
 
     phi1x = jnp.dot(phi1_coeffs, x_powers)
-    phi3x = jnp.dot(phi3_coeffs, x_powers)
-    phi6x = jnp.dot(phi6_coeffs, x_powers)
-    phi7x = jnp.dot(phi7_coeffs, x_powers)
+    c3x = jnp.dot(c3_coeffs, x_powers)
+    c6x = jnp.dot(c6_coeffs, x_powers)
+    c7x = jnp.dot(c7_coeffs, x_powers)
 
-    return exp_x, phi1x, phi3x, phi6x, phi7x
+    return exp_x, phi1x, c3x, c6x, c7x
 
 
 def diffusion_vf_check(diffusion, t0, y0, args):
@@ -189,7 +181,7 @@ class AbstractSemiShARK(AbstractStratonovichSolver):
     term_compatible_contr_kwargs = (dict(), dict(use_levy=True))
     interpolation_cls = LocalLinearInterpolation
     minimal_levy_area = AbstractSpaceTimeLevyArea
-    taylor_threshold: RealScalarLike = eqx.field(static=True, default=0.1)
+    taylor_threshold: RealScalarLike = eqx.field(static=True, default=0.01)
 
     def order(self, terms):
         return 2
@@ -208,9 +200,9 @@ class AbstractSemiShARK(AbstractStratonovichSolver):
         _, diffusion = terms.terms
         diffusion_vf_check(diffusion, t0, y0, args)
 
-    def phi_0_to_5(self, x) -> _SixScalars:
+    def coeffs_shark(self, x) -> _FiveScalars:
         cond = x < self.taylor_threshold
-        return lax.cond(cond, phi_0_to_5_taylor, phi_0_to_5_direct, x)
+        return lax.cond(cond, coeffs_shark_taylor, coeffs_shark_direct, x)
 
     def phi_01(self, x) -> _TwoScalars:
         cond = x < self.taylor_threshold
@@ -265,11 +257,11 @@ class SemiShARK(AbstractSemiShARK):
         h = t1 - t0
 
         gh = h * g
-        exp_gh, phi1_gh, phi2_gh, phi3_gh, phi4_gh, phi5_gh = self.phi_0_to_5(gh)
+        exp_gh, phi1_gh, phi2_gh, c4_gh, c5_gh = self.coeffs_shark(gh)
 
-        # w_tilde = (phi1_gh * w**ω + phi3_gh * hh**ω).ω
+        # w_tilde = (phi1_gh * w**ω + c3_gh * hh**ω).ω
         w_tilde = ((1 + gh / 2) * w**ω + gh * hh**ω).ω
-        hh_tilde = (phi4_gh * w**ω + phi5_gh * hh**ω).ω
+        hh_tilde = (c4_gh * w**ω + c5_gh * hh**ω).ω
 
         # The first stage y1 is evaluated at time t0
         y1 = (y0**ω + hh_tilde**ω).ω
@@ -332,9 +324,9 @@ class SemiSEA(AbstractStratonovichSolver):
         _, diffusion = terms.terms
         diffusion_vf_check(diffusion, t0, y0, args)
 
-    def phi_01367(self, x) -> _FiveScalars:
+    def coeffs_sea(self, x) -> _FiveScalars:
         cond = x < self.taylor_threshold
-        return lax.cond(cond, phi_01367_taylor, phi_01367_direct, x)
+        return lax.cond(cond, coeffs_sea_taylor, coeffs_sea_direct, x)
 
     def step(
         self,
@@ -364,10 +356,10 @@ class SemiSEA(AbstractStratonovichSolver):
 
         gh = h * gamma
 
-        exp_gh, phi1_gh, phi3_gh, phi6_gh, phi7_gh = self.phi_01367(gh)
+        exp_gh, phi1_gh, c3_gh, c6_gh, c7_gh = self.coeffs_sea(gh)
 
-        w_tilde = (phi1_gh * w**ω + phi3_gh * hh**ω).ω
-        hh_plus_cw_tilde = (phi6_gh * w**ω + phi7_gh * hh**ω).ω
+        w_tilde = (phi1_gh * w**ω + c3_gh * hh**ω).ω
+        hh_plus_cw_tilde = (c6_gh * w**ω + c7_gh * hh**ω).ω
 
         # The first stage y1 is evaluated at time t0+h/2
         y1 = (y0**ω + hh_plus_cw_tilde**ω).ω
