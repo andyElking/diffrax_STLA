@@ -4,3 +4,4 @@ from .adaptive import (
 )
 from .base import AbstractStepSizeController as AbstractStepSizeController
 from .constant import ConstantStepSize as ConstantStepSize, StepTo as StepTo
+from .jump_step_wrapper import JumpStepWrapper as JumpStepWrapper

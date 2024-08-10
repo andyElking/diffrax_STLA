@@ -239,13 +239,16 @@ def pid_strong_order(
     save_ts_pid = jnp.linspace(sde.t0, sde.t1, 65, endpoint=True)
 
     def get_dt_pid(level):
-        return None, PIDController(
+        pid = PIDController(
             pcoeff=0.1,
             icoeff=0.4,
             rtol=0,
             atol=2**-level,
-            step_ts=save_ts_pid,
             dtmin=2**-14,
+        )
+        return None, diffrax.JumpStepWrapper(
+            pid,
+            step_ts=save_ts_pid,
         )
 
     saveat_pid = diffrax.SaveAt(ts=save_ts_pid)

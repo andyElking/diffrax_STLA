@@ -104,15 +104,16 @@ def run_lmc(
             dtmin=dtmin_warmup,
             dtmax=1.0,
         )
-        controller_mcmc = PIDController(
+        pid_mcmc = PIDController(
             rtol=0.0,
             atol=tol,
             pcoeff=0.1,
             icoeff=0.4,
             dtmin=dtmin,
-            step_ts=save_ts,
             dtmax=0.2,
         )
+        controller_mcmc = diffrax.JumpStepWrapper(pid_mcmc, step_ts=save_ts)
+
         if not isinstance(solver, diffrax.ShARK):
             solver = HalfSolver(solver)
     else:
