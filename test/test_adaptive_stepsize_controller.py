@@ -17,7 +17,8 @@ def test_step_ts():
     t1 = 5
     dt0 = None
     y0 = 1.0
-    stepsize_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6, step_ts=[3, 4])
+    pid_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6)
+    stepsize_controller = diffrax.JumpStepWrapper(pid_controller, step_ts=[3, 4])
     saveat = diffrax.SaveAt(steps=True)
     sol = diffrax.diffeqsolve(
         term,
@@ -50,7 +51,8 @@ def test_jump_ts():
     saveat = diffrax.SaveAt(steps=True)
 
     def run(**kwargs):
-        stepsize_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6, **kwargs)
+        pid_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6)
+        stepsize_controller = diffrax.JumpStepWrapper(pid_controller, **kwargs)
         return diffrax.diffeqsolve(
             term,
             solver,
@@ -113,9 +115,11 @@ def test_grad_of_discontinuous_forcing():
         t1 = 1
         dt0 = None
         y0 = 1.0
-        stepsize_controller = diffrax.PIDController(
-            rtol=1e-8, atol=1e-8, step_ts=t[None]
+        pid_controller = diffrax.PIDController(
+            rtol=1e-8,
+            atol=1e-8,
         )
+        stepsize_controller = diffrax.JumpStepWrapper(pid_controller, step_ts=t[None])
 
         def forcing(s):
             return jnp.where(s < t, 0, 1)
