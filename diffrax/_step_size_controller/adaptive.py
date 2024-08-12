@@ -565,10 +565,12 @@ class PIDController(
         factor2 = 1 if _zero_coeff(coeff2) else prev_inv_scaled_error**coeff2
         factor3 = 1 if _zero_coeff(coeff3) else prev_prev_inv_scaled_error**coeff3
         factormin = jnp.where(keep_step, 1, self.factormin)
+        # If the step is not kept, next step must be smaller, so factor must be <1.
+        factormax = jnp.where(keep_step, self.factormax, self.safety)
         factor = jnp.clip(
             self.safety * factor1 * factor2 * factor3,
             min=factormin,
-            max=self.factormax,
+            max=factormax,
         )
         # Once again, see above. In case we have gradients on {i,p,d}coeff.
         # (Probably quite common for them to have zero tangents if passed across

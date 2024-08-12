@@ -4,6 +4,7 @@ import diffrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import jax.tree_util as jtu
 from jaxtyping import Array
 
@@ -75,6 +76,55 @@ def test_jump_ts():
     assert sol.result == diffrax.RESULTS.successful
     assert 3.5 in cast(Array, sol.ts)
     assert 8 in cast(Array, sol.ts)
+
+
+def test_revisit_steps():
+    t0 = 0
+    t1 = 5
+    dt0 = 0.5
+    y0 = 1.0
+    drift = diffrax.ODETerm(lambda t, y, args: -0.2 * y)
+
+    def diffusion_vf(t, y, args):
+        return jnp.ones((), dtype=y.dtype)
+
+    bm = diffrax.VirtualBrownianTree(t0, t1, 2**-8, (), jr.key(0))
+    diffusion = diffrax.ControlTerm(diffusion_vf, bm)
+    term = diffrax.MultiTerm(drift, diffusion)
+    solver = diffrax.Heun()
+    pid_controller = diffrax.PIDController(
+        rtol=0, atol=1e-3, dtmin=2**-7, pcoeff=0.5, icoeff=0.8
+    )
+
+    rejected_ts = []
+
+    def callback_fun(keep_step, t1):
+        if not keep_step:
+            rejected_ts.append(t1)
+
+    stepsize_controller = diffrax.JumpStepWrapper(
+        pid_controller,
+        step_ts=[3, 4],
+        rejected_step_buffer_len=10,
+        _callback_on_reject=callback_fun,
+    )
+    saveat = diffrax.SaveAt(steps=True)
+    sol = diffrax.diffeqsolve(
+        term,
+        solver,
+        t0,
+        t1,
+        dt0,
+        y0,
+        stepsize_controller=stepsize_controller,
+        saveat=saveat,
+    )
+
+    assert len(rejected_ts) > 10
+    # check if all rejected ts are in the array sol.ts
+    assert all([t in sol.ts for t in rejected_ts])
+    assert 3 in cast(Array, sol.ts)
+    assert 4 in cast(Array, sol.ts)
 
 
 def test_backprop():
