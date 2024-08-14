@@ -281,6 +281,12 @@ class JumpStepWrapper(
         t1, _ = _clip_ts(t0, t1, i_step, step_ts, False)
         t1, jump_next_step = _clip_ts(t0, t1, i_jump, jump_ts, True)
 
+        t1 = eqx.error_if(
+            t1,
+            t1 > t0 + dt_proposal,
+            "t1 must be <= t0 + dt_proposal",
+        )
+
         state = _JumpStepState(
             jump_next_step,
             dt_proposal,
@@ -410,6 +416,7 @@ class JumpStepWrapper(
             keep_step, jnp.maximum(dt_proposal, prev_dt), dt_proposal
         )
         new_prev_dt = dt_proposal
+        next_t1 = next_t0 + dt_proposal
 
         # If t1 hit a jump point, and the step was kept then we need to set
         # `next_t0 = nextafter(nextafter(t1))` to ensure that we really skip
@@ -436,7 +443,6 @@ class JumpStepWrapper(
             assert isinstance(
                 next_t0, RealScalarLike
             ), f"type(next_t0) = {type(next_t0)}"
-        next_t1 = next_t0 + dt_proposal
 
         # Clip the step to the next element of jump_ts or step_ts or
         # rejected_buffer. Important to do jump_ts last because otherwise
@@ -444,6 +450,12 @@ class JumpStepWrapper(
         next_t1 = _revisit_rejected(next_t0, next_t1, i_rjct, rjct_buff)
         next_t1, _ = _clip_ts(next_t0, next_t1, i_step, step_ts, False)
         next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, jump_ts, True)
+
+        next_t1 = eqx.error_if(
+            next_t1,
+            next_t1 > next_t0 + dt_proposal,
+            "next_t1 must be <= next_t0 + dt_proposal",
+        )
 
         state = _JumpStepState(
             jump_next_step,
