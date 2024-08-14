@@ -362,7 +362,8 @@ class SemiSEA(AbstractStratonovichSolver):
         hh_plus_cw_tilde = (c6_gh * w**ω + c7_gh * hh**ω).ω
 
         # The first stage y1 is evaluated at time t0+h/2
-        y1 = (y0**ω + hh_plus_cw_tilde**ω).ω
+        exp_half_gh = jnp.exp(0.5 * gh)
+        y1 = (exp_half_gh * y0**ω + hh_plus_cw_tilde**ω).ω
 
         f1 = drift.f(t0 + h / 2, y1, args)
 
