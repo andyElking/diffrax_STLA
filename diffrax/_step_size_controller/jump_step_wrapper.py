@@ -52,10 +52,6 @@ class _JumpStepState(eqx.Module, Generic[_ControllerState]):
 
 
 def _get_t(i: IntScalarLike, ts: Array) -> RealScalarLike:
-    i = eqx.error_if(
-        i, i < 0, "i must be >= 0. " "Consider increasing rejected_step_buffer_len."
-    )
-    i = eqx.error_if(i, i > len(ts), "i must be < len(ts)")
     i_min_len = jnp.minimum(i, len(ts) - 1)
     return jnp.where(i == len(ts), jnp.inf, ts[i_min_len])
 
@@ -86,16 +82,6 @@ def _clip_ts(
     _t1 = _get_t(i, ts)
     next_made_jump = _t1 <= t1
     _t1 = jnp.where(next_made_jump, _t1, t1)
-    im1 = jnp.maximum(i - 1, 0)
-    lower = jnp.where(i == 0, -jnp.inf, ts[im1])
-    problem = (t0 < lower) | (_t1 < t0)
-    _t1 = eqx.error_if(
-        _t1,
-        problem,
-        "t0={t0} must be in [ts[i-1]={lower}, ts[i]={_t1}]".format(
-            t0=t0, lower=lower, _t1=_t1
-        ),
-    )
     return _t1, next_made_jump
 
 
@@ -122,9 +108,6 @@ def _revisit_rejected(
         return t1
     _t1 = _get_t(i_rjct, rjct_buff)
     _t1 = jnp.minimum(_t1, t1)
-    problem = _t1 < t0
-    # jax.debug.print("t0={t0}, t1={t1}, _t1={_t1}", t0=t0, t1=t1, _t1=_t1)
-    _t1 = eqx.error_if(_t1, problem, "t0 must be <= rejected_buffer[i_rjct]")
     return _t1
 
 
@@ -281,12 +264,6 @@ class JumpStepWrapper(
         t1, _ = _clip_ts(t0, t1, i_step, step_ts, False)
         t1, jump_next_step = _clip_ts(t0, t1, i_jump, jump_ts, True)
 
-        t1 = eqx.error_if(
-            t1,
-            t1 > t0 + dt_proposal,
-            "t1 must be <= t0 + dt_proposal",
-        )
-
         state = _JumpStepState(
             jump_next_step,
             dt_proposal,
@@ -330,12 +307,6 @@ class JumpStepWrapper(
             jump_ts,
             inner_state,
         ) = controller_state.get()
-        # prev_dt is the previous dt_proposal, which cannot be smaller than the
-        # actual step size `t1 - t0`.
-        # For some reason the steps are sometimes 1e-7 larger than they should be.
-        prev_dt = eqx.error_if(
-            prev_dt, prev_dt < t1 - t0 - 1e-6, "prev_dt must be >= t1-t0"
-        )
 
         # Let the controller do its thing
         (
@@ -359,26 +330,11 @@ class JumpStepWrapper(
             # If we stepped to `t1 == step_ts[i_step]` and kept the step, then we
             # increment i_step and move on to the next t in step_ts.
             step_inc_cond = keep_step & (t1 == _get_t(i_step, step_ts))
-            # Throw an error if the step went further than the desired step_t
-            i_step = eqx.error_if(
-                i_step,
-                t1 > _get_t(i_step, step_ts),
-                "t1 must be <= step_ts[i_step]",
-            )
             i_step = jnp.where(step_inc_cond, i_step + 1, i_step)
 
         if jump_ts is not None:
             next_jump_t = _get_t(i_jump, jump_ts)
-            made_jump_cond2 = t1 >= eqxi.prevbefore(next_jump_t)
-            # Raise an error if made_jump disagrees with made_jump_cond2 OR
-            # if t1 is greater than the next jump location.
-            jump_problem = (made_jump != made_jump_cond2) | (t1 > next_jump_t)
-            made_jump_cond2 = eqx.error_if(
-                made_jump_cond2,
-                jump_problem,
-                "made_jump must be True iff t1 >= jump_ts[i_jump-1]",
-            )
-            jump_inc_cond = keep_step & made_jump_cond2
+            jump_inc_cond = keep_step & (t1 >= eqxi.prevbefore(next_jump_t))
             i_jump = jnp.where(jump_inc_cond, i_jump + 1, i_jump)
 
         if self.rejected_step_buffer_len > 0:
@@ -389,11 +345,6 @@ class JumpStepWrapper(
             # re-add the rejected time to the buffer immediately.
             rjct_inc_cond = t1 == _get_t(i_rjct, rjct_buff)
             i_rjct = jnp.where(rjct_inc_cond, i_rjct + 1, i_rjct)
-            i_rjct = eqx.error_if(
-                i_rjct,
-                t1 >= _get_t(i_rjct, rjct_buff),
-                "t1 must be < rejected_buffer[i_rjct]",
-            )
 
             # If the step was rejected, then we need to store the rejected time in the
             # rejected buffer and decrement the rejected index.
@@ -402,7 +353,7 @@ class JumpStepWrapper(
                 i_rjct,
                 i_rjct < 0,
                 "Maximum number of rejected steps reached. "
-                "Consider increasing rejected_step_buffer_len.",
+                "Consider increasing JumpStepWrapper.rejected_step_buffer_len.",
             )
             rjct_buff = jnp.where(keep_step, rjct_buff, rjct_buff.at[i_rjct].set(t1))
 
@@ -422,13 +373,6 @@ class JumpStepWrapper(
         # `next_t0 = nextafter(nextafter(t1))` to ensure that we really skip
         # over the jump and don't evaluate the vector field at the discontinuity.
         if jnp.issubdtype(jnp.result_type(next_t0), jnp.inexact):
-            # First make sure next_t0 == t1 if the step was kept
-            next_t0 = eqx.error_if(
-                next_t0,
-                keep_step & (next_t0 != t1),
-                "next_t0 should be t1 if the step was kept",
-            )
-
             # Two nextafters. If made_jump then t1 = prevbefore(jump location)
             # so now _t1 = nextafter(jump location)
             # This is important because we don't know whether or not the jump is as a
@@ -450,12 +394,6 @@ class JumpStepWrapper(
         next_t1 = _revisit_rejected(next_t0, next_t1, i_rjct, rjct_buff)
         next_t1, _ = _clip_ts(next_t0, next_t1, i_step, step_ts, False)
         next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, jump_ts, True)
-
-        next_t1 = eqx.error_if(
-            next_t1,
-            next_t1 > next_t0 + dt_proposal,
-            "next_t1 must be <= next_t0 + dt_proposal",
-        )
 
         state = _JumpStepState(
             jump_next_step,

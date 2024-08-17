@@ -124,5 +124,5 @@ time_revisiting = min(timeit.repeat(time_revisiting_controller, number=3, repeat
 print(f"Revisiting controller: {time_revisiting:.5} s")
 
 # ======= RESULTS =======
-# New controller: 0.29384 s, Old controller: 0.30669 s
-# Revisiting controller: 0.38819 s
+# New controller: 0.22829 s, Old controller: 0.31039 s
+# Revisiting controller: 0.23212 s
