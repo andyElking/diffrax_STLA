@@ -18,7 +18,7 @@ from .._custom_types import (
 from .._misc import static_select, upcast_or_raise
 from .._solution import RESULTS
 from .._term import AbstractTerm
-from .adaptive import _none_or_array
+from .adaptive import _none_or_array, PIDController
 from .base import AbstractStepSizeController
 
 
@@ -175,6 +175,7 @@ class JumpStepWrapper(
     jump_ts: Optional[Real[Array, " jumps"]]
     rejected_step_buffer_len: int = eqx.field(static=True)
     callback_on_reject: Optional[Callable] = eqx.field(static=True)
+    use_patricks_version: bool = eqx.field(static=True)
 
     @eqxi.doc_remove_args("_callback_on_reject")
     def __init__(
@@ -184,6 +185,7 @@ class JumpStepWrapper(
         jump_ts=None,
         rejected_step_buffer_len=0,
         _callback_on_reject=None,
+        use_patricks_version=False,
     ):
         r"""
         **Arguments**:
@@ -206,6 +208,7 @@ class JumpStepWrapper(
         self.jump_ts = _none_or_array(jump_ts)
         self.rejected_step_buffer_len = rejected_step_buffer_len
         self.callback_on_reject = _callback_on_reject
+        self.use_patricks_version = use_patricks_version
         self.__check_init__()
 
     def __check_init__(self):
@@ -412,10 +415,13 @@ class JumpStepWrapper(
         # but then clipped to very small (because of step_ts or jump_ts), we don't
         # want it to stick to very small steps (e.g. the PID controller can only
         # increase steps by a factor of 10 at a time).
-        dt_proposal = jnp.where(
-            keep_step, jnp.maximum(dt_proposal, prev_dt), dt_proposal
-        )
-        new_prev_dt = dt_proposal
+        if self.use_patricks_version and isinstance(self.controller, PIDController):
+            factor = dt_proposal/(t1-t0)
+            dt_proposal = factor * jnp.where(made_jump&keep_step, prev_dt, t1-t0)
+        else:
+            dt_proposal = jnp.where(
+                keep_step, jnp.maximum(dt_proposal, prev_dt), dt_proposal
+            )
         next_t1 = next_t0 + dt_proposal
 
         # If t1 hit a jump point, and the step was kept then we need to set
@@ -459,7 +465,7 @@ class JumpStepWrapper(
 
         state = _JumpStepState(
             jump_next_step,
-            new_prev_dt,
+            dt_proposal,
             i_step,
             i_jump,
             i_rjct,
