@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import pytest
 from jaxtyping import Array
 
 from .helpers import tree_allclose
@@ -127,13 +128,17 @@ def test_revisit_steps():
     assert 4 in cast(Array, sol.ts)
 
 
-def test_backprop():
+@pytest.mark.parametrize("use_jump_step", [True, False])
+def test_backprop(use_jump_step):
+    t0 = jnp.asarray(0, dtype=jnp.float64)
+    t1 = jnp.asarray(1, dtype=jnp.float64)
+
     @eqx.filter_jit
     @eqx.filter_grad
     def run(ys, controller, state):
         y0, y1_candidate, y_error = ys
         _, tprev, tnext, _, state, _ = controller.adapt_step_size(
-            0, 1, y0, y1_candidate, None, y_error, 5, state
+            t0, t1, y0, y1_candidate, None, y_error, 5, state
         )
         with jax.numpy_dtype_promotion("standard"):
             return tprev + tnext + sum(jnp.sum(x) for x in jtu.tree_leaves(state))
@@ -142,12 +147,16 @@ def test_backprop():
     y1_candidate = jnp.array(2.0)
     term = diffrax.ODETerm(lambda t, y, args: -y)
     solver = diffrax.Tsit5()
-    stepsize_controller = diffrax.PIDController(rtol=1e-4, atol=1e-4)
-    _, state = stepsize_controller.init(term, 0, 1, y0, 0.1, None, solver.func, 5)
+    controller = diffrax.PIDController(rtol=1e-4, atol=1e-4)
+    if use_jump_step:
+        controller = diffrax.JumpStepWrapper(
+            controller, step_ts=[0.5], rejected_step_buffer_len=20
+        )
+    _, state = controller.init(term, t0, t1, y0, 0.1, None, solver.func, 5)
 
     for y_error in (jnp.array(0.0), jnp.array(3.0), jnp.array(jnp.inf)):
         ys = (y0, y1_candidate, y_error)
-        grads = run(ys, stepsize_controller, state)
+        grads = run(ys, controller, state)
         assert not any(jnp.isnan(grad).any() for grad in grads)
 
 
@@ -193,3 +202,17 @@ def test_grad_of_discontinuous_forcing():
     finite_diff = (r(0.5) - r(0.5 - eps)) / eps
     autodiff = jax.jit(jax.grad(run))(0.5)
     assert tree_allclose(finite_diff, autodiff)
+
+
+def test_pid_meta():
+    ts = jnp.array([3, 4], dtype=jnp.float64)
+    pid1 = diffrax.PIDController(rtol=1e-4, atol=1e-6)
+    pid2 = diffrax.PIDController(rtol=1e-4, atol=1e-6, step_ts=ts)
+    pid3 = diffrax.PIDController(rtol=1e-4, atol=1e-6, step_ts=ts, jump_ts=ts)
+    assert not isinstance(pid1, diffrax.JumpStepWrapper)
+    assert isinstance(pid1, diffrax.PIDController)
+    assert isinstance(pid2, diffrax.JumpStepWrapper)
+    assert isinstance(pid3, diffrax.JumpStepWrapper)
+    assert all(pid2.step_ts == ts)
+    assert all(pid3.step_ts == ts)
+    assert all(pid3.jump_ts == ts)

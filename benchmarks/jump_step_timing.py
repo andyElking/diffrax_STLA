@@ -39,7 +39,7 @@ pid_controller = diffrax.PIDController(
 new_controller = diffrax.JumpStepWrapper(
     pid_controller,
     step_ts=step_ts,
-    rejected_step_buffer_len=0,
+    rejected_step_buffer_len=None,
 )
 old_controller = OldPIDController(
     rtol=0, atol=1e-3, dtmin=2**-9, dtmax=1.0, pcoeff=0.3, icoeff=0.7, step_ts=step_ts
@@ -66,63 +66,51 @@ num_samples = 100
 keys = jr.split(jr.PRNGKey(0), num_samples)
 
 
-# NEW CONTROLLER
-@jax.jit
-@eqx.debug.assert_max_traces(max_traces=1)
-def time_new_controller_fun():
-    sols = solve(keys, new_controller)
-    assert sols.ys is not None
-    assert sols.ys.shape == (num_samples, len(step_ts))
-    return sols.ys
+def do_timing(controller):
+    @jax.jit
+    @eqx.debug.assert_max_traces(max_traces=1)
+    def time_controller_fun():
+        sols = solve(keys, controller)
+        assert sols.ys is not None
+        assert sols.ys.shape == (num_samples, len(step_ts))
+        return sols.ys
+
+    def time_controller():
+        jax.block_until_ready(time_controller_fun())
+
+    return min(timeit.repeat(time_controller, number=3, repeat=20))
 
 
-def time_new_controller():
-    jax.block_until_ready(time_new_controller_fun())
+time_new = do_timing(new_controller)
 
-
-# OLD CONTROLLER
-@jax.jit
-@eqx.debug.assert_max_traces(max_traces=1)
-def time_old_controller_fun():
-    sols = solve(keys, old_controller)
-    assert sols.ys is not None
-    assert sols.ys.shape == (num_samples, len(step_ts))
-    return sols.ys
-
-
-def time_old_controller():
-    jax.block_until_ready(time_old_controller_fun())
-
-
-time_new = min(timeit.repeat(time_new_controller, number=3, repeat=20))
-
-time_old = min(timeit.repeat(time_old_controller, number=3, repeat=20))
+time_old = do_timing(old_controller)
 
 print(f"New controller: {time_new:.5} s, Old controller: {time_old:.5} s")
 
 # How expensive is revisiting rejected steps?
-new_revisiting_controller = diffrax.JumpStepWrapper(
+revisiting_controller_short = diffrax.JumpStepWrapper(
     pid_controller,
     step_ts=step_ts,
     rejected_step_buffer_len=10,
 )
 
+revisiting_controller_long = diffrax.JumpStepWrapper(
+    pid_controller,
+    step_ts=step_ts,
+    rejected_step_buffer_len=4096,
+)
 
-def time_revisiting_controller_fun():
-    sols = solve(keys, new_revisiting_controller)
-    assert sols.ys is not None
-    assert sols.ys.shape == (num_samples, len(step_ts))
-    return sols.ys
+time_revisiting_short = do_timing(revisiting_controller_short)
+time_revisiting_long = do_timing(revisiting_controller_long)
 
-
-def time_revisiting_controller():
-    jax.block_until_ready(time_revisiting_controller_fun())
-
-
-time_revisiting = min(timeit.repeat(time_revisiting_controller, number=3, repeat=20))
-
-print(f"Revisiting controller: {time_revisiting:.5} s")
+print(
+    f"Revisiting controller\n"
+    f"with buffer len 10:   {time_revisiting_short:.5} s\n"
+    f"with buffer len 4096: {time_revisiting_long:.5} s"
+)
 
 # ======= RESULTS =======
-# New controller: 0.22829 s, Old controller: 0.31039 s
-# Revisiting controller: 0.23212 s
+# New controller: 0.23506 s, Old controller: 0.30735 s
+# Revisiting controller
+# with buffer len 10:   0.23636 s
+# with buffer len 4096: 0.23965 s

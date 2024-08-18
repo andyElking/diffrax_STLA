@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax.internal as lxi
 import optimistix as optx
-from diffrax import AbstractAdaptiveStepSizeController, AbstractTerm, ODETerm, RESULTS
+from diffrax import AbstractTerm, ODETerm, RESULTS
 from diffrax._custom_types import (
     Args,
     BoolScalarLike,
@@ -19,6 +19,7 @@ from diffrax._custom_types import (
     Y,
 )
 from diffrax._misc import static_select, upcast_or_raise
+from diffrax._step_size_controller import AbstractAdaptiveStepSizeController
 from equinox.internal import ω
 from jaxtyping import Array, PyTree, Real
 from lineax.internal import complex_to_real_dtype

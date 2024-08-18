@@ -18,7 +18,7 @@ from .._custom_types import (
 from .._misc import static_select, upcast_or_raise
 from .._solution import RESULTS
 from .._term import AbstractTerm
-from .adaptive import _none_or_array
+from .adaptive_base import AbstractAdaptiveStepSizeController
 from .base import AbstractStepSizeController
 
 
@@ -49,6 +49,13 @@ class _JumpStepState(eqx.Module, Generic[_ControllerState]):
             self.jump_ts,
             self.inner_state,
         )
+
+
+def _none_or_array(x):
+    if x is None:
+        return None
+    else:
+        return jnp.asarray(x)
 
 
 def _get_t(i: IntScalarLike, ts: Array) -> RealScalarLike:
@@ -92,7 +99,7 @@ def _find_index(t: RealScalarLike, ts: Optional[Array]) -> IntScalarLike:
     ts = upcast_or_raise(
         ts,
         t,
-        "`PIDController.step_ts`",
+        "`JumpStepWrapper.step_ts`",
         "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
     )
     return jnp.searchsorted(ts, t, side="right")
@@ -101,12 +108,12 @@ def _find_index(t: RealScalarLike, ts: Optional[Array]) -> IntScalarLike:
 def _revisit_rejected(
     t0: RealScalarLike,
     t1: RealScalarLike,
-    i_rjct: IntScalarLike,
-    rjct_buff: Optional[Array],
+    i_reject: IntScalarLike,
+    rejected_buffer: Optional[Array],
 ) -> RealScalarLike:
-    if rjct_buff is None:
+    if rejected_buffer is None:
         return t1
-    _t1 = _get_t(i_rjct, rjct_buff)
+    _t1 = _get_t(i_reject, rejected_buffer)
     _t1 = jnp.minimum(_t1, t1)
     return _t1
 
@@ -134,16 +141,17 @@ def _revisit_rejected(
 
 # EXPLANATION OF REVISITING REJECTED STEPS
 # ----------------------------------------
-# We use a "stack" of rejected steps, composed of a buffer `rjct_buff` of length
-# `rejected_step_buffer_len` and a counter `i_rjct`. The "stack" are all the items
-# in `rjct_buff[i_rjct:]` with `rjct_buff[i_rjct]` being the top of the stack.
-# When `i_rjct == rejected_step_buffer_len`, the stack is empty.
-# At the start of the run, `i_rjct = rejected_step_buffer_len`. Each time a step is
-# rejected `i_rjct -=1` and `rjct_buff[i_rjct] = t1`. Each time a step ends at
-# `t1 == rjct_buff[i_rjct]`, we increment `i_rjct` by 1 (even if the step was
+# We use a "stack" of rejected steps, composed of a buffer `rejected_buffer` of length
+# `rejected_step_buffer_len` and a counter `i_reject`. The "stack" are all the items
+# in `rejected_buffer[i_reject:]` with `rejected_buffer[i_reject]` being the top of
+# the stack.
+# When `i_reject == rejected_step_buffer_len`, the stack is empty.
+# At the start of the run, `i_reject = rejected_step_buffer_len`. Each time a step is
+# rejected `i_reject -=1` and `rejected_buffer[i_reject] = t1`. Each time a step ends at
+# `t1 == rejected_buffer[i_reject]`, we increment `i_reject` by 1 (even if the step was
 # rejected, in which case we will re-add `t1` to the stack immediately).
-# We clip the next step to `t1_next = min(t1_next, rjct_buff[i_rjct])`.
-# If `i_rjct < 0` then an error is raised.
+# We clip the next step to `t1_next = min(t1_next, rejected_buffer[i_reject])`.
+# If `i_reject < 0` then an error is raised.
 
 
 class JumpStepWrapper(
@@ -153,10 +161,10 @@ class JumpStepWrapper(
     and `jump_ts`. The former are times to which the controller should step and the
     latter are times at which the vector field has a discontinuity (jump)."""
 
-    controller: AbstractStepSizeController[_ControllerState, _Dt0]
+    controller: AbstractAdaptiveStepSizeController[_ControllerState, _Dt0]
     step_ts: Optional[Real[Array, " steps"]]
     jump_ts: Optional[Real[Array, " jumps"]]
-    rejected_step_buffer_len: int = eqx.field(static=True)
+    rejected_step_buffer_len: Optional[int] = eqx.field(static=True)
     callback_on_reject: Optional[Callable] = eqx.field(static=True)
 
     @eqxi.doc_remove_args("_callback_on_reject")
@@ -165,21 +173,22 @@ class JumpStepWrapper(
         controller,
         step_ts=None,
         jump_ts=None,
-        rejected_step_buffer_len=0,
+        rejected_step_buffer_len=None,
         _callback_on_reject=None,
     ):
         r"""
         **Arguments**:
 
         - `controller`: The controller to wrap.
-            Can be any diffrax.AbstractStepSizeController.
+            Can be any diffrax.AbstractAdaptiveStepSizeController.
         - `step_ts`: Denotes extra times that must be stepped to.
         - `jump_ts`: Denotes extra times that must be stepped to, and at which the
             vector field has a known discontinuity. (This is used to force FSAL solvers
             so re-evaluate the vector field.)
         - `rejected_step_buffer_len`: The length of the buffer storing rejected steps.
-            If this is > 0, then the controller will revisit rejected steps. This is
-            useful for SDEs, where the solution is guaranteed to be correct only if the
+            Can either be None or a positive integer.
+            If it is > 0, then the controller will revisit rejected steps. This is
+            useful for SDEs, where the solution is guaranteed to be correct if the
             SDE is evaluated at all times at which the Brownian motion (BM) is
             evaluated. Since the BM is also evaluated at rejected steps, we must later
             evaluate the SDE at these times as well.
@@ -187,9 +196,10 @@ class JumpStepWrapper(
         self.controller = controller
         self.step_ts = _none_or_array(step_ts)
         self.jump_ts = _none_or_array(jump_ts)
+        if rejected_step_buffer_len is not None:
+            assert rejected_step_buffer_len > 0
         self.rejected_step_buffer_len = rejected_step_buffer_len
         self.callback_on_reject = _callback_on_reject
-        self.__check_init__()
 
     def __check_init__(self):
         if self.jump_ts is not None and not jnp.issubdtype(
@@ -202,10 +212,11 @@ class JumpStepWrapper(
     def wrap(self, direction: IntScalarLike):
         step_ts = None if self.step_ts is None else self.step_ts * direction
         jump_ts = None if self.jump_ts is None else self.jump_ts * direction
+        controller = self.controller.wrap(direction)
         return eqx.tree_at(
-            lambda s: (s.step_ts, s.jump_ts),
+            lambda s: (s.step_ts, s.jump_ts, s.controller),
             self,
-            (step_ts, jump_ts),
+            (step_ts, jump_ts, controller),
             is_leaf=lambda x: x is None,
         )
 
@@ -226,36 +237,37 @@ class JumpStepWrapper(
         dt_proposal = t1 - t0
         tdtype = jnp.result_type(t0, t1)
 
-        if self.step_ts is not None:
+        if self.step_ts is None:
+            step_ts = None
+        else:
             # Upcast step_ts to the same dtype as t0, t1
             step_ts = upcast_or_raise(
                 self.step_ts,
                 jnp.zeros((), tdtype),
-                "`PIDController.step_ts`",
+                "`JumpStepWrapper.step_ts`",
                 "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
             )
-        else:
-            step_ts = None
 
-        if self.jump_ts is not None:
+        if self.jump_ts is None:
+            jump_ts = None
+        else:
             # Upcast jump_ts to the same dtype as t0, t1
             jump_ts = upcast_or_raise(
                 self.jump_ts,
                 jnp.zeros((), tdtype),
-                "`PIDController.jump_ts`",
+                "`JumpStepWrapper.jump_ts`",
                 "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
             )
-        else:
-            jump_ts = None
 
-        if self.rejected_step_buffer_len > 0:
-            rjct_buff = jnp.zeros(
+        if self.rejected_step_buffer_len is None:
+            rejected_buffer = None
+            i_reject = jnp.asarray(0)
+        else:
+            rejected_buffer = jnp.zeros(
                 (self.rejected_step_buffer_len,) + jnp.shape(t1), dtype=tdtype
             )
-        else:
-            rjct_buff = None
-        # rjct_buff[len(rjct_buff)] = jnp.inf (see def of _get_t)
-        i_rjct = jnp.asarray(self.rejected_step_buffer_len)
+            # rejected_buffer[len(rejected_buffer)] = jnp.inf (see def of _get_t)
+            i_reject = jnp.asarray(self.rejected_step_buffer_len)
 
         # Find index of first element of step_ts/jump_ts greater than t0
         i_step = _find_index(t0, step_ts)
@@ -269,8 +281,8 @@ class JumpStepWrapper(
             dt_proposal,
             i_step,
             i_jump,
-            i_rjct,
-            rjct_buff,
+            i_reject,
+            rejected_buffer,
             step_ts,
             jump_ts,
             inner_state,
@@ -301,8 +313,8 @@ class JumpStepWrapper(
             prev_dt,
             i_step,
             i_jump,
-            i_rjct,
-            rjct_buff,
+            i_reject,
+            rejected_buffer,
             step_ts,
             jump_ts,
             inner_state,
@@ -324,7 +336,7 @@ class JumpStepWrapper(
         if self.callback_on_reject is not None:
             jax.debug.callback(self.callback_on_reject, keep_step, t1)
 
-        # Check whether we stepped over an element of step_ts or jump_ts or rjct_buff
+        # Check whether we stepped over an element of step_ts/jump_ts/rejected_buffer
         # This is all still bookkeeping for the PREVIOUS STEP.
         if step_ts is not None:
             # If we stepped to `t1 == step_ts[i_step]` and kept the step, then we
@@ -337,25 +349,27 @@ class JumpStepWrapper(
             jump_inc_cond = keep_step & (t1 >= eqxi.prevbefore(next_jump_t))
             i_jump = jnp.where(jump_inc_cond, i_jump + 1, i_jump)
 
-        if self.rejected_step_buffer_len > 0:
-            assert rjct_buff is not None
-            # If the step ended at t1==rjct_buff[i_rjct], then we have successfully
-            # stepped to this time and we increment i_rjct.
-            # We increment i_rjct even if the step was rejected, because we will
+        if self.rejected_step_buffer_len is not None:
+            assert rejected_buffer is not None
+            # If the step ended at t1==rejected_buffer[i_reject], then we have
+            # successfully stepped to this time and we increment i_reject.
+            # We increment i_reject even if the step was rejected, because we will
             # re-add the rejected time to the buffer immediately.
-            rjct_inc_cond = t1 == _get_t(i_rjct, rjct_buff)
-            i_rjct = jnp.where(rjct_inc_cond, i_rjct + 1, i_rjct)
+            rjct_inc_cond = t1 == _get_t(i_reject, rejected_buffer)
+            i_reject = jnp.where(rjct_inc_cond, i_reject + 1, i_reject)
 
             # If the step was rejected, then we need to store the rejected time in the
             # rejected buffer and decrement the rejected index.
-            i_rjct = jnp.where(keep_step, i_rjct, i_rjct - 1)
-            i_rjct = eqx.error_if(
-                i_rjct,
-                i_rjct < 0,
+            i_reject = jnp.where(keep_step, i_reject, i_reject - 1)
+            i_reject = eqx.error_if(
+                i_reject,
+                i_reject < 0,
                 "Maximum number of rejected steps reached. "
                 "Consider increasing JumpStepWrapper.rejected_step_buffer_len.",
             )
-            rjct_buff = jnp.where(keep_step, rjct_buff, rjct_buff.at[i_rjct].set(t1))
+            clipped_i = jnp.clip(i_reject, 0, self.rejected_step_buffer_len - 1)
+            update_rejected_t = jnp.where(keep_step, rejected_buffer[clipped_i], t1)
+            rejected_buffer = rejected_buffer.at[clipped_i].set(update_rejected_t)
 
         # Now move on to the NEXT STEP
         dt_proposal = next_t1 - next_t0
@@ -391,7 +405,7 @@ class JumpStepWrapper(
         # Clip the step to the next element of jump_ts or step_ts or
         # rejected_buffer. Important to do jump_ts last because otherwise
         # jump_next_step could be a false positive.
-        next_t1 = _revisit_rejected(next_t0, next_t1, i_rjct, rjct_buff)
+        next_t1 = _revisit_rejected(next_t0, next_t1, i_reject, rejected_buffer)
         next_t1, _ = _clip_ts(next_t0, next_t1, i_step, step_ts, False)
         next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, jump_ts, True)
 
@@ -400,8 +414,8 @@ class JumpStepWrapper(
             new_prev_dt,
             i_step,
             i_jump,
-            i_rjct,
-            rjct_buff,
+            i_reject,
+            rejected_buffer,
             step_ts,
             jump_ts,
             inner_state,

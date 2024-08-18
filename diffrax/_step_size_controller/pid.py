@@ -1,7 +1,8 @@
 import typing
 from collections.abc import Callable
-from typing import cast, Optional, TYPE_CHECKING, TypeVar
+from typing import cast, Optional, TYPE_CHECKING
 
+import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.lax as lax
@@ -9,13 +10,13 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax.internal as lxi
 import optimistix as optx
+from equinox.internal import ω
 
 
 if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
+    pass
 else:
-    from equinox import AbstractVar
-from equinox.internal import ω
+    pass
 from jaxtyping import PyTree
 from lineax.internal import complex_to_real_dtype
 
@@ -29,10 +30,26 @@ from .._custom_types import (
 )
 from .._solution import RESULTS
 from .._term import AbstractTerm, ODETerm
-from .base import AbstractStepSizeController
+from .adaptive_base import AbstractAdaptiveStepSizeController
+from .jump_step_wrapper import JumpStepWrapper
 
 
 ω = cast(Callable, ω)
+
+
+# We use a metaclass for backwards compatibility. When a user calls
+# PIDController(... step_ts=s, jump_ts=j) this should return a
+# JumpStepWrapper(PIDController(...), s, j).
+module_meta = type(eqx.Module)
+
+
+class PIDMeta(module_meta):
+    def __call__(cls, *args, **kwargs):
+        step_ts = kwargs.pop("step_ts", None)
+        jump_ts = kwargs.pop("jump_ts", None)
+        if step_ts is not None or jump_ts is not None:
+            return JumpStepWrapper(cls(*args, **kwargs), step_ts, jump_ts)
+        return super().__call__(*args, **kwargs)
 
 
 def _select_initial_step(
@@ -86,49 +103,8 @@ def _select_initial_step(
     return jnp.minimum(100 * h0, h1)
 
 
-_ControllerState = TypeVar("_ControllerState")
-_Dt0 = TypeVar("_Dt0", None, RealScalarLike, Optional[RealScalarLike])
-
-
-class AbstractAdaptiveStepSizeController(
-    AbstractStepSizeController[_ControllerState, _Dt0]
-):
-    """Indicates an adaptive step size controller.
-
-    Accepts tolerances `rtol` and `atol`. When used in conjunction with an implicit
-    solver ([`diffrax.AbstractImplicitSolver`][]), then these tolerances will
-    automatically be used as the tolerances for the nonlinear solver passed to the
-    implicit solver, if they are not specified manually.
-    """
-
-    rtol: AbstractVar[RealScalarLike]
-    atol: AbstractVar[RealScalarLike]
-    norm: AbstractVar[Callable[[PyTree], RealScalarLike]]
-
-    def __check_init__(self):
-        if self.rtol is None or self.atol is None:
-            raise ValueError(
-                "The default values for `rtol` and `atol` were removed in Diffrax "
-                "version 0.1.0. (As the choice of tolerance is nearly always "
-                "something that you, as an end user, should make an explicit choice "
-                "about.)\n"
-                "If you want to match the previous defaults then specify "
-                "`rtol=1e-3`, `atol=1e-6`. For example:\n"
-                "```\n"
-                "diffrax.PIDController(rtol=1e-3, atol=1e-6)\n"
-                "```\n"
-            )
-
-
 # _PidState = (at_dtmin, prev_inv_scaled_error, prev_prev_inv_scaled_error)
 _PidState = tuple[BoolScalarLike, RealScalarLike, RealScalarLike]
-
-
-def _none_or_array(x):
-    if x is None:
-        return None
-    else:
-        return jnp.asarray(x)
 
 
 if TYPE_CHECKING:
@@ -153,7 +129,8 @@ else:
 # TODO: we don't currently offer a limiter, or a variant accept/reject scheme, as given
 #       in Soderlind and Wang 2006.
 class PIDController(
-    AbstractAdaptiveStepSizeController[_PidState, Optional[RealScalarLike]]
+    AbstractAdaptiveStepSizeController[_PidState, Optional[RealScalarLike]],
+    metaclass=PIDMeta,
 ):
     r"""Adapts the step size to produce a solution accurate to a given tolerance.
     The tolerance is calculated as `atol + rtol * y` for the evolving solution `y`.
