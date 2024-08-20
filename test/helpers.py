@@ -367,7 +367,13 @@ class SDE:
     def get_bm(
         self,
         bm_key: PRNGKeyArray,
-        levy_area: type[Union[diffrax.BrownianIncrement, diffrax.SpaceTimeLevyArea]],
+        levy_area: type[
+            Union[
+                diffrax.BrownianIncrement,
+                diffrax.SpaceTimeLevyArea,
+                diffrax.SpaceTimeTimeLevyArea,
+            ]
+        ],
         tol: float,
     ):
         return VirtualBrownianTree(
