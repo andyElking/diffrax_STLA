@@ -58,6 +58,5 @@ from .srk import (
     AbstractSRK as AbstractSRK,
     StochasticButcherTableau as StochasticButcherTableau,
 )
-from .talay import Talay as Talay
 from .tsit5 import Tsit5 as Tsit5
 from .ubu3 import UBU3 as UBU3

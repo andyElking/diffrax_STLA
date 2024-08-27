@@ -1,7 +1,8 @@
 import typing
 from collections.abc import Callable
-from typing import cast, Optional, TYPE_CHECKING, TypeVar
+from typing import cast, Optional, TYPE_CHECKING
 
+import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.lax as lax
@@ -9,15 +10,9 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import lineax.internal as lxi
 import optimistix as optx
-
-
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractVar
-else:
-    from equinox import AbstractVar
 from equinox.internal import ω
 from jaxtyping import PyTree
-from lineax.internal import complex_to_real_dtype  # pyright: ignore
+from lineax.internal import complex_to_real_dtype
 
 from .._custom_types import (
     Args,
@@ -29,10 +24,26 @@ from .._custom_types import (
 )
 from .._solution import RESULTS
 from .._term import AbstractTerm, ODETerm
-from .base import AbstractStepSizeController
+from .adaptive_base import AbstractAdaptiveStepSizeController
+from .jump_step_wrapper import JumpStepWrapper
 
 
 ω = cast(Callable, ω)
+
+
+# We use a metaclass for backwards compatibility. When a user calls
+# PIDController(... step_ts=s, jump_ts=j) this should return a
+# JumpStepWrapper(PIDController(...), s, j).
+module_meta = type(eqx.Module)
+
+
+class PIDMeta(module_meta):
+    def __call__(self, *args, **kwargs):
+        step_ts = kwargs.pop("step_ts", None)
+        jump_ts = kwargs.pop("jump_ts", None)
+        if step_ts is not None or jump_ts is not None:
+            return JumpStepWrapper(self(*args, **kwargs), step_ts, jump_ts)
+        return super().__call__(*args, **kwargs)
 
 
 def _select_initial_step(
@@ -86,48 +97,8 @@ def _select_initial_step(
     return jnp.minimum(100 * h0, h1)
 
 
-_ControllerState = TypeVar("_ControllerState")
-_Dt0 = TypeVar("_Dt0", None, RealScalarLike, Optional[RealScalarLike])
-
-
-class AbstractAdaptiveStepSizeController(
-    AbstractStepSizeController[_ControllerState, _Dt0]
-):
-    """Indicates an adaptive step size controller.
-
-    Accepts tolerances `rtol` and `atol`. When used in conjunction with an implicit
-    solver ([`diffrax.AbstractImplicitSolver`][]), then these tolerances will
-    automatically be used as the tolerances for the nonlinear solver passed to the
-    implicit solver, if they are not specified manually.
-    """
-
-    rtol: AbstractVar[RealScalarLike]
-    atol: AbstractVar[RealScalarLike]
-    norm: AbstractVar[Callable[[PyTree], RealScalarLike]]
-
-    def __check_init__(self):
-        if self.rtol is None or self.atol is None:
-            raise ValueError(
-                "The default values for `rtol` and `atol` were removed in Diffrax "
-                "version 0.1.0. (As the choice of tolerance is nearly always "
-                "something that you, as an end user, should make an explicit choice "
-                "about.)\n"
-                "If you want to match the previous defaults then specify "
-                "`rtol=1e-3`, `atol=1e-6`. For example:\n"
-                "```\n"
-                "diffrax.PIDController(rtol=1e-3, atol=1e-6)\n"
-                "```\n"
-            )
-
-
+# _PidState = (at_dtmin, prev_inv_scaled_error, prev_prev_inv_scaled_error)
 _PidState = tuple[BoolScalarLike, RealScalarLike, RealScalarLike]
-
-
-def _none_or_array(x):
-    if x is None:
-        return None
-    else:
-        return jnp.asarray(x)
 
 
 if TYPE_CHECKING:
@@ -152,7 +123,8 @@ else:
 # TODO: we don't currently offer a limiter, or a variant accept/reject scheme, as given
 #       in Soderlind and Wang 2006.
 class PIDController(
-    AbstractAdaptiveStepSizeController[_PidState, Optional[RealScalarLike]]
+    AbstractAdaptiveStepSizeController[_PidState, Optional[RealScalarLike]],
+    metaclass=PIDMeta,
 ):
     r"""Adapts the step size to produce a solution accurate to a given tolerance.
     The tolerance is calculated as `atol + rtol * y` for the evolving solution `y`.
@@ -431,10 +403,11 @@ class PIDController(
             y_dtype = lxi.default_floating_dtype()
         else:
             y_dtype = jnp.result_type(*y_leaves)
+        real_dtype = complex_to_real_dtype(y_dtype)
         return t1, (
             at_dtmin,
-            jnp.array(1.0, dtype=complex_to_real_dtype(y_dtype)),
-            jnp.array(1.0, dtype=complex_to_real_dtype(y_dtype)),
+            jnp.array(1.0, dtype=real_dtype),
+            jnp.array(1.0, dtype=real_dtype),
         )
 
     def adapt_step_size(
@@ -537,7 +510,6 @@ class PIDController(
 
         scaled_error = self.norm(jtu.tree_map(_scale, y0, y1_candidate, y_error))
         keep_step = scaled_error < 1
-
         # Automatically keep the step if we're at dtmin.
         if self.dtmin is not None:
             at_dtmin = at_dtmin | (prev_dt <= self.dtmin)
@@ -564,17 +536,19 @@ class PIDController(
         factor2 = 1 if _zero_coeff(coeff2) else prev_inv_scaled_error**coeff2
         factor3 = 1 if _zero_coeff(coeff3) else prev_prev_inv_scaled_error**coeff3
         factormin = jnp.where(keep_step, 1, self.factormin)
+        # If the step is not kept, next step must be smaller, so factor must be <1.
+        factormax = jnp.where(keep_step, self.factormax, self.safety)
         factor = jnp.clip(
             self.safety * factor1 * factor2 * factor3,
-            min=factormin,  # pyright: ignore
-            max=self.factormax,  # pyright: ignore
+            min=factormin,
+            max=factormax,
         )
         # Once again, see above. In case we have gradients on {i,p,d}coeff.
         # (Probably quite common for them to have zero tangents if passed across
         # a grad API boundary as part of a larger model.)
         factor = lax.stop_gradient(factor)
         factor = eqxi.nondifferentiable(factor)
-        dt = prev_dt * factor.astype(jnp.result_type(prev_dt, factor))
+        dt = prev_dt * factor.astype(jnp.result_type(prev_dt))
 
         # E.g. we failed an implicit step, so y_error=inf, so inv_scaled_error=0,
         # so factor=factormin, and we shrunk our step.
@@ -610,6 +584,7 @@ class PIDController(
             inv_scaled_error,
             prev_inv_scaled_error,
         )
+        # made_jump is handled by JumpStepWrapper, so we automatically set it to False
         return keep_step, next_t0, next_t1, False, controller_state, result
 
     def _get_error_order(self, error_order: Optional[RealScalarLike]) -> RealScalarLike:
@@ -639,10 +614,6 @@ PIDController.__init__.__doc__ = """**Arguments:**
 - `force_dtmin`: How to handle the step size hitting the minimum. If `True` then the
     step size is clipped to `dtmin`. If `False` then the differential equation solve
     halts with an error.
-- `step_ts`: Denotes extra times that must be stepped to.
-- `jump_ts`: Denotes extra times that must be stepped to, and at which the vector field
-    has a known discontinuity. (This is used to force FSAL solvers so re-evaluate the
-    vector field.)
 - `factormin`: Minimum amount a step size can be decreased relative to the previous
     step.
 - `factormax`: Maximum amount a step size can be increased relative to the previous

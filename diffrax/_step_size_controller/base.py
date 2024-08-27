@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Callable
-from typing import Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 import equinox as eqx
 from jaxtyping import PyTree
@@ -77,7 +77,7 @@ class AbstractStepSizeController(eqx.Module, Generic[_ControllerState, _Dt0]):
         y0: Y,
         y1_candidate: Y,
         args: Args,
-        y_error: Optional[Y],
+        y_error: Any,
         error_order: RealScalarLike,
         controller_state: _ControllerState,
     ) -> tuple[

@@ -5,11 +5,15 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from jax import Array
-from jaxtyping import PyTree
-
-from .._brownian import foster_levy_area
-from .._custom_types import (
+from diffrax import (
+    AbstractItoSolver,
+    AbstractTerm,
+    LocalLinearInterpolation,
+    MultiTerm,
+    RESULTS,
+)
+from diffrax._brownian import foster_levy_area
+from diffrax._custom_types import (
     AbstractSpaceTimeTimeLevyArea,
     Args,
     BoolScalarLike,
@@ -18,10 +22,8 @@ from .._custom_types import (
     VF,
     Y,
 )
-from .._local_interpolation import LocalLinearInterpolation
-from .._solution import RESULTS
-from .._term import AbstractTerm, MultiTerm
-from .base import AbstractItoSolver
+from jax import Array
+from jaxtyping import PyTree
 
 
 _term_structure: TypeAlias = MultiTerm[
@@ -30,9 +32,63 @@ _term_structure: TypeAlias = MultiTerm[
         AbstractTerm[Any, AbstractSpaceTimeTimeLevyArea],
     ]
 ]
-_ErrorEstimate: TypeAlias = None
+_ErrorEstimate: TypeAlias = RealScalarLike
 # solver state will just be a random key which we will keep splitting
 _SolverState: TypeAlias = Array
+
+
+def vf_derivatives(drift, diffusion, t0, y0, args, d):
+    n = y0.shape[0]
+
+    # f has signature n -> n
+    def f(y):
+        return drift.vf(t0, y, args)
+
+    # g has signature n -> (n, d)
+    def g(y):
+        return diffusion.vf(t0, y, args)
+
+    # We use jacobian vector product to compute f'f, g'g, f'g and g'f
+
+    f_y = f(y0)  # (n,)
+    g_y = g(y0)  # (n, d)
+
+    _, f_prime_f = jax.jvp(f, (y0,), (f_y,))  # (n,)
+    _, g_prime_f = jax.jvp(g, (y0,), (f_y,))  # (n, d)
+
+    # For the other two we need to vmap over the second dimension of tangents g(y)
+    def f_prime_g_fun(g_col):
+        _, f_prime_g_col = jax.jvp(f, (y0,), (g_col,))
+        assert f_prime_g_col.shape == (n,)
+        return f_prime_g_col
+
+    # f'(y) has shape (n, n), g(y) has shape (n, d) so we need to vmap over
+    # the second dimension. The output of f_prime_g_fun is (n,), so the output
+    # of f_prime_g will be (n, d)
+    f_prime_g = jax.vmap(f_prime_g_fun, in_axes=1, out_axes=1)(g_y)
+    assert f_prime_g.shape == (n, d)
+
+    def g_prime_g_fun(g_col):
+        assert g_col.shape == (n,)
+        _, g_prime_g_col = jax.jvp(g, (y0,), (g_col,))
+        assert g_prime_g_col.shape == (n, d)
+        return g_prime_g_col
+
+    # g'(y) has shape (n, d, n), g(y) has shape (n, d) so we need to vmap over
+    # the second dimension. The output of g_prime_g_fun is (n, d), so the output
+    # of g_prime_g will be (n, d, d)
+    g_prime_g = jax.vmap(g_prime_g_fun, in_axes=1, out_axes=1)(g_y)
+    assert g_prime_g.shape == (n, d, d)
+
+    return f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g
+
+
+def compute_next_dt(f_prime_g, g_prime_f, g_prime_g, error_mult):
+    err_f = jnp.sum((f_prime_g - g_prime_f) ** 2)
+    err_g = jnp.sum((g_prime_g - g_prime_g.swapaxes(-1, -2)) ** 2)
+
+    h_proposal = (-err_g + jnp.sqrt(err_g**2 + 4 * err_f * error_mult)) / (2 * err_f)
+    return h_proposal
 
 
 class Talay(AbstractItoSolver):
@@ -41,13 +97,17 @@ class Talay(AbstractItoSolver):
         Callable[..., LocalLinearInterpolation]
     ] = LocalLinearInterpolation
     key: Array
+    error_mult: RealScalarLike
     minimal_levy_area = AbstractSpaceTimeTimeLevyArea
     term_compatible_contr_kwargs = (dict(), dict(use_levy=True))
     use_levy_area: bool = eqx.field(static=True)
 
-    def __init__(self, key: Array, use_levy_area: bool = True):
+    def __init__(
+        self, key: Array, error_mult: RealScalarLike = 1.0, use_levy_area: bool = True
+    ):
         self.key = key
         self.use_levy_area = use_levy_area
+        self.error_mult = error_mult
 
     def order(self, terms):
         raise ValueError("`Talay` should not be used to solve ODEs.")
@@ -101,45 +161,9 @@ class Talay(AbstractItoSolver):
         kk = recast_bm(whk.K)  # (d,)
         d = w.shape[0]
 
-        # f has signature n -> n
-        def f(y):
-            return drift.vf(t0, y, args)
-
-        # g has signature n -> (n, d)
-        def g(y):
-            return diffusion.vf(t0, y, args)
-
-        # We use jacobian vector product to compute f'f, g'g, f'g and g'f
-
-        f_y = f(y0)  # (n,)
-        g_y = g(y0)  # (n, d)
-
-        _, f_prime_f = jax.jvp(f, (y0,), (f_y,))  # (n,)
-        _, g_prime_f = jax.jvp(g, (y0,), (f_y,))  # (n, d)
-
-        # For the other two we need to vmap over the second dimension of tangents g(y)
-        def f_prime_g_fun(g_col):
-            _, f_prime_g_col = jax.jvp(f, (y0,), (g_col,))
-            assert f_prime_g_col.shape == (n,)
-            return f_prime_g_col
-
-        # f'(y) has shape (n, n), g(y) has shape (n, d) so we need to vmap over
-        # the second dimension. The output of f_prime_g_fun is (n,), so the output
-        # of f_prime_g will be (n, d)
-        f_prime_g = jax.vmap(f_prime_g_fun, in_axes=1, out_axes=1)(g_y)
-        assert f_prime_g.shape == (n, d)
-
-        def g_prime_g_fun(g_col):
-            assert g_col.shape == (n,)
-            _, g_prime_g_col = jax.jvp(g, (y0,), (g_col,))
-            assert g_prime_g_col.shape == (n, d)
-            return g_prime_g_col
-
-        # g'(y) has shape (n, d, n), g(y) has shape (n, d) so we need to vmap over
-        # the second dimension. The output of g_prime_g_fun is (n, d), so the output
-        # of g_prime_g will be (n, d, d)
-        g_prime_g = jax.vmap(g_prime_g_fun, in_axes=1, out_axes=1)(g_y)
-        assert g_prime_g.shape == (n, d, d)
+        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
+            drift, diffusion, t0, y0, args, d
+        )
 
         if self.use_levy_area:
             # Compute space-space Levy area using Foster's approximation
@@ -155,7 +179,10 @@ class Talay(AbstractItoSolver):
         else:
             state_key = solver_state
             la = 0
-        int_w_dw = 0.5 * (w[None, :] * w[:, None]) - h / 2 + la  # (d, d)
+
+        int_w_dw = (
+            0.5 * (w[None, :] * w[:, None]) - (h / 2) * jnp.eye(d, dtype=dtype) + la
+        )  # (d, d)
         assert int_w_dw.shape == (d, d)
 
         # Compute the Talay step
@@ -175,7 +202,11 @@ class Talay(AbstractItoSolver):
         assert y1.shape == (n,)
 
         dense_info = dict(y0=y0, y1=y1)
-        return y1, None, dense_info, state_key, RESULTS.successful
+
+        # Compute errors for the next step
+        h_proposal = compute_next_dt(f_prime_g, g_prime_f, g_prime_g, self.error_mult)
+
+        return y1, h_proposal, dense_info, state_key, RESULTS.successful
 
     def func(
         self,
