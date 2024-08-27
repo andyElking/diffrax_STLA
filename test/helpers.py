@@ -147,6 +147,7 @@ def _sde_solve(
     bm_tol: float,
     saveat: diffrax.SaveAt,
     use_progress_meter: bool,
+    use_vbt: bool,
 ):
     abstract_levy_area = _get_minimal_la(solver) if levy_area is None else levy_area
     concrete_la = _abstract_la_to_la(abstract_levy_area)
@@ -155,14 +156,19 @@ def _sde_solve(
         struct = jax.ShapeDtypeStruct(w_shape, dtype)
     else:
         struct = w_shape
-    bm = diffrax.VirtualBrownianTree(
-        t0=t0,
-        t1=t1,
-        shape=struct,
-        tol=bm_tol,
-        key=key,
-        levy_area=concrete_la,
-    )
+    if use_vbt:
+        bm = diffrax.VirtualBrownianTree(
+            t0=t0,
+            t1=t1,
+            shape=struct,
+            tol=bm_tol,
+            key=key,
+            levy_area=concrete_la,
+        )
+        adjoint = diffrax.RecursiveCheckpointAdjoint()
+    else:
+        bm = diffrax.UnsafeBrownianPath(struct, key, concrete_la)
+        adjoint = diffrax.DirectAdjoint()
     terms = get_terms(bm)
     if controller is None:
         controller = diffrax.ConstantStepSize()
@@ -182,6 +188,7 @@ def _sde_solve(
         stepsize_controller=controller,
         saveat=saveat,
         progress_meter=meter,
+        adjoint=adjoint,
     )
     steps = sol.stats["num_accepted_steps"]
     if isinstance(solver, diffrax.HalfSolver):
@@ -194,6 +201,7 @@ _batch_sde_solve = eqx.filter_jit(
         _sde_solve,
         in_axes=(
             0,
+            None,
             None,
             None,
             None,
@@ -221,6 +229,7 @@ _batch_sde_solve_multi_y0 = eqx.filter_jit(
             None,
             None,
             0,
+            None,
             None,
             None,
             None,
@@ -312,6 +321,7 @@ def sde_solver_strong_order(
             bm_tol,
             saveat,
             use_progress_meter=False,
+            use_vbt=True,
         )
     else:
         correct_sols = ref_solution
@@ -334,6 +344,7 @@ def sde_solver_strong_order(
             bm_tol,
             saveat,
             use_progress_meter=False,
+            use_vbt=True,
         )
         errs = path_l2_dist(sols, correct_sols)
         errs_list.append(errs)
@@ -426,6 +437,7 @@ def simple_batch_sde_solve(
     bm_tol,
     saveat,
     use_progress_meter: bool = True,
+    use_vbt: bool = True,
 ):
     return _batch_sde_solve(
         keys,
@@ -442,6 +454,7 @@ def simple_batch_sde_solve(
         bm_tol,
         saveat,
         use_progress_meter,
+        use_vbt,
     )
 
 
@@ -452,37 +465,47 @@ def _squareplus(x):
 def drift(t, y, args):
     mlp, _, _ = args
     with jax.numpy_dtype_promotion("standard"):
-        return 0.25 * mlp(y)
+        vf = 0.25 * mlp(y)
+
+    if y.shape[0] > 3:
+        # Then we make the 4th component strongly attracted to the 3rd component.
+        vf = vf.at[3].set(20.0 * (y[2] - y[3]))
+    return vf
 
 
 def diffusion(t, y, args):
     _, mlp, noise_dim = args
+    y_dim = y.shape[0]
     with jax.numpy_dtype_promotion("standard"):
-        return 1.0 * mlp(y).reshape(3, noise_dim)
+        return 1.0 * mlp(y).reshape(y_dim, noise_dim)
 
 
-def get_mlp_sde(t0, t1, dtype, key, noise_dim):
+def get_mlp_sde(t0, t1, dtype, key, noise_dim, y_dim=3):
     driftkey, diffusionkey, ykey = jr.split(key, 3)
     drift_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3,
+        in_size=y_dim,
+        out_size=y_dim,
         width_size=8,
         depth=2,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=driftkey,
     )
+    drift_mlp = init_linear_weight(drift_mlp, lap_init, driftkey)
+
     diffusion_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3 * noise_dim,
+        in_size=y_dim,
+        out_size=y_dim * noise_dim,
         width_size=8,
         depth=2,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=diffusionkey,
     )
+    # diffusion_mlp = init_linear_weight(diffusion_mlp, lap_init, diffusionkey)
+
     args = (drift_mlp, diffusion_mlp, noise_dim)
-    y0 = jr.normal(ykey, (3,), dtype=dtype)
+    y0 = jr.normal(ykey, (y_dim,), dtype=dtype)
 
     def get_terms(bm):
         return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))

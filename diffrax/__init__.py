@@ -114,7 +114,6 @@ from ._solver import (
     SRA1 as SRA1,
     StochasticButcherTableau as StochasticButcherTableau,
     StratonovichMilstein as StratonovichMilstein,
-    Talay as Talay,
     Tsit5 as Tsit5,
     UBU3 as UBU3,
 )

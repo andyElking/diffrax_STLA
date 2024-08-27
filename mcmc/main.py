@@ -146,6 +146,7 @@ def run_lmc(
         bm_tol_warmup,
         SaveAt(t1=True),
         use_progress_meter=True,
+        use_vbt=True,
     )
     y_warm = jtu.tree_map(
         lambda x: jnp.nan_to_num(x[:, 0], nan=0, posinf=0, neginf=0), out_warmup
@@ -166,6 +167,7 @@ def run_lmc(
         bm_tol,
         saveat,
         use_progress_meter=True,
+        use_vbt=True,
     )
     ys_mcmc = out_mcmc[0]
     ys_mcmc = jtu.tree_map(

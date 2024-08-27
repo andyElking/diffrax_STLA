@@ -2,32 +2,36 @@ from collections.abc import Callable
 from typing import Any, Optional, TypeAlias
 
 import jax.numpy as jnp
+from diffrax import AbstractStepSizeController
 from diffrax._custom_types import (
     Args,
     BoolScalarLike,
+    IntScalarLike,
     RealScalarLike,
     VF,
     Y,
 )
 from diffrax._solution import RESULTS
-from diffrax._step_size_controller.adaptive_base import (
-    AbstractAdaptiveStepSizeController,
-)
 from diffrax._term import AbstractTerm
 from jaxtyping import PyTree
-
-from .talay import compute_next_dt, vf_derivatives
+from talay import compute_next_dt, vf_derivatives
 
 
 _ControllerState: TypeAlias = None
 
 
-class TalayController(AbstractAdaptiveStepSizeController[_ControllerState, Any]):
-    atol = 0
-    rtol = 0
+class TalayController(AbstractStepSizeController[_ControllerState, Any]):
     ctol: RealScalarLike
     dtmin: RealScalarLike
     dtmax: RealScalarLike
+
+    def __init__(self, ctol, dtmin, dtmax):
+        self.ctol = ctol
+        self.dtmin = dtmin
+        self.dtmax = dtmax
+
+    def wrap(self, direction: IntScalarLike):
+        return self
 
     def init(
         self,
