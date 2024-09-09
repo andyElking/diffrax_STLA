@@ -241,6 +241,7 @@ class VirtualBrownianTree(AbstractBrownianPath):
     ] = eqx.field(static=True)
     key: PyTree[PRNGKeyArray]
     _spline: _Spline = eqx.field(static=True)
+    _init_state: PyTree[_State]
 
     @eqxi.doc_remove_args("_spline")
     def __init__(
@@ -276,6 +277,52 @@ class VirtualBrownianTree(AbstractBrownianPath):
                 "VirtualBrownianTree dtypes all have to be floating-point."
             )
         self.key = split_by_tree(key, self.shape)
+
+        @eqx.filter_jit
+        def init_state_leaf(key, struct):
+            shape, dtype = struct.shape, struct.dtype
+            if self.levy_area is SpaceTimeTimeLevyArea:
+                state_key, init_key_w, init_key_hh, init_key_kk = jr.split(key, 4)
+                bhh_1 = jr.normal(init_key_hh, shape, dtype) / math.sqrt(12)
+                bhh_0 = jnp.zeros_like(bhh_1)
+                bhh = (bhh_0, bhh_1, bhh_1)
+                bkk_1 = jr.normal(init_key_kk, shape, dtype) / math.sqrt(720)
+                bkk_0 = jnp.zeros_like(bkk_1)
+                bkk = (bkk_0, bkk_1, bkk_1)
+
+            elif self.levy_area is SpaceTimeLevyArea:
+                state_key, init_key_w, init_key_hh = jr.split(key, 3)
+                bhh_1 = jr.normal(init_key_hh, shape, dtype) / math.sqrt(12)
+                bhh_0 = jnp.zeros_like(bhh_1)
+                bhh = (bhh_0, bhh_1, bhh_1)
+                bkk = None
+
+            elif self.levy_area is BrownianIncrement:
+                state_key, init_key_w = jr.split(key, 2)
+                bhh = None
+                bkk = None
+
+            else:
+                assert False, f"Unknown levy_area: {self.levy_area}"
+
+            w_0 = jnp.zeros(shape, dtype)
+            w_1 = jr.normal(init_key_w, shape, dtype)
+            w = (w_0, w_1, w_1)
+
+            tdtype = complex_to_real_dtype(dtype)
+            _t0 = jnp.zeros((), tdtype)
+
+            state0 = _State(
+                level=0,
+                s=_t0,
+                w_s_u_su=w,
+                key=state_key,
+                bhh_s_u_su=bhh,
+                bkk_s_u_su=bkk,
+            )
+            return state0
+
+        self._init_state = jtu.tree_map(init_state_leaf, self.key, self.shape)
 
     def _denormalise_bm_inc(self, x: _BrownianReturn) -> _BrownianReturn:
         # Rescaling back from [0, 1] to the original interval [t0, t1].
@@ -335,51 +382,18 @@ class VirtualBrownianTree(AbstractBrownianPath):
             (r < 0) | (r > 1),
             "Cannot evaluate VirtualBrownianTree outside of its range [t0, t1].",
         )
-        map_func = lambda key, shape: self._evaluate_leaf(key, r, shape)
-        return jtu.tree_map(map_func, self.key, self.shape)
+        map_func = lambda shape, init_state: self._evaluate_leaf(r, shape, init_state)
+        return jtu.tree_map(map_func, self.shape, self._init_state)
 
     def _evaluate_leaf(
         self,
-        key,
         r: RealScalarLike,
         struct: jax.ShapeDtypeStruct,
+        init_state: _State,
     ) -> _LevyVal:
         shape, dtype = struct.shape, struct.dtype
         tdtype = complex_to_real_dtype(dtype)
-        t0 = jnp.zeros((), tdtype)
         r = jnp.asarray(r, tdtype)
-
-        if self.levy_area is SpaceTimeTimeLevyArea:
-            state_key, init_key_w, init_key_hh, init_key_kk = jr.split(key, 4)
-            bhh_1 = jr.normal(init_key_hh, shape, dtype) / math.sqrt(12)
-            bhh_0 = jnp.zeros_like(bhh_1)
-            bhh = (bhh_0, bhh_1, bhh_1)
-            bkk_1 = jr.normal(init_key_kk, shape, dtype) / math.sqrt(720)
-            bkk_0 = jnp.zeros_like(bkk_1)
-            bkk = (bkk_0, bkk_1, bkk_1)
-
-        elif self.levy_area is SpaceTimeLevyArea:
-            state_key, init_key_w, init_key_hh = jr.split(key, 3)
-            bhh_1 = jr.normal(init_key_hh, shape, dtype) / math.sqrt(12)
-            bhh_0 = jnp.zeros_like(bhh_1)
-            bhh = (bhh_0, bhh_1, bhh_1)
-            bkk = None
-
-        elif self.levy_area is BrownianIncrement:
-            state_key, init_key_w = jr.split(key, 2)
-            bhh = None
-            bkk = None
-
-        else:
-            assert False
-
-        w_0 = jnp.zeros(shape, dtype)
-        w_1 = jr.normal(init_key_w, shape, dtype)
-        w = (w_0, w_1, w_1)
-
-        init_state = _State(
-            level=0, s=t0, w_s_u_su=w, key=state_key, bhh_s_u_su=bhh, bkk_s_u_su=bkk
-        )
 
         def _cond_fun(_state):
             """Condition for the binary search for r."""

@@ -18,6 +18,7 @@ from ._custom_types import (
     AbstractSpaceTimeLevyArea as AbstractSpaceTimeLevyArea,
     AbstractSpaceTimeTimeLevyArea as AbstractSpaceTimeTimeLevyArea,
     BrownianIncrement as BrownianIncrement,
+    SpaceSpaceLevyArea as SpaceSpaceLevyArea,
     SpaceTimeLevyArea as SpaceTimeLevyArea,
     SpaceTimeTimeLevyArea as SpaceTimeTimeLevyArea,
 )
@@ -107,6 +108,9 @@ from ._solver import (
     ReversibleHeun as ReversibleHeun,
     SEA as SEA,
     SemiImplicitEuler as SemiImplicitEuler,
+    SemiLinearTerm as SemiLinearTerm,
+    SemiSEA as SemiSEA,
+    SemiShARK as SemiShARK,
     ShARK as ShARK,
     ShOULD as ShOULD,
     Sil3 as Sil3,
@@ -121,6 +125,7 @@ from ._step_size_controller import (
     AbstractAdaptiveStepSizeController as AbstractAdaptiveStepSizeController,
     AbstractStepSizeController as AbstractStepSizeController,
     ConstantStepSize as ConstantStepSize,
+    JumpStepWrapper as JumpStepWrapper,
     PIDController as PIDController,
     StepTo as StepTo,
 )

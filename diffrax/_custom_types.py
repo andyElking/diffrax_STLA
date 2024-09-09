@@ -47,12 +47,16 @@ VF = PyTree[Shaped[ArrayLike, "?*vf"], "VF"]
 Control = PyTree[Shaped[ArrayLike, "?*control"], "C"]
 Args = PyTree[Any]
 
-BM = PyTree[Shaped[ArrayLike, "?*bm"], "BM"]
-
 DenseInfo = dict[str, PyTree[Array]]
 DenseInfos = dict[str, PyTree[Shaped[Array, "times-1 ..."]]]
 BufferDenseInfos = dict[str, PyTree[eqxi.MaybeBuffer[Shaped[Array, "times ..."]]]]
 sentinel: Any = eqxi.doc_repr(object(), "sentinel")
+
+# Array shapes for Brownian motion and time Levy areas.
+BM = PyTree[Shaped[ArrayLike, "?*bm"], "BM"]
+
+# Array shape for space-space Levy area.
+LA = PyTree[Shaped[ArrayLike, "?*la"], "BM"]
 
 
 class AbstractBrownianIncrement(eqx.Module):
@@ -78,6 +82,14 @@ class AbstractSpaceTimeTimeLevyArea(AbstractSpaceTimeLevyArea):
     """
 
     K: eqx.AbstractVar[BM]
+
+
+class AbstractSpaceSpaceLevyArea(AbstractSpaceTimeTimeLevyArea):
+    """
+    Abstract base class for all Space Space Levy Areas.
+    """
+
+    A: eqx.AbstractVar[LA]
 
 
 class BrownianIncrement(AbstractBrownianIncrement):
@@ -110,6 +122,20 @@ class SpaceTimeTimeLevyArea(AbstractSpaceTimeTimeLevyArea):
     W: BM
     H: BM
     K: BM
+
+
+class SpaceSpaceLevyArea(AbstractSpaceSpaceLevyArea):
+    """
+    Pytree containing the `dt` time increment, `W` the Brownian motion, `H`
+    the Space Time Levy Area, `K` the Space Time Time Levy Area, and `A` the
+    Space Space Levy Area.
+    """
+
+    dt: PyTree[FloatScalarLike, "BM"]
+    W: BM
+    H: BM
+    K: BM
+    A: LA
 
 
 def levy_tree_transpose(

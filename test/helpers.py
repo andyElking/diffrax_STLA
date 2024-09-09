@@ -133,11 +133,7 @@ def _abstract_la_to_la(abstract_la):
         raise ValueError(f"Unknown levy area {abstract_la}")
 
 
-@eqx.filter_jit
-@eqx.filter_vmap(
-    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None)
-)
-def _batch_sde_solve(
+def _sde_solve(
     key: PRNGKeyArray,
     get_terms: Callable[[diffrax.AbstractBrownianPath], diffrax.AbstractTerm],
     w_shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]],
@@ -151,6 +147,8 @@ def _batch_sde_solve(
     controller: Optional[diffrax.AbstractStepSizeController],
     bm_tol: float,
     saveat: diffrax.SaveAt,
+    use_progress_meter: bool,
+    use_vbt: bool,
 ):
     abstract_levy_area = _get_minimal_la(solver) if levy_area is None else levy_area
     concrete_la = _abstract_la_to_la(abstract_levy_area)
@@ -159,17 +157,26 @@ def _batch_sde_solve(
         struct = jax.ShapeDtypeStruct(w_shape, dtype)
     else:
         struct = w_shape
-    bm = diffrax.VirtualBrownianTree(
-        t0=t0,
-        t1=t1,
-        shape=struct,
-        tol=bm_tol,
-        key=key,
-        levy_area=concrete_la,
-    )
+    if use_vbt:
+        bm = diffrax.VirtualBrownianTree(
+            t0=t0,
+            t1=t1,
+            shape=struct,
+            tol=bm_tol,
+            key=key,
+            levy_area=concrete_la,
+        )
+        adjoint = diffrax.RecursiveCheckpointAdjoint()
+    else:
+        bm = diffrax.UnsafeBrownianPath(struct, key, concrete_la)
+        adjoint = diffrax.DirectAdjoint()
     terms = get_terms(bm)
     if controller is None:
         controller = diffrax.ConstantStepSize()
+
+    meter = (
+        diffrax.TqdmProgressMeter() if use_progress_meter else diffrax.NoProgressMeter()
+    )
     sol = diffrax.diffeqsolve(
         terms,
         solver,
@@ -178,12 +185,63 @@ def _batch_sde_solve(
         dt0=dt0,
         y0=y0,
         args=args,
-        max_steps=2**19,
+        max_steps=2**18,
         stepsize_controller=controller,
         saveat=saveat,
+        progress_meter=meter,
+        adjoint=adjoint,
     )
     steps = sol.stats["num_accepted_steps"]
+    if isinstance(solver, diffrax.HalfSolver):
+        steps *= 3
     return sol.ys, steps
+
+
+_batch_sde_solve = eqx.filter_jit(
+    eqx.filter_vmap(
+        _sde_solve,
+        in_axes=(
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+)
+
+_batch_sde_solve_multi_y0 = eqx.filter_jit(
+    eqx.filter_vmap(
+        _sde_solve,
+        in_axes=(
+            0,
+            None,
+            None,
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+)
 
 
 def _resulting_levy_area(
@@ -263,6 +321,8 @@ def sde_solver_strong_order(
             step_controller,
             bm_tol,
             saveat,
+            use_progress_meter=False,
+            use_vbt=True,
         )
     else:
         correct_sols = ref_solution
@@ -284,6 +344,8 @@ def sde_solver_strong_order(
             step_controller,
             bm_tol,
             saveat,
+            use_progress_meter=False,
+            use_vbt=True,
         )
         errs = path_l2_dist(sols, correct_sols)
         errs_list.append(errs)
@@ -360,7 +422,16 @@ def simple_sde_order(
 
 
 def simple_batch_sde_solve(
-    keys, sde: SDE, solver, levy_area, dt0, controller, bm_tol, saveat
+    keys,
+    sde: SDE,
+    solver,
+    levy_area,
+    dt0,
+    controller,
+    bm_tol,
+    saveat,
+    use_progress_meter: bool = True,
+    use_vbt: bool = True,
 ):
     return _batch_sde_solve(
         keys,
@@ -376,6 +447,8 @@ def simple_batch_sde_solve(
         controller,
         bm_tol,
         saveat,
+        use_progress_meter,
+        use_vbt,
     )
 
 
@@ -386,37 +459,47 @@ def _squareplus(x):
 def drift(t, y, args):
     mlp, _, _ = args
     with jax.numpy_dtype_promotion("standard"):
-        return 0.25 * mlp(y)
+        vf = 0.25 * mlp(y)
+
+    if y.shape[0] > 3:
+        # Then we make the 4th component strongly attracted to the 3rd component.
+        vf = vf.at[3].set(20.0 * (y[2] - y[3]))
+    return vf
 
 
 def diffusion(t, y, args):
     _, mlp, noise_dim = args
+    y_dim = y.shape[0]
     with jax.numpy_dtype_promotion("standard"):
-        return 1.0 * mlp(y).reshape(3, noise_dim)
+        return 1.0 * mlp(y).reshape(y_dim, noise_dim)
 
 
-def get_mlp_sde(t0, t1, dtype, key, noise_dim):
+def get_mlp_sde(t0, t1, dtype, key, noise_dim, y_dim=3):
     driftkey, diffusionkey, ykey = jr.split(key, 3)
     drift_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3,
+        in_size=y_dim,
+        out_size=y_dim,
         width_size=8,
         depth=2,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=driftkey,
     )
+    drift_mlp = init_linear_weight(drift_mlp, lap_init, driftkey)
+
     diffusion_mlp = eqx.nn.MLP(
-        in_size=3,
-        out_size=3 * noise_dim,
+        in_size=y_dim,
+        out_size=y_dim * noise_dim,
         width_size=8,
         depth=2,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=diffusionkey,
     )
+    # diffusion_mlp = init_linear_weight(diffusion_mlp, lap_init, diffusionkey)
+
     args = (drift_mlp, diffusion_mlp, noise_dim)
-    y0 = jr.normal(ykey, (3,), dtype=dtype)
+    y0 = jr.normal(ykey, (y_dim,), dtype=dtype)
 
     def get_terms(bm):
         return MultiTerm(ODETerm(drift), ControlTerm(diffusion, bm))
@@ -598,3 +681,47 @@ def get_uld3_langevin(t0=0.3, t1=15.0, dtype=jnp.float32):
         return make_underdamped_langevin_term(u, gamma, grad_f, bm)
 
     return SDE(get_terms_uld3, None, y0_uld3, t0, t1, w_shape_uld3)
+
+
+def get_pytree_langevin(t0=0.3, t1=15.0, dtype=jnp.float32):
+    def make_pytree(array_factory):
+        return {
+            "rr": (
+                array_factory((2,), dtype),
+                array_factory((2,), dtype),
+                array_factory((2,), dtype),
+            ),
+            "qq": (
+                array_factory((5,), dtype),
+                array_factory((3,), dtype),
+            ),
+        }
+
+    x0 = make_pytree(jnp.ones)
+    v0 = make_pytree(jnp.zeros)
+    y0 = (x0, v0)
+
+    g1 = {
+        "rr": 0.5 * jnp.ones((2,), dtype),
+        "qq": (
+            jnp.ones((), dtype),
+            jnp.ones((3,), dtype),
+        ),
+    }
+
+    u1 = {
+        "rr": (jnp.ones((), dtype), 10.0, 5 * jnp.ones((2,), dtype)),
+        "qq": jnp.ones((), dtype),
+    }
+
+    def grad_f(x):
+        xa = x["rr"]
+        xb = x["qq"]
+        return {"rr": jtu.tree_map(lambda _x: 0.2 * _x, xa), "qq": xb}
+
+    w_shape = jtu.tree_map(lambda _x: jax.ShapeDtypeStruct(_x.shape, _x.dtype), x0)
+
+    def get_terms(bm):
+        return make_underdamped_langevin_term(g1, u1, grad_f, bm)
+
+    return SDE(get_terms, None, y0, t0, t1, w_shape)

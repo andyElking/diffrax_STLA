@@ -188,7 +188,11 @@ def time_tree(tree_cls, num_ts, tol, levy_area):
     )
 
 
-for levy_area in (diffrax.BrownianIncrement, diffrax.SpaceTimeLevyArea):
+for levy_area in (
+    diffrax.BrownianIncrement,
+    diffrax.SpaceTimeLevyArea,
+    diffrax.SpaceTimeTimeLevyArea,
+):
     print(f"-   {levy_area=}")
     for tol in (2**-3, 2**-12):
         print(f"--  {tol=}")
