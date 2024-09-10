@@ -34,7 +34,7 @@ _term_structure: TypeAlias = MultiTerm[
 ]
 _ErrorEstimate: TypeAlias = RealScalarLike
 # solver state will just be a random key which we will keep splitting
-_SolverState: TypeAlias = Array
+_SolverState: TypeAlias = tuple[Array, Array, Array, Array, Array, Array, Array]
 
 
 def vf_derivatives(drift, diffusion, t0, y0, args, d):
@@ -123,7 +123,21 @@ class Talay(AbstractItoSolver):
         y0: Y,
         args: Args,
     ) -> _SolverState:
-        return self.key
+        assert isinstance(y0, Array)
+        if y0.ndim == 0:
+            y0 = y0[None]
+        assert y0.ndim == 1
+
+        drift, diffusion = terms.terms
+        whk: AbstractSpaceTimeTimeLevyArea = diffusion.contr(t0, t1, use_levy=True)
+
+        d = jnp.shape(whk.W)[0]
+
+        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
+            drift, diffusion, t0, y0, args, d
+        )
+
+        return self.key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g
 
     def step(
         self,
@@ -161,14 +175,12 @@ class Talay(AbstractItoSolver):
         kk = recast_bm(whk.K)  # (d,)
         d = w.shape[0]
 
-        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
-            drift, diffusion, t0, y0, args, d
-        )
+        key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = solver_state
 
         if self.use_levy_area:
             # Compute space-space Levy area using Foster's approximation
             # Split the key
-            state_key, levy_key = jr.split(solver_state, 2)
+            state_key, levy_key = jr.split(key, 2)
             # space-space levy area is an anti-symmetric d*d matrix,
             # but the function returns the flattened upper triangle
             triu_indices = jnp.triu_indices(d, 1)
@@ -177,7 +189,7 @@ class Talay(AbstractItoSolver):
             la = jnp.zeros((d, d), dtype=dtype)
             la = la.at[triu_indices].set(la_flat)
         else:
-            state_key = solver_state
+            state_key = key
             la = 0
 
         int_w_dw = (
@@ -203,10 +215,18 @@ class Talay(AbstractItoSolver):
 
         dense_info = dict(y0=y0, y1=y1)
 
+        # Now compute the vector fields and Lie brackets for next step.
+        # These are then also used to compute the error estimate.
+        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
+            drift, diffusion, t1, y1, args, d
+        )
+
         # Compute errors for the next step
         h_proposal = compute_next_dt(f_prime_g, g_prime_f, g_prime_g, self.error_mult)
 
-        return y1, h_proposal, dense_info, state_key, RESULTS.successful
+        solver_state = state_key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g
+
+        return y1, h_proposal, dense_info, solver_state, RESULTS.successful
 
     def func(
         self,
