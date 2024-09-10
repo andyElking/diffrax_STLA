@@ -48,7 +48,7 @@ class TalayController(AbstractStepSizeController[_ControllerState, Any]):
         drift, diffusion = terms.terms
         w = diffusion.contr(t0, t1, use_levy=False)
         d = jnp.shape(w)[0]
-        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
+        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g, _ = vf_derivatives(
             drift, diffusion, t0, y0, args, d
         )
         dt_proposal = compute_next_dt(f_prime_g, g_prime_f, g_prime_g, self.ctol)

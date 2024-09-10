@@ -34,7 +34,7 @@ _term_structure: TypeAlias = MultiTerm[
 ]
 _ErrorEstimate: TypeAlias = RealScalarLike
 # solver state will just be a random key which we will keep splitting
-_SolverState: TypeAlias = tuple[Array, Array, Array, Array, Array, Array, Array]
+_SolverState: TypeAlias = tuple[Array, Array, Array, Array, Array, Array, Array, Array]
 
 
 def vf_derivatives(drift, diffusion, t0, y0, args, d):
@@ -80,7 +80,32 @@ def vf_derivatives(drift, diffusion, t0, y0, args, d):
     g_prime_g = jax.vmap(g_prime_g_fun, in_axes=1, out_axes=1)(g_y)
     assert g_prime_g.shape == (n, d, d)
 
-    return f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g
+    # Lastly we compute f''(y) @ g(y) @ g(y), where f''(y) has shape (n, n, n) and
+    # g(y) has shape (n, d). But we can first multiply and contract the gs, so that
+    # gg has shape (n, n), which we then multiply and contract with the last two
+    # dimensions of f''(y) to get f''(y) @ g(y) @ g(y) with shape (n,).
+
+    hess_f = jax.hessian(f, 0)(y0)
+    gg = jnp.sum(g_y[None, :, :] * g_y[:, None, :], axis=2)  # (n, n)
+    assert gg.shape == (n, n)
+    f_p_p_g_g = jnp.tensordot(hess_f, gg, axes=2)  # (n,)
+    assert f_p_p_g_g.shape == (n,)
+
+    # This is an equivalent way of computing the above, but it is slower
+    # def f_p_p_g1_g2_fun(g_col1, g_col2):
+    #     def first_jvp(y):
+    #         _, first_jvp = jax.jvp(f, (y,), (g_col1,))
+    #         return first_jvp
+    #
+    #     _, f_p_p_g1_g2 = jax.jvp(first_jvp, (y0,), (g_col2,))
+    #     assert f_p_p_g1_g2.shape == (n,)
+    #     return f_p_p_g1_g2
+    #
+    # f_p_p_g_g2_fun = jax.vmap(f_p_p_g1_g2_fun, in_axes=(1, None), out_axes=1)
+    # f_p_p_g_g = jax.vmap(f_p_p_g_g2_fun, in_axes=(None, 1), out_axes=1)(g_y, g_y)
+    # assert f_p_p_g_g.shape == (n, d, d)
+
+    return f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g, f_p_p_g_g
 
 
 def compute_next_dt(f_prime_g, g_prime_f, g_prime_g, error_mult):
@@ -133,11 +158,17 @@ class Talay(AbstractItoSolver):
 
         d = jnp.shape(whk.W)[0]
 
-        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
-            drift, diffusion, t0, y0, args, d
-        )
+        (
+            f_y,
+            g_y,
+            f_prime_f,
+            g_prime_f,
+            f_prime_g,
+            g_prime_g,
+            f_p_p_g_g,
+        ) = vf_derivatives(drift, diffusion, t0, y0, args, d)
 
-        return self.key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g
+        return self.key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g, f_p_p_g_g
 
     def step(
         self,
@@ -175,7 +206,16 @@ class Talay(AbstractItoSolver):
         kk = recast_bm(whk.K)  # (d,)
         d = w.shape[0]
 
-        key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = solver_state
+        (
+            key,
+            f_y,
+            g_y,
+            f_prime_f,
+            g_prime_f,
+            f_prime_g,
+            g_prime_g,
+            f_p_p_g_g,
+        ) = solver_state
 
         if self.use_levy_area:
             # Compute space-space Levy area using Foster's approximation
@@ -209,7 +249,7 @@ class Talay(AbstractItoSolver):
             + gg_int_w
             + f_prime_g @ (h * (w / 2 + hh))
             + g_prime_f @ (h * (w / 2 - hh))
-            + f_prime_f * h**2 / 2
+            + ((h**2) / 2) * (f_prime_f + f_p_p_g_g / 2)
         )
         assert y1.shape == (n,)
 
@@ -217,14 +257,29 @@ class Talay(AbstractItoSolver):
 
         # Now compute the vector fields and Lie brackets for next step.
         # These are then also used to compute the error estimate.
-        f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g = vf_derivatives(
-            drift, diffusion, t1, y1, args, d
-        )
+        (
+            f_y,
+            g_y,
+            f_prime_f,
+            g_prime_f,
+            f_prime_g,
+            g_prime_g,
+            f_p_p_g_g,
+        ) = vf_derivatives(drift, diffusion, t1, y1, args, d)
 
         # Compute errors for the next step
         h_proposal = compute_next_dt(f_prime_g, g_prime_f, g_prime_g, self.error_mult)
 
-        solver_state = state_key, f_y, g_y, f_prime_f, g_prime_f, f_prime_g, g_prime_g
+        solver_state = (
+            state_key,
+            f_y,
+            g_y,
+            f_prime_f,
+            g_prime_f,
+            f_prime_g,
+            g_prime_g,
+            f_p_p_g_g,
+        )
 
         return y1, h_proposal, dense_info, solver_state, RESULTS.successful
 
