@@ -13,10 +13,13 @@ from numpyro import diagnostics  # pyright: ignore
 
 
 def dict_to_array(dct: dict):
-    alpha = dct["alpha"]
-    alpha = jnp.expand_dims(alpha, alpha.ndim)
     b = dct["b"]
-    return jnp.concatenate([alpha, b, dct["W"]], axis=-1)
+    lst = [b, dct["W"]]
+    if "alpha" in dct:
+        alpha = dct["alpha"]
+        alpha = jnp.expand_dims(alpha, alpha.ndim)
+        lst = [alpha] + lst
+    return jnp.concatenate(lst, axis=-1)
 
 
 vec_dict_to_array = jax.jit(jax.vmap(dict_to_array, in_axes=0, out_axes=0))
@@ -170,8 +173,6 @@ def eval_logreg(
 
 
 def compute_metrics(sample_slice, ground_truth, num_iters_w2, x_test, labels_test):
-    num_chains, sample_dim = sample_slice.shape
-
     energy_err = energy_distance(sample_slice, ground_truth)
 
     if num_iters_w2 > 0:
@@ -243,6 +244,7 @@ def eval_progressive_logreg(
         "w2": w2,
         "acc_error": acc_error,
         "acc_best90": acc_best90,
+        "cumulative_evals": cumulative_evals,
     }
 
     return fig, result_dict

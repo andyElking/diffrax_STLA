@@ -200,18 +200,23 @@ def run_simple_lmc(
     x0,
     num_particles: int,
     chain_len: int,
-    chain_sep: float = 0.5,
-    tol: float = 2**-6,
-    use_adaptive: bool = True,
-    solver: AbstractSolver = QUICSORT(0.1),
+    chain_sep: float,
+    tol: float,
+    use_adaptive: bool,
+    solver: AbstractSolver,
 ):
     keys_mcmc = jr.split(key, num_particles)
     grad_f = jax.jit(jax.grad(log_p))
     v0 = jtu.tree_map(lambda x: jnp.zeros_like(x), x0)
     y0 = (x0, v0)
-    w_shape: PyTree[jax.ShapeDtypeStruct] = jtu.tree_map(
-        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), x0
-    )
+
+    def get_shape(x):
+        shape = jnp.shape(x)
+        if shape[0] == num_particles:
+            return jax.ShapeDtypeStruct(shape[1:], x.dtype)
+        return jax.ShapeDtypeStruct(shape, x.dtype)
+
+    w_shape: PyTree[jax.ShapeDtypeStruct] = jtu.tree_map(get_shape, x0)
 
     gamma, u = 1.0, 1.0
 
@@ -278,3 +283,32 @@ def run_simple_lmc(
         grad_evals_per_sample *= 2
 
     return ys_mcmc, grad_evals_per_sample
+
+
+def run_simple_lmc_numpyro(
+    key,
+    model,
+    model_args,
+    num_particles: int,
+    chain_len: int,
+    chain_sep: float,
+    tol: float,
+    use_adaptive: bool = False,
+    solver: AbstractSolver = QUICSORT(0.1),
+):
+    model_key, lmc_key = jr.split(key, 2)
+    model_info = initialize_model(model_key, model, model_args=model_args)
+    log_p = jax.jit(model_info.potential_fn)
+    x0 = Predictive(model, num_samples=num_particles)(model_key, *model_args)
+    del x0["obs"]
+    return run_simple_lmc(
+        lmc_key,
+        log_p,
+        x0,
+        num_particles,
+        chain_len,
+        chain_sep,
+        tol,
+        use_adaptive,
+        solver,
+    )
