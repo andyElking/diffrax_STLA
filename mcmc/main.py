@@ -1,6 +1,5 @@
 import math
 from test.helpers import (
-    _batch_sde_solve,
     _batch_sde_solve_multi_y0,
     make_underdamped_langevin_term,
 )
@@ -21,6 +20,7 @@ from diffrax import (
     StepTo,
 )
 from jaxtyping import PyTree
+from numpyro.infer import Predictive  # pyright: ignore
 from numpyro.infer.util import initialize_model  # pyright: ignore
 
 
@@ -40,7 +40,8 @@ def run_lmc_numpyro(
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = model_info.param_info.z
+    x0 = Predictive(model, num_samples=num_particles)(model_key, *model_args)
+    del x0["obs"]
     return run_lmc(
         lmc_key,
         log_p,
@@ -132,7 +133,7 @@ def run_lmc(
         bm_tol = tol / 4.0
         bm_tol_warmup = tol_warmup / 4.0
 
-    out_warmup, steps_warmup = _batch_sde_solve(
+    out_warmup, steps_warmup = _batch_sde_solve_multi_y0(
         keys_warmup,
         get_terms,
         w_shape,
@@ -188,5 +189,92 @@ def run_lmc(
     #     # f"Steps warmup: {avg_steps_warmup}, steps mcmc: {avg_steps_mcmc}, "
     #     f"gradient evaluations per output: {grad_evals_per_sample:.4}"
     # )
+
+    return ys_mcmc, grad_evals_per_sample
+
+
+# This just runs the chain without warmup
+def run_simple_lmc(
+    key,
+    log_p,
+    x0,
+    num_particles: int,
+    chain_len: int,
+    chain_sep: float = 0.5,
+    tol: float = 2**-6,
+    use_adaptive: bool = True,
+    solver: AbstractSolver = QUICSORT(0.1),
+):
+    keys_mcmc = jr.split(key, num_particles)
+    grad_f = jax.jit(jax.grad(log_p))
+    v0 = jtu.tree_map(lambda x: jnp.zeros_like(x), x0)
+    y0 = (x0, v0)
+    w_shape: PyTree[jax.ShapeDtypeStruct] = jtu.tree_map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), x0
+    )
+
+    gamma, u = 1.0, 1.0
+
+    def get_terms(bm):
+        return make_underdamped_langevin_term(gamma, u, grad_f, bm)
+
+    t1_mcmc: float = (chain_len - 1) * chain_sep
+    save_ts = jnp.linspace(0.0, t1_mcmc, num=chain_len, endpoint=True)
+    saveat = SaveAt(ts=save_ts)
+
+    if use_adaptive:
+        dtmin = 2**-9
+        bm_tol = dtmin / 2.0
+        pid_mcmc = PIDController(
+            rtol=0.0,
+            atol=tol,
+            pcoeff=0.1,
+            icoeff=0.4,
+            dtmin=dtmin,
+            dtmax=0.2,
+        )
+        controller_mcmc = diffrax.JumpStepWrapper(pid_mcmc, step_ts=save_ts)
+
+        if not isinstance(solver, diffrax.ShARK):
+            solver = HalfSolver(solver)
+    else:
+        steps_per_sample = int(math.ceil(chain_sep / tol))
+        num_steps = (chain_len - 1) * steps_per_sample + 1
+        step_ts = jnp.linspace(0.0, t1_mcmc, num=num_steps, endpoint=True)
+        save_ts = step_ts[::steps_per_sample]
+        assert save_ts.shape == (
+            chain_len,
+        ), f"{save_ts.shape}, expected {(chain_len,)}"
+
+        controller_mcmc = StepTo(ts=step_ts)
+        bm_tol = tol / 4.0
+
+    out_mcmc, steps_mcmc = _batch_sde_solve_multi_y0(
+        keys_mcmc,
+        get_terms,
+        w_shape,
+        0.0,
+        t1_mcmc,
+        y0,
+        None,
+        solver,
+        SpaceTimeTimeLevyArea,
+        None,
+        controller_mcmc,
+        bm_tol,
+        saveat,
+        use_progress_meter=True,
+        use_vbt=True,
+    )
+    ys_mcmc = out_mcmc[0]
+    ys_mcmc = jtu.tree_map(
+        lambda x: jnp.nan_to_num(x, nan=0, posinf=0, neginf=0), ys_mcmc
+    )
+
+    grad_evals_per_sample = jnp.mean(steps_mcmc) / chain_len
+    # When a HalfSolver is used, the number of gradient evaluations is tripled,
+    # but the output of batch_sde_solve already accounts for this.
+    if isinstance(solver, QUICSORT):
+        grad_evals_per_sample *= 2
 
     return ys_mcmc, grad_evals_per_sample
