@@ -33,7 +33,7 @@ def get_model_and_data(data, name):
             dist.MultivariateNormal(jnp.zeros(data_dim), precision_matrix=0.1 * x_cov),
         )
         b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 100))
-        logits = jnp.sum(W * x + b, axis=-1)
+        logits = jnp.sum(W * x, axis=-1) + b
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     return model, (x_train, labels_train, x_test, labels_test)

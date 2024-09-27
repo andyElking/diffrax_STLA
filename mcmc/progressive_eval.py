@@ -21,22 +21,22 @@ from main import run_simple_lmc_numpyro  # noqa: F401
 from numpyro.infer import MCMC, NUTS, Predictive  # pyright: ignore
 
 
-def print_best(result_dict, method_name):
+def make_result_str(result_dict, method_name):
     best_acc = jnp.max(result_dict["test_acc"])
     best_acc90 = jnp.max(result_dict["test_acc_best90"])
     best_energy = jnp.min(result_dict["energy_err"])
     best_w2 = jnp.min(result_dict["w2"])
-    print(
-        f"{method_name} best acc: {best_acc:.4}, best acc top 90%: {best_acc90:.4},"
-        f" best energy: {best_energy:.3e}, best w2: {best_w2:.3e}"
+    str_out = (
+        f"{method_name} acc: {best_acc:.4}, acc top 90%: {best_acc90:.4},"
+        f" energy: {best_energy:.3e}, w2: {best_w2:.3e}"
     )
+    return str_out
 
 
-def run_progressive_logreg(data_name, result_dict_filename=None):
+def run_progressive_logreg(data_name, log_filename):
     time_stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     name_and_date = f"{data_name}_{time_stamp}"
-    if result_dict_filename is None:
-        result_dict_filename = f"progressive_results/result_dict_{name_and_date}.pkl"
+    result_dict_filename = f"progressive_results/result_dict_{name_and_date}.pkl"
 
     dataset = scipy.io.loadmat("mcmc_data/benchmarks.mat")
     model, data_split = get_model_and_data(dataset, data_name)
@@ -66,10 +66,13 @@ def run_progressive_logreg(data_name, result_dict_filename=None):
     size_gt_half = int(gt_logreg.shape[0] // 2)
     gt_energy_bias = energy_distance(gt_logreg[:size_gt_half], gt_logreg[size_gt_half:])
     gt_test_acc, gt_test_acc_best90 = test_accuracy(x_test, labels_test, gt_logreg)
-    print(
+    str_gt = (
         f"GT energy bias: {gt_energy_bias:.3e}, test acc: {gt_test_acc:.4},"
         f" test acc top 90%: {gt_test_acc_best90:.4}"
     )
+    print(str_gt)
+    with open(log_filename, "a") as f:
+        f.write(f"======= {data_name} =======\n" f"{str_gt}\n")
 
     # run LMC with QUICSORT and record wall time
     start_quic = time.time()
@@ -88,7 +91,10 @@ def run_progressive_logreg(data_name, result_dict_filename=None):
         out_quic, gt_logreg, steps_quic, x_test, labels_test
     )
     result_dict_quic["time"] = time_quic
-    print_best(result_dict_quic, "QUICSORT")
+    quic_str = make_result_str(result_dict_quic, "QUICSORT")
+    print(quic_str)
+    with open(log_filename, "a") as f:
+        f.write(f"{quic_str}\n")
 
     fig_quic = plot_progressive_results(result_dict_quic)
     fig_quic.suptitle(f"{data_name} QUICSORT")
@@ -103,7 +109,7 @@ def run_progressive_logreg(data_name, result_dict_filename=None):
         num_particles,
         chain_len=2**5,
         chain_sep=1.0,
-        tol=0.05,
+        tol=0.02,
         solver=diffrax.Euler(),
     )
     time_euler = time.time() - start_euler
@@ -111,7 +117,10 @@ def run_progressive_logreg(data_name, result_dict_filename=None):
         out_euler, gt_logreg, steps_euler, x_test, labels_test
     )
     result_dict_euler["time"] = time_euler
-    print_best(result_dict_quic, "Euler")
+    euler_str = make_result_str(result_dict_euler, "Euler")
+    print(euler_str)
+    with open(log_filename, "a") as f:
+        f.write(f"{euler_str}\n")
 
     fig_euler = plot_progressive_results(result_dict_euler)
     fig_euler.suptitle(f"{data_name} Euler-Maruyama")
@@ -120,7 +129,7 @@ def run_progressive_logreg(data_name, result_dict_filename=None):
     # run NUTS and record wall time
     start_nuts = time.time()
     nuts_num_warmup = 20
-    chain_len_nuts = 2**7
+    chain_len_nuts = 2**6
     nuts = MCMC(
         NUTS(model),
         num_warmup=nuts_num_warmup,
@@ -160,7 +169,10 @@ def run_progressive_logreg(data_name, result_dict_filename=None):
         max_samples_w2=2**11,
     )
     result_dict_nuts["time"] = time_nuts
-    print_best(result_dict_nuts, "NUTS")
+    nuts_str = make_result_str(result_dict_nuts, "NUTS")
+    print(nuts_str)
+    with open(log_filename, "a") as f:
+        f.write(f"{nuts_str}\n\n")
 
     fig_nuts = plot_progressive_results(result_dict_nuts)
     fig_nuts.suptitle(f"{data_name} NUTS")

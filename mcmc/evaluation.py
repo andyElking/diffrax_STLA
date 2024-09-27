@@ -34,9 +34,11 @@ def flatten_samples(samples):
 
 
 def predict(x, samples):
-    sum = jnp.sum(samples[:, 2:] * x + samples[:, 1:2], axis=-1)
+    b = samples[:, 0]
+    w = samples[:, 1:]
+    logits = jnp.sum(w * x, axis=-1) + b
     # apply sigmoid
-    return 1.0 / (1.0 + jnp.exp(-sum))
+    return 1.0 / (1.0 + jnp.exp(-logits))
 
 
 def truncate_samples(x, y, max_len: int = 2**16):
@@ -86,6 +88,10 @@ def energy_distance(x: Array, y: Array, max_len: int = 2**16):
 def test_accuracy(x_test, labels_test, samples):
     if isinstance(samples, dict):
         samples = vec_dict_to_array(samples)
+    assert x_test.shape[1] + 1 == samples.shape[-1], (
+        f"The last dim of {x_test.shape} should be the"
+        f" last dim of {samples.shape} minus 1"
+    )
     sample_dim = samples.shape[-1]
     samples = jnp.reshape(samples, (-1, sample_dim))
     if samples.shape[0] > 2**10:
@@ -128,7 +134,6 @@ def eval_logreg(
     means = jnp.mean(reshaped_with_alpha, axis=0)
     result_str = f"means: {means},\nvars:  {vars}"
 
-    samples_with_alpha = samples
     if has_alpha:
         samples = samples[..., 1:]
     reshaped = jnp.reshape(samples, (-1, sample_dim - 1))
@@ -157,9 +162,7 @@ def eval_logreg(
         result_str += f", Wasserstein-2: {w2:.4}"
 
     if x_test is not None and labels_test is not None:
-        test_acc, test_acc_best90 = test_accuracy(
-            x_test, labels_test, samples_with_alpha
-        )
+        test_acc, test_acc_best90 = test_accuracy(x_test, labels_test, samples)
         result_str += (
             f"\nTest_accuracy: {test_acc:.4}, top 90% accuracy: {test_acc_best90:.4}"
         )
