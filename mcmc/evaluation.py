@@ -39,18 +39,7 @@ def predict(x, samples):
     return 1.0 / (1.0 + jnp.exp(-sum))
 
 
-def compute_w2(x1, x2, num_iters):
-    source_samples = np.array(x1)
-    target_samples = np.array(x2)
-    source_weights = np.ones(source_samples.shape[0]) / source_samples.shape[0]
-    target_weights = np.ones(target_samples.shape[0]) / target_samples.shape[0]
-    mm = ot.dist(source_samples, target_samples)
-    return ot.emd2(source_weights, target_weights, mm, numItermax=num_iters)
-
-
-@partial(jax.jit, static_argnames=("max_len",))
-def energy_distance(x: Array, y: Array, max_len: int = 2**16):
-    assert y.ndim == x.ndim
+def truncate_samples(x, y, max_len: int = 2**16):
     assert x.shape[1:] == y.shape[1:]
     prod = reduce(mul, x.shape[1:], 1)
     if prod >= 4:
@@ -60,6 +49,23 @@ def energy_distance(x: Array, y: Array, max_len: int = 2**16):
         x = x[:max_len]
     if y.shape[0] > max_len:
         y = y[:max_len]
+    return x, y
+
+
+def compute_w2(x, y, num_iters, max_len: int = 2**11):
+    x, y = truncate_samples(x, y, max_len)
+    source_samples = np.array(x)
+    target_samples = np.array(y)
+    source_weights = np.ones(source_samples.shape[0]) / source_samples.shape[0]
+    target_weights = np.ones(target_samples.shape[0]) / target_samples.shape[0]
+    mm = ot.dist(source_samples, target_samples)
+    return ot.emd2(source_weights, target_weights, mm, numItermax=num_iters)
+
+
+@partial(jax.jit, static_argnames=("max_len",))
+def energy_distance(x: Array, y: Array, max_len: int = 2**16):
+    assert y.ndim == x.ndim
+    x, y = truncate_samples(x, y, max_len)
 
     @partial(jax.vmap, in_axes=(None, 0))
     def _dist_single(_x, _y_single):
@@ -151,12 +157,14 @@ def eval_logreg(
         result_str += f", Wasserstein-2: {w2:.4}"
 
     if x_test is not None and labels_test is not None:
-        acc_error, acc_best90 = test_accuracy(x_test, labels_test, samples_with_alpha)
+        test_acc, test_acc_best90 = test_accuracy(
+            x_test, labels_test, samples_with_alpha
+        )
         result_str += (
-            f"\nTest_accuracy: {acc_error:.4}, top 90% accuracy: {acc_best90:.4}"
+            f"\nTest_accuracy: {test_acc:.4}, top 90% accuracy: {test_acc_best90:.4}"
         )
     else:
-        acc_error, acc_best90 = None, None
+        test_acc, test_acc_best90 = None, None
 
     print(result_str)
 
@@ -165,31 +173,33 @@ def eval_logreg(
         "ess_per_sample": ess_per_sample,
         "energy_v_self": energy_self,
         "grad_evals_per_sample": evals_per_sample,
-        "test_accuracy": acc_error,
-        "top90_accuracy": acc_best90,
+        "test_accuracy": test_acc,
+        "top90_accuracy": test_acc_best90,
     }
 
     return result_str, result_dict
 
 
-def compute_metrics(sample_slice, ground_truth, num_iters_w2, x_test, labels_test):
+def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
     energy_err = energy_distance(sample_slice, ground_truth)
 
-    if num_iters_w2 > 0:
-        w2 = compute_w2(sample_slice, ground_truth, num_iters_w2)
-    else:
-        w2 = None
-
     if x_test is not None and labels_test is not None:
-        acc_error, acc_best90 = test_accuracy(x_test, labels_test, sample_slice)
+        test_acc, test_acc_best90 = test_accuracy(x_test, labels_test, sample_slice)
     else:
-        acc_error, acc_best90 = None, None
+        test_acc, test_acc_best90 = None, None
 
-    return energy_err, w2, acc_error, acc_best90
+    return energy_err, test_acc, test_acc_best90
 
 
 def eval_progressive_logreg(
-    samples, ground_truth, evals_per_sample, num_iters_w2, x_test=None, labels_test=None
+    samples,
+    ground_truth,
+    evals_per_sample,
+    x_test=None,
+    labels_test=None,
+    num_iters_w2=100000,
+    max_samples_w2=2**11,
+    metric_eval_interval=1,
 ):
     if isinstance(samples, dict):
         samples = vec_dict_to_array(samples)
@@ -201,50 +211,74 @@ def eval_progressive_logreg(
         evals_per_sample = jnp.mean(evals_per_sample, axis=0)
     elif jnp.size(evals_per_sample) == 1:
         evals_per_sample = jnp.broadcast_to(evals_per_sample, (chain_len,))
+    else:
+        assert False, f"evals_per_sample shape: {evals_per_sample.shape}"
 
     assert jnp.shape(evals_per_sample) == (
         chain_len,
     ), f"{evals_per_sample.shape} != {(chain_len,)}"
 
+    cumulative_evals = jnp.cumsum(evals_per_sample)[::metric_eval_interval]
+
+    samples_for_eval = samples[:, ::metric_eval_interval]
+
     # now we go along chain_len and compute the metrics for each step
     partial_metrics = partial(
         compute_metrics,
         ground_truth=ground_truth,
-        num_iters_w2=num_iters_w2,
         x_test=x_test,
         labels_test=labels_test,
     )
     # vectorize over the chain_len dimension
     vec_metrics = jax.vmap(partial_metrics, in_axes=1)
-    energy_err, w2, acc_error, acc_best90 = vec_metrics(samples)
+    energy_err, test_acc, test_acc_best90 = vec_metrics(samples_for_eval)
 
-    # plot the metrics against cumulative number of gradient evaluations
-    cumulative_evals = jnp.cumsum(evals_per_sample)
+    if num_iters_w2 > 0:
+        # wasserstein-2 distance is done via numpy, so cannot be vectorised
+        w2_list = []
+        for i in range(jnp.shape(samples_for_eval)[1]):
+            w2_single = compute_w2(
+                samples_for_eval[:, i], ground_truth, num_iters_w2, max_samples_w2
+            )
+            w2_list.append(w2_single)
+        w2 = jnp.array(w2_list)
+    else:
+        w2 = None
 
-    num_subplots = 1 + (w2 is not None) + (acc_error is not None)
-
-    fig, ax = plt.subplots(num_subplots, 1, figsize=(10, 15))
-    ax[0].plot(cumulative_evals, energy_err)
-    ax[0].set_title("Energy distance vs cumulative gradient evaluations")
-    subplot_idx = 1
-    if w2 is not None:
-        ax[subplot_idx].plot(cumulative_evals, w2)
-        ax[subplot_idx].set_title(
-            "Wasserstein-2 distance vs cumulative gradient evaluations"
-        )
-        subplot_idx += 1
-
-    if acc_error is not None:
-        ax[subplot_idx].plot(cumulative_evals, acc_error)
-        ax[subplot_idx].set_title("Test accuracy vs cumulative gradient evaluations")
-
-    # create a dictionary with the metrics
     result_dict = {
         "energy_err": energy_err,
-        "w2": w2,
-        "acc_error": acc_error,
-        "acc_best90": acc_best90,
+        "test_acc": test_acc,
+        "test_acc_best90": test_acc_best90,
         "cumulative_evals": cumulative_evals,
+        "w2": w2,
     }
+    return result_dict
 
-    return fig, result_dict
+
+def plot_progressive_results(result_dict):
+    energy_err = result_dict["energy_err"]
+    test_acc = result_dict["test_acc"]
+    test_acc_best90 = result_dict["test_acc_best90"]
+    cumulative_evals = result_dict["cumulative_evals"]
+    w2 = result_dict["w2"]
+
+    num_subplots = 2 if w2 is None else 3
+    fig, axs = plt.subplots(num_subplots, 1, figsize=(8, 15))
+    axs[0].plot(cumulative_evals, energy_err)
+    axs[0].set_yscale("log")
+    axs[0].set_ylabel("Energy distance")
+
+    axs[1].plot(cumulative_evals, test_acc, label="Test accuracy")
+    axs[1].plot(cumulative_evals, test_acc_best90, label="Top 90% accuracy")
+    axs[1].set_ylabel("Accuracy")
+    axs[1].legend()
+
+    if w2 is not None:
+        axs[2].plot(cumulative_evals, w2)
+        axs[2].set_yscale("log")
+        axs[2].set_ylabel("Wasserstein-2 distance")
+        axs[2].set_xlabel("Cumulative gradient evaluations")
+    else:
+        axs[1].set_xlabel("Cumulative gradient evaluations")
+
+    return fig

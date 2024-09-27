@@ -204,6 +204,7 @@ def run_simple_lmc(
     tol: float,
     use_adaptive: bool,
     solver: AbstractSolver,
+    num_warmup: int,
 ):
     keys_mcmc = jr.split(key, num_particles)
     grad_f = jax.jit(jax.grad(log_p))
@@ -223,8 +224,10 @@ def run_simple_lmc(
     def get_terms(bm):
         return make_underdamped_langevin_term(gamma, u, grad_f, bm)
 
-    t1_mcmc: float = (chain_len - 1) * chain_sep
-    save_ts = jnp.linspace(0.0, t1_mcmc, num=chain_len, endpoint=True)
+    total_len = chain_len + num_warmup - 1
+    t0_mcmc = num_warmup * chain_sep
+    t1_mcmc: float = total_len * chain_sep
+    save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
     saveat = SaveAt(ts=save_ts)
 
     if use_adaptive:
@@ -244,7 +247,7 @@ def run_simple_lmc(
             solver = HalfSolver(solver)
     else:
         steps_per_sample = int(math.ceil(chain_sep / tol))
-        num_steps = (chain_len - 1) * steps_per_sample + 1
+        num_steps = total_len * steps_per_sample + 1
         step_ts = jnp.linspace(0.0, t1_mcmc, num=num_steps, endpoint=True)
         save_ts = step_ts[::steps_per_sample]
         assert save_ts.shape == (
@@ -276,7 +279,7 @@ def run_simple_lmc(
         lambda x: jnp.nan_to_num(x, nan=0, posinf=0, neginf=0), ys_mcmc
     )
 
-    grad_evals_per_sample = jnp.mean(steps_mcmc) / chain_len
+    grad_evals_per_sample = jnp.mean(steps_mcmc) / (chain_len + num_warmup)
     # When a HalfSolver is used, the number of gradient evaluations is tripled,
     # but the output of batch_sde_solve already accounts for this.
     if isinstance(solver, QUICSORT):
@@ -295,6 +298,7 @@ def run_simple_lmc_numpyro(
     tol: float,
     use_adaptive: bool = False,
     solver: AbstractSolver = QUICSORT(0.1),
+    num_warmup: int = 0,
 ):
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
@@ -311,4 +315,5 @@ def run_simple_lmc_numpyro(
         tol,
         use_adaptive,
         solver,
+        num_warmup,
     )

@@ -30,7 +30,7 @@ def get_model_and_data(data, name):
         x_cov = jnp.cov(x, rowvar=False)
         W = numpyro.sample(
             "W",
-            dist.MultivariateNormal(jnp.zeros(data_dim), precision_matrix=x_cov / 10.0),
+            dist.MultivariateNormal(jnp.zeros(data_dim), precision_matrix=0.1 * x_cov),
         )
         b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 100))
         logits = jnp.sum(W * x + b, axis=-1)
