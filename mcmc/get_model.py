@@ -26,13 +26,12 @@ def get_model_and_data(data, name):
     labels_test = labels[n_train:]
 
     def model(x, labels):
-        # alpha = numpyro.sample("alpha", dist.Exponential(0.01))
-        x_cov = jnp.cov(x, rowvar=False)
+        x_var = jnp.var(x, axis=0)
         W = numpyro.sample(
             "W",
-            dist.MultivariateNormal(jnp.zeros(data_dim), precision_matrix=0.1 * x_cov),
+            dist.Normal(jnp.zeros(data_dim), 0.5 / x_var),
         )
-        b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 100))
+        b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 1))
         logits = jnp.sum(W * x, axis=-1) + b
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 

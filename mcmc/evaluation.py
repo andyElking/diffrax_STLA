@@ -65,7 +65,7 @@ def compute_w2(x, y, num_iters, max_len: int = 2**11):
 
 
 @partial(jax.jit, static_argnames=("max_len",))
-def energy_distance(x: Array, y: Array, max_len: int = 2**16):
+def energy_distance(x: Array, y: Array, max_len: int = 2**14):
     assert y.ndim == x.ndim
     x, y = truncate_samples(x, y, max_len)
 
@@ -123,20 +123,17 @@ def eval_logreg(
     num_iters_w2=0,
     x_test=None,
     labels_test=None,
-    has_alpha=True,
+    has_alpha=False,
 ):
     if isinstance(samples, dict):
         samples = vec_dict_to_array(samples)
 
-    sample_dim = samples.shape[-1]
-    reshaped_with_alpha = jnp.reshape(samples, (-1, sample_dim))
-    vars = jnp.var(reshaped_with_alpha, axis=0)
-    means = jnp.mean(reshaped_with_alpha, axis=0)
-    result_str = f"means: {means},\nvars:  {vars}"
-
     if has_alpha:
         samples = samples[..., 1:]
-    reshaped = jnp.reshape(samples, (-1, sample_dim - 1))
+
+    sample_dim = samples.shape[-1]
+    reshaped = jnp.reshape(samples, (-1, sample_dim))
+    result_str = ""
 
     ess = diagnostics.effective_sample_size(samples)
     avg_ess = 1 / jnp.mean(1 / jnp.stack(jtu.tree_leaves(ess)))
@@ -154,12 +151,16 @@ def eval_logreg(
     result_str += f"\nEnergy dist v self: {energy_self:.4}"
 
     if ground_truth is not None:
-        ground_truth = ground_truth[..., 1:]
         energy_gt = energy_distance(reshaped, ground_truth)
         result_str += f", energy dist vs ground truth: {energy_gt:.4}"
+    else:
+        energy_gt = None
+
     if num_iters_w2 > 0 and ground_truth is not None:
         w2 = compute_w2(reshaped, ground_truth, num_iters_w2)
         result_str += f", Wasserstein-2: {w2:.4}"
+    else:
+        w2 = None
 
     if x_test is not None and labels_test is not None:
         test_acc, test_acc_best90 = test_accuracy(x_test, labels_test, samples)
@@ -178,13 +179,15 @@ def eval_logreg(
         "grad_evals_per_sample": evals_per_sample,
         "test_accuracy": test_acc,
         "top90_accuracy": test_acc_best90,
+        "w2": w2,
+        "energy_gt": energy_gt,
     }
 
     return result_str, result_dict
 
 
 def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
-    energy_err = energy_distance(sample_slice, ground_truth)
+    energy_err = energy_distance(sample_slice, ground_truth, max_len=2**14)
 
     if x_test is not None and labels_test is not None:
         test_acc, test_acc_best90 = test_accuracy(x_test, labels_test, sample_slice)
@@ -198,8 +201,8 @@ def eval_progressive_logreg(
     samples,
     ground_truth,
     evals_per_sample,
-    x_test=None,
-    labels_test=None,
+    x_test,
+    labels_test,
     num_iters_w2=100000,
     max_samples_w2=2**11,
     metric_eval_interval=1,

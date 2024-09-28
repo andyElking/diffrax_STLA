@@ -76,9 +76,14 @@ def run_lmc(
     grad_f = jax.jit(jax.grad(log_p))
     v0 = jtu.tree_map(lambda x: jnp.zeros_like(x), x0)
     y0 = (x0, v0)
-    w_shape: PyTree[jax.ShapeDtypeStruct] = jtu.tree_map(
-        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), x0
-    )
+
+    def get_shape(x):
+        shape = jnp.shape(x)
+        if shape[0] == num_particles:
+            return jax.ShapeDtypeStruct(shape[1:], x.dtype)
+        return jax.ShapeDtypeStruct(shape, x.dtype)
+
+    w_shape: PyTree[jax.ShapeDtypeStruct] = jtu.tree_map(get_shape, x0)
 
     gamma, u = 1.0, 1.0
 
@@ -88,7 +93,9 @@ def run_lmc(
     t_warmup = warmup_mult * chain_sep
     tol_warmup = warmup_tol_mult * tol
 
-    t0_mcmc = 4 * chain_sep
+    second_warmup_len = 4
+
+    t0_mcmc = second_warmup_len * chain_sep
     t1_mcmc: float = (chain_len - 1) * chain_sep + t0_mcmc
     save_ts = jnp.linspace(t0_mcmc, t1_mcmc, num=chain_len, endpoint=True)
     saveat = SaveAt(ts=save_ts)
@@ -121,9 +128,9 @@ def run_lmc(
     else:
         controller_warmup = ConstantStepSize()
         steps_per_sample = int(math.ceil(chain_sep / tol))
-        num_steps = (chain_len + 3) * steps_per_sample + 1
+        num_steps = (chain_len + second_warmup_len - 1) * steps_per_sample + 1
         step_ts = jnp.linspace(0.0, t1_mcmc, num=num_steps, endpoint=True)
-        num_steps_before_t0 = 4 * steps_per_sample
+        num_steps_before_t0 = second_warmup_len * steps_per_sample
         save_ts = step_ts[num_steps_before_t0::steps_per_sample]
         assert save_ts.shape == (
             chain_len,
