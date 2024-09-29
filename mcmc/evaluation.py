@@ -8,7 +8,6 @@ import jax.tree_util as jtu
 import numpy as np
 import ot  # pyright: ignore
 from jax import Array
-from matplotlib import pyplot as plt  # pyright: ignore
 from numpyro import diagnostics  # pyright: ignore
 
 
@@ -41,11 +40,17 @@ def predict(x, samples):
     return 1.0 / (1.0 + jnp.exp(-logits))
 
 
+def adjust_max_len(max_len, data_dim):
+    if data_dim >= 4:
+        exponent = math.ceil(math.log2(max_len / math.sqrt(data_dim)))
+        max_len = 2 ** int(exponent)
+    return max_len
+
+
 def truncate_samples(x, y, max_len: int = 2**16):
     assert x.shape[1:] == y.shape[1:]
-    prod = reduce(mul, x.shape[1:], 1)
-    if prod >= 4:
-        max_len = int(max_len / math.sqrt(prod))
+    data_dim = reduce(mul, x.shape[1:], 1)
+    max_len = adjust_max_len(max_len, data_dim)
 
     if x.shape[0] > max_len:
         x = x[:max_len]
@@ -138,27 +143,26 @@ def eval_logreg(
     ess = diagnostics.effective_sample_size(samples)
     avg_ess = 1 / jnp.mean(1 / jnp.stack(jtu.tree_leaves(ess)))
     ess_per_sample = avg_ess / reshaped.shape[0]
-    result_str += (
-        f"\nEffective sample size: {avg_ess:.4},"
-        f" ess per sample: {ess_per_sample:.4}"
-    )
+    result_str += f"\nESS per sample: {ess_per_sample:.4}"
     if evals_per_sample is not None:
         avg_evals = jnp.mean(evals_per_sample)
         result_str += f", grad evals per sample: {avg_evals:.4}"
+        # grad evals per effective sample
+        gepes = avg_evals / ess_per_sample
+        result_str += f", GEPS/ESS: {gepes:.4}"
 
     half_len = reshaped.shape[0] // 2
     energy_self = energy_distance(reshaped[:half_len], reshaped[half_len:])
-    result_str += f"\nEnergy dist v self: {energy_self:.4}"
 
     if ground_truth is not None:
         energy_gt = energy_distance(reshaped, ground_truth)
-        result_str += f", energy dist vs ground truth: {energy_gt:.4}"
+        result_str += f"\nEnergy dist vs ground truth: {energy_gt:.4}"
     else:
         energy_gt = None
 
     if num_iters_w2 > 0 and ground_truth is not None:
         w2 = compute_w2(reshaped, ground_truth, num_iters_w2)
-        result_str += f", Wasserstein-2: {w2:.4}"
+        result_str += f", Wasserstein-2 error: {w2:.4}"
     else:
         w2 = None
 
@@ -173,7 +177,7 @@ def eval_logreg(
     print(result_str)
 
     result_dict = {
-        "ess": avg_ess,
+        "ess": ess,
         "ess_per_sample": ess_per_sample,
         "energy_v_self": energy_self,
         "grad_evals_per_sample": evals_per_sample,
@@ -259,32 +263,3 @@ def eval_progressive_logreg(
         "w2": w2,
     }
     return result_dict
-
-
-def plot_progressive_results(result_dict):
-    energy_err = result_dict["energy_err"]
-    test_acc = result_dict["test_acc"]
-    test_acc_best90 = result_dict["test_acc_best90"]
-    cumulative_evals = result_dict["cumulative_evals"]
-    w2 = result_dict["w2"]
-
-    num_subplots = 2 if w2 is None else 3
-    fig, axs = plt.subplots(num_subplots, 1, figsize=(8, 15))
-    axs[0].plot(cumulative_evals, energy_err)
-    axs[0].set_yscale("log")
-    axs[0].set_ylabel("Energy distance")
-
-    axs[1].plot(cumulative_evals, test_acc, label="Test accuracy")
-    axs[1].plot(cumulative_evals, test_acc_best90, label="Top 90% accuracy")
-    axs[1].set_ylabel("Accuracy")
-    axs[1].legend()
-
-    if w2 is not None:
-        axs[2].plot(cumulative_evals, w2)
-        axs[2].set_yscale("log")
-        axs[2].set_ylabel("Wasserstein-2 distance")
-        axs[2].set_xlabel("Cumulative gradient evaluations")
-    else:
-        axs[1].set_xlabel("Cumulative gradient evaluations")
-
-    return fig

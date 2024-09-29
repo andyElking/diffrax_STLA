@@ -11,13 +11,15 @@ import scipy
 from evaluation import (
     energy_distance,  # noqa: F401
     eval_progressive_logreg,  # noqa: F401
-    plot_progressive_results,  # noqa: F401
+    # noqa: F401
     test_accuracy,  # noqa: F401
     vec_dict_to_array,  # noqa: F401
 )
 from get_model import get_model_and_data  # noqa: F401
 from main import run_simple_lmc_numpyro  # noqa: F401
 from numpyro.infer import MCMC, NUTS, Predictive  # pyright: ignore
+
+from mcmc.evaluation import adjust_max_len
 
 
 def make_result_str(result_dict, method_name):
@@ -99,7 +101,9 @@ def run_progressive_logreg(
     model, data_split = get_model_and_data(dataset, data_name)
     x_train, labels_train, x_test, labels_test = data_split
 
-    num_particles = 2**15
+    num_particles = 2**14
+    data_dim = x_train.shape[1]
+    num_particles = adjust_max_len(num_particles, data_dim)
 
     gt_filename = f"mcmc_data/{data_name}_ground_truth.npy"
 
@@ -129,6 +133,8 @@ def run_progressive_logreg(
     with open(log_filename, "a") as f:
         f.write(f"======= {data_name} =======\n" f"{str_gt}\n")
 
+    quic_tol = 0.01 if data_name == "splice" else 0.05
+
     if quic_dict_filename is None:
         # run LMC with QUICSORT and record wall time
         start_quic = time.time()
@@ -139,13 +145,14 @@ def run_progressive_logreg(
             num_particles,
             chain_len=2**5,
             chain_sep=1.0,
-            tol=0.05,
+            tol=quic_tol,
             solver=diffrax.QUICSORT(0.1),
         )
         time_quic = time.time() - start_quic
         result_dict_quic = eval_progressive_logreg(
             out_quic, gt_logreg, steps_quic, x_test, labels_test
         )
+        del out_quic
         result_dict_quic["time"] = time_quic
     else:
         with open(quic_dict_filename, "rb") as f:
@@ -167,13 +174,14 @@ def run_progressive_logreg(
             num_particles,
             chain_len=2**5,
             chain_sep=1.0,
-            tol=0.02,
+            tol=quic_tol / 2,
             solver=diffrax.Euler(),
         )
         time_euler = time.time() - start_euler
         result_dict_euler = eval_progressive_logreg(
             out_euler, gt_logreg, steps_euler, x_test, labels_test
         )
+        del out_euler
         result_dict_euler["time"] = time_euler
     else:
         with open(euler_dict_filename, "rb") as f:
@@ -207,20 +215,3 @@ def run_progressive_logreg(
 
     with open(result_dict_filename, "wb") as f:
         pickle.dump(whole_result_dict, f)
-
-
-def make_figs(result_dict_filename, save_name=None):
-    with open(result_dict_filename, "rb") as f:
-        loaded_result_dict = pickle.load(f)
-    data_name = loaded_result_dict["data_name"]
-    fig_quic = plot_progressive_results(loaded_result_dict["quic"])
-    fig_quic.suptitle(f"{data_name} QUICSORT")
-    fig_euler = plot_progressive_results(loaded_result_dict["euler"])
-    fig_euler.suptitle(f"{data_name} Euler-Maruyama")
-    fig_nuts = plot_progressive_results(loaded_result_dict["nuts"])
-    fig_nuts.suptitle(f"{data_name} NUTS")
-    if save_name is not None:
-        fig_quic.savefig(f"{save_name}_quicsort.pdf")
-        fig_euler.savefig(f"{save_name}_euler.pdf")
-        fig_nuts.savefig(f"{save_name}_nuts.pdf")
-    return fig_quic, fig_euler, fig_nuts

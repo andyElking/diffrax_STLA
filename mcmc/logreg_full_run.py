@@ -1,13 +1,13 @@
 import os
 import pickle
 
+import diffrax
 import jax.random as jr
 import numpy as np
 import scipy
 from evaluation import (
     energy_distance,
     eval_logreg,
-    flatten_samples,
     test_accuracy,
     vec_dict_to_array,
 )
@@ -57,6 +57,7 @@ def run_logreg_dataset(name, log_filename, results_dict_filename=None):
     x0 = Predictive(model, num_samples=num_chains)(jr.key(0), x_train, labels_train)
     del x0["obs"]
 
+    print("NUTS:")
     nuts = MCMC(
         NUTS(model),
         num_warmup=warmup_len,
@@ -76,7 +77,6 @@ def run_logreg_dataset(name, log_filename, results_dict_filename=None):
     out_logreg_nuts = nuts.get_samples(group_by_chain=True)
     num_steps_nuts = sum(nuts.get_extra_fields()["num_steps"]) + warmup_steps
     geps_nuts = num_steps_nuts / (num_chains * num_samples_per_chain)
-    print("NUTS:")
     eval_nuts_str, eval_nuts_dict = eval_logreg(
         out_logreg_nuts,
         geps_nuts,
@@ -85,23 +85,27 @@ def run_logreg_dataset(name, log_filename, results_dict_filename=None):
         labels_test=labels_test,
         num_iters_w2=100000,
     )
+    del out_logreg_nuts
 
     with open(log_filename, "a") as f:
         f.write(f"NUTS: {eval_nuts_str}\n\n")
 
-    # Run LMC
+    # Run LMC with QUICSORT
     print("LMC:")
     lmc_tol = 0.04
+    if name == "splice":
+        lmc_tol = 0.01
     warmup_tol_mult = 2
     # Adapt chain_sep so that the total number of steps is similar to NUTS
     chain_sep = (0.4 * num_steps_nuts / num_chains) * (
         lmc_tol / (num_samples_per_chain + 4 + warmup_len / warmup_tol_mult)
     )
-    print(f"Target chain separation: {chain_sep:.4}")
+    print(f"Target time-interval between samples for LMC: {chain_sep:.4}")
     if chain_sep < 0.1:
         chain_sep = 0.1
 
-    out_logreg_lmc, geps_lmc = run_lmc_numpyro(
+    print("QUICSORT:")
+    out_logreg_quic, geps_quic = run_lmc_numpyro(
         jr.PRNGKey(3),
         model,
         (x_train, labels_train),
@@ -112,34 +116,59 @@ def run_logreg_dataset(name, log_filename, results_dict_filename=None):
         warmup_mult=warmup_len,
         warmup_tol_mult=warmup_tol_mult,
         use_adaptive=False,
+        solver=diffrax.QUICSORT(0.1),
     )
 
-    eval_lmc_str, eval_lmc_dict = eval_logreg(
-        out_logreg_lmc,
-        geps_lmc,
+    result_str_quic, result_dict_quic = eval_logreg(
+        out_logreg_quic,
+        geps_quic,
         ground_truth=gt_logreg,
         x_test=x_test,
         labels_test=labels_test,
         num_iters_w2=100000,
     )
+    del out_logreg_quic
 
     with open(log_filename, "a") as f:
-        f.write(f"LMC: {eval_lmc_str}\n\n")
+        f.write(f"LMC QUICSORT: {result_str_quic}\n\n")
 
-    # Compute energy distance between the two methods
-    lmc_flat = flatten_samples(out_logreg_lmc)
-    nuts_flat = flatten_samples(out_logreg_nuts)
-    energy_dist = energy_distance(lmc_flat, nuts_flat)
-    print(f"Energy distance between LMC and NUTS: {energy_dist:.5}")
+    # Run LMC with Euler
+
+    print("Euler:")
+    # Euler uses half as many function evaluations as QUICSORT,
+    # so it is fair to use half the tolerance
+    out_logreg_euler, geps_euler = run_lmc_numpyro(
+        jr.PRNGKey(3),
+        model,
+        (x_train, labels_train),
+        num_chains,
+        num_samples_per_chain,
+        chain_sep=chain_sep,
+        tol=0.5 * lmc_tol,
+        warmup_mult=warmup_len,
+        warmup_tol_mult=warmup_tol_mult,
+        use_adaptive=False,
+        solver=diffrax.Euler(),
+    )
+
+    result_str_euler, result_dict_euler = eval_logreg(
+        out_logreg_euler,
+        geps_euler,
+        ground_truth=gt_logreg,
+        x_test=x_test,
+        labels_test=labels_test,
+        num_iters_w2=100000,
+    )
+    del out_logreg_euler
 
     with open(log_filename, "a") as f:
-        f.write(f"Energy distance: {energy_dist:.5}\n\n\n")
+        f.write(f"LMC Euler: {result_str_euler}\n\n")
 
     results_dict = {
         "dataset_name": name,
-        "LMC": eval_lmc_dict,
+        "QUICSORT": result_dict_quic,
+        "Euler": result_dict_euler,
         "NUTS": eval_nuts_dict,
-        "Energy distance": energy_dist,
     }
 
     if results_dict_filename is not None:

@@ -1,0 +1,44 @@
+Results for time 2024-09-29_14-48-27
+
+======= image =======
+GT energy bias: 9.415e-04, test acc: 0.8213, test acc top 90%: 0.8227
+QUICSORT acc: 0.8228, acc top 90%: 0.8244, energy: 6.139e-04, w2: 7.337e-01
+Euler acc: 0.6855, acc top 90%: 0.7021, energy: 2.543e+00, w2: 1.205e+01
+NUTS acc: 0.8215, acc top 90%: 0.8228, energy: 5.669e-04, w2: 7.305e-01
+
+======= ringnorm =======
+GT energy bias: 2.306e-04, test acc: 0.7576, test acc top 90%: 0.7587
+QUICSORT acc: 0.758, acc top 90%: 0.759, energy: 2.863e-04, w2: 1.139e-01
+Euler acc: 0.6696, acc top 90%: 0.688, energy: 1.764e+00, w2: 7.542e+00
+NUTS acc: 0.7578, acc top 90%: 0.7589, energy: 2.022e-04, w2: 1.160e-01
+
+======= splice =======
+GT energy bias: 8.853e-04, test acc: 0.8263, test acc top 90%: 0.8275
+QUICSORT acc: 0.7861, acc top 90%: 0.8064, energy: 3.713e+00, w2: 2.285e+01
+Euler acc: 0.5156, acc top 90%: 0.5232, energy: 3.713e+00, w2: 2.285e+01
+NUTS acc: 0.8263, acc top 90%: 0.8275, energy: 2.341e-02, w2: 9.465e-01
+
+======= thyroid =======
+GT energy bias: 2.076e-04, test acc: 0.8006, test acc top 90%: 0.8077
+QUICSORT acc: 0.8119, acc top 90%: 0.8185, energy: 1.483e-04, w2: 8.227e-02
+Euler acc: 0.7993, acc top 90%: 0.8068, energy: 1.022e-01, w2: 4.335e-01
+NUTS acc: 0.8024, acc top 90%: 0.809, energy: 1.317e-04, w2: 8.280e-02
+
+======= titanic =======
+GT energy bias: 6.719e-04, test acc: 0.5094, test acc top 90%: 0.528
+QUICSORT acc: 0.5219, acc top 90%: 0.5414, energy: 1.166e-04, w2: 2.391e-02
+Euler acc: 0.54, acc top 90%: 0.5605, energy: 1.968e-02, w2: 8.982e-02
+NUTS acc: 0.5195, acc top 90%: 0.539, energy: 1.545e-04, w2: 2.459e-02
+
+======= twonorm =======
+GT energy bias: 4.978e-04, test acc: 0.9721, test acc top 90%: 0.9725
+QUICSORT acc: 0.9721, acc top 90%: 0.9726, energy: 5.212e-04, w2: 6.843e-01
+Euler acc: 0.9711, acc top 90%: 0.9718, energy: 1.093e-01, w2: 1.375e+00
+NUTS acc: 0.9721, acc top 90%: 0.9725, energy: 4.373e-04, w2: 6.820e-01
+
+======= waveform =======
+GT energy bias: 5.078e-04, test acc: 0.8748, test acc top 90%: 0.8756
+QUICSORT acc: 0.8755, acc top 90%: 0.8764, energy: 3.758e-04, w2: 4.114e-01
+Euler acc: 0.811, acc top 90%: 0.8224, energy: 4.237e+00, w2: 1.781e+01
+NUTS acc: 0.8751, acc top 90%: 0.8759, energy: 4.402e-04, w2: 4.112e-01
+
