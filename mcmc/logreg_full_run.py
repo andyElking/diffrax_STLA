@@ -50,7 +50,7 @@ def run_logreg_dataset(name, log_filename, results_dict_filename=None):
     with open(log_filename, "a") as f:
         f.write(f"======= {name} =======\n" f"{str_gt}\n")
 
-    num_chains = 2**7
+    num_chains = 2**8
     num_samples_per_chain = 2**8
     warmup_len = 2**7
 
@@ -91,8 +91,8 @@ def run_logreg_dataset(name, log_filename, results_dict_filename=None):
 
     # Run LMC
     print("LMC:")
-    lmc_tol = 0.02
-    warmup_tol_mult = 4
+    lmc_tol = 0.04
+    warmup_tol_mult = 2
     # Adapt chain_sep so that the total number of steps is similar to NUTS
     chain_sep = (0.4 * num_steps_nuts / num_chains) * (
         lmc_tol / (num_samples_per_chain + 4 + warmup_len / warmup_tol_mult)
