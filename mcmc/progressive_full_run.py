@@ -1,25 +1,25 @@
 import os
 import pickle
 import time
+from functools import partial
 
 import diffrax
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 import numpy as np
 import scipy
 from evaluation import (
+    adjust_max_len,  # noqa: F401
+    compute_w2,
     energy_distance,  # noqa: F401
-    eval_progressive_logreg,  # noqa: F401
-    # noqa: F401
     test_accuracy,  # noqa: F401
     vec_dict_to_array,  # noqa: F401
 )
 from get_model import get_model_and_data  # noqa: F401
 from main import run_simple_lmc_numpyro  # noqa: F401
 from numpyro.infer import MCMC, NUTS, Predictive  # pyright: ignore
-
-from mcmc.evaluation import adjust_max_len
 
 
 def make_result_str(result_dict, method_name):
@@ -174,7 +174,7 @@ def run_progressive_logreg(
             num_particles,
             chain_len=2**5,
             chain_sep=1.0,
-            tol=quic_tol / 2,
+            tol=quic_tol / 10,
             solver=diffrax.Euler(),
         )
         time_euler = time.time() - start_euler
@@ -215,3 +215,78 @@ def run_progressive_logreg(
 
     with open(result_dict_filename, "wb") as f:
         pickle.dump(whole_result_dict, f)
+
+
+def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
+    energy_err = energy_distance(sample_slice, ground_truth, max_len=2**14)
+
+    if x_test is not None and labels_test is not None:
+        test_acc, test_acc_best90 = test_accuracy(x_test, labels_test, sample_slice)
+    else:
+        test_acc, test_acc_best90 = None, None
+
+    return energy_err, test_acc, test_acc_best90
+
+
+def eval_progressive_logreg(
+    samples,
+    ground_truth,
+    evals_per_sample,
+    x_test,
+    labels_test,
+    num_iters_w2=100000,
+    max_samples_w2=2**11,
+    metric_eval_interval=1,
+):
+    if isinstance(samples, dict):
+        samples = vec_dict_to_array(samples)
+
+    num_chains, chain_len, sample_dim = samples.shape
+
+    if jnp.shape(evals_per_sample) == (num_chains * chain_len,):
+        evals_per_sample = jnp.reshape(evals_per_sample, (num_chains, chain_len))
+        evals_per_sample = jnp.mean(evals_per_sample, axis=0)
+    elif jnp.size(evals_per_sample) == 1:
+        evals_per_sample = jnp.broadcast_to(evals_per_sample, (chain_len,))
+    else:
+        assert False, f"evals_per_sample shape: {evals_per_sample.shape}"
+
+    assert jnp.shape(evals_per_sample) == (
+        chain_len,
+    ), f"{evals_per_sample.shape} != {(chain_len,)}"
+
+    cumulative_evals = jnp.cumsum(evals_per_sample)[::metric_eval_interval]
+
+    samples_for_eval = samples[:, ::metric_eval_interval]
+
+    # now we go along chain_len and compute the metrics for each step
+    partial_metrics = partial(
+        compute_metrics,
+        ground_truth=ground_truth,
+        x_test=x_test,
+        labels_test=labels_test,
+    )
+    # vectorize over the chain_len dimension
+    vec_metrics = jax.vmap(partial_metrics, in_axes=1)
+    energy_err, test_acc, test_acc_best90 = vec_metrics(samples_for_eval)
+
+    if num_iters_w2 > 0:
+        # wasserstein-2 distance is done via numpy, so cannot be vectorised
+        w2_list = []
+        for i in range(jnp.shape(samples_for_eval)[1]):
+            w2_single = compute_w2(
+                samples_for_eval[:, i], ground_truth, num_iters_w2, max_samples_w2
+            )
+            w2_list.append(w2_single)
+        w2 = jnp.array(w2_list)
+    else:
+        w2 = None
+
+    result_dict = {
+        "energy_err": energy_err,
+        "test_acc": test_acc,
+        "test_acc_best90": test_acc_best90,
+        "cumulative_evals": cumulative_evals,
+        "w2": w2,
+    }
+    return result_dict
