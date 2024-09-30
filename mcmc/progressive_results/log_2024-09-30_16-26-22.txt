@@ -1,0 +1,80 @@
+Results for time 2024-09-30_16-26-22
+
+======= banana =======
+GT energy bias: 2.455e-05, test acc: 0.5498, test acc top 90%: 0.556
+QUICSORT acc: 0.5509, acc top 90%: 0.5575, energy: 2.590e-05, w2: 3.747e-04
+Euler acc: 0.5444, acc top 90%: 0.5541, energy: 7.631e-03, w2: 1.584e-02
+NUTS acc: 0.5509, acc top 90%: 0.5568, energy: 7.520e-06, w2: 3.826e-04
+
+======= breast_cancer =======
+GT energy bias: 9.460e-05, test acc: 0.6627, test acc top 90%: 0.6677
+QUICSORT acc: 0.666, acc top 90%: 0.6718, energy: 1.156e-04, w2: 1.355e-01
+Euler acc: 0.675, acc top 90%: 0.6818, energy: 2.128e-01, w2: 4.192e-01
+NUTS acc: 0.6641, acc top 90%: 0.6726, energy: 2.228e-04, w2: 1.490e-01
+
+======= diabetis =======
+GT energy bias: 4.407e-05, test acc: 0.7772, test acc top 90%: 0.7798
+QUICSORT acc: 0.7809, acc top 90%: 0.7836, energy: 1.135e-04, w2: 3.959e-02
+Euler acc: 0.7761, acc top 90%: 0.7791, energy: 4.000e-01, w2: 4.312e-01
+NUTS acc: 0.7788, acc top 90%: 0.7814, energy: 1.338e-04, w2: 4.328e-02
+
+======= flare_solar =======
+GT energy bias: 8.068e-04, test acc: 0.6169, test acc top 90%: 0.6247
+QUICSORT acc: 0.6297, acc top 90%: 0.6389, energy: 6.087e-03, w2: 1.790e+00
+Euler acc: 0.6276, acc top 90%: 0.6363, energy: 2.851e+00, w2: 3.977e+01
+NUTS acc: 0.6191, acc top 90%: 0.6269, energy: 1.461e-02, w2: 3.028e+00
+
+======= german =======
+GT energy bias: 1.110e-04, test acc: 0.7837, test acc top 90%: 0.7872
+QUICSORT acc: 0.7855, acc top 90%: 0.7891, energy: 3.034e-04, w2: 1.567e-01
+Euler acc: 0.7769, acc top 90%: 0.7815, energy: 2.661e-01, w2: 8.403e-01
+NUTS acc: 0.7842, acc top 90%: 0.7878, energy: 2.858e-04, w2: 1.610e-01
+
+======= heart =======
+GT energy bias: 1.212e-04, test acc: 0.8014, test acc top 90%: 0.8094
+QUICSORT acc: 0.8061, acc top 90%: 0.8141, energy: 1.553e-04, w2: 3.381e-01
+Euler acc: 0.8179, acc top 90%: 0.824, energy: 3.350e-01, w2: 9.836e-01
+NUTS acc: 0.8038, acc top 90%: 0.812, energy: 3.556e-04, w2: 3.772e-01
+
+======= image =======
+GT energy bias: 3.996e-04, test acc: 0.821, test acc top 90%: 0.8223
+QUICSORT acc: 0.8237, acc top 90%: 0.8252, energy: 4.670e-04, w2: 7.302e-01
+Euler acc: 0.7975, acc top 90%: 0.8036, energy: 7.774e-01, w2: 4.557e+00
+NUTS acc: 0.8215, acc top 90%: 0.8228, energy: 5.669e-04, w2: 7.305e-01
+
+======= ringnorm =======
+GT energy bias: 1.145e-04, test acc: 0.7575, test acc top 90%: 0.7586
+QUICSORT acc: 0.7587, acc top 90%: 0.7598, energy: 5.104e-04, w2: 1.122e-01
+Euler acc: 0.7646, acc top 90%: 0.7663, energy: 2.865e-01, w2: 4.334e-01
+NUTS acc: 0.7578, acc top 90%: 0.7589, energy: 2.022e-04, w2: 1.160e-01
+
+======= splice =======
+GT energy bias: 3.211e-04, test acc: 0.8264, test acc top 90%: 0.8275
+QUICSORT acc: 0.8269, acc top 90%: 0.8281, energy: 3.790e-04, w2: 8.340e-01
+Euler acc: 0.7956, acc top 90%: 0.8014, energy: 2.480e+00, w2: 1.231e+01
+NUTS acc: 0.8263, acc top 90%: 0.8275, energy: 2.341e-02, w2: 9.465e-01
+
+======= thyroid =======
+GT energy bias: 6.158e-05, test acc: 0.7996, test acc top 90%: 0.8062
+QUICSORT acc: 0.8256, acc top 90%: 0.8315, energy: 1.128e-04, w2: 8.251e-02
+Euler acc: 0.7541, acc top 90%: 0.7609, energy: 1.275e+00, w2: 2.079e+00
+NUTS acc: 0.8024, acc top 90%: 0.809, energy: 1.317e-04, w2: 8.280e-02
+
+======= titanic =======
+GT energy bias: 8.428e-05, test acc: 0.5117, test acc top 90%: 0.5328
+QUICSORT acc: 0.5217, acc top 90%: 0.5403, energy: 6.309e-05, w2: 2.562e-02
+Euler acc: 0.5293, acc top 90%: 0.5503, energy: 1.218e-02, w2: 5.192e-02
+NUTS acc: 0.5195, acc top 90%: 0.539, energy: 1.545e-04, w2: 2.459e-02
+
+======= twonorm =======
+GT energy bias: 2.240e-04, test acc: 0.9719, test acc top 90%: 0.9724
+QUICSORT acc: 0.9721, acc top 90%: 0.9726, energy: 3.468e-04, w2: 6.940e-01
+Euler acc: 0.9769, acc top 90%: 0.9771, energy: 2.889e-01, w2: 1.381e+00
+NUTS acc: 0.9721, acc top 90%: 0.9725, energy: 4.373e-04, w2: 6.820e-01
+
+======= waveform =======
+GT energy bias: 2.431e-04, test acc: 0.8749, test acc top 90%: 0.8758
+QUICSORT acc: 0.8756, acc top 90%: 0.8765, energy: 3.020e-04, w2: 4.065e-01
+Euler acc: 0.8601, acc top 90%: 0.8654, energy: 6.933e-01, w2: 3.703e+00
+NUTS acc: 0.8751, acc top 90%: 0.8759, energy: 4.402e-04, w2: 4.112e-01
+

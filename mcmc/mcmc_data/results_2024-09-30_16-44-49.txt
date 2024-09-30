@@ -1,0 +1,223 @@
+Results
+
+======= banana =======
+GT energy bias: 2.455e-05, test acc: 0.5498, test acc top 90%: 0.556
+NUTS: 
+ESS per sample: 0.9635, grad evals per sample: 7.626, GEPS/ESS: 7.915
+Energy dist vs ground truth: 7.912e-06, Wasserstein-2 error: 0.0004198
+Test_accuracy: 0.5492, top 90% accuracy: 0.5558
+
+LMC QUICSORT: 
+ESS per sample: 0.9302, grad evals per sample: 7.32, GEPS/ESS: 7.87
+Energy dist vs ground truth: 3.462e-05, Wasserstein-2 error: 0.0004376
+Test_accuracy: 0.5506, top 90% accuracy: 0.5563
+
+LMC Euler: 
+ESS per sample: 0.5159, grad evals per sample: 16.28, GEPS/ESS: 31.55
+Energy dist vs ground truth: 2.396, Wasserstein-2 error: 12.85
+Test_accuracy: 0.5072, top 90% accuracy: 0.5183
+
+======= breast_cancer =======
+GT energy bias: 9.460e-05, test acc: 0.6627, test acc top 90%: 0.6677
+NUTS: 
+ESS per sample: 1.192, grad evals per sample: 12.11, GEPS/ESS: 10.17
+Energy dist vs ground truth: 9.42e-05, Wasserstein-2 error: 0.1419
+Test_accuracy: 0.6586, top 90% accuracy: 0.6643
+
+LMC QUICSORT: 
+ESS per sample: 0.4016, grad evals per sample: 10.02, GEPS/ESS: 24.94
+Energy dist vs ground truth: 6.859e-05, Wasserstein-2 error: 0.1393
+Test_accuracy: 0.6603, top 90% accuracy: 0.6656
+
+LMC Euler: 
+ESS per sample: 0.4237, grad evals per sample: 25.02, GEPS/ESS: 59.06
+Energy dist vs ground truth: 0.007589, Wasserstein-2 error: 0.1935
+Test_accuracy: 0.66, top 90% accuracy: 0.6658
+
+======= diabetis =======
+GT energy bias: 4.407e-05, test acc: 0.7772, test acc top 90%: 0.7798
+NUTS: 
+ESS per sample: 1.155, grad evals per sample: 11.93, GEPS/ESS: 10.32
+Energy dist vs ground truth: 3.515e-05, Wasserstein-2 error: 0.04258
+Test_accuracy: 0.7778, top 90% accuracy: 0.7803
+
+LMC QUICSORT: 
+ESS per sample: 0.618, grad evals per sample: 9.984, GEPS/ESS: 16.15
+Energy dist vs ground truth: 4.192e-05, Wasserstein-2 error: 0.04122
+Test_accuracy: 0.7775, top 90% accuracy: 0.7801
+
+LMC Euler: 
+ESS per sample: 0.7565, grad evals per sample: 23.94, GEPS/ESS: 31.64
+Energy dist vs ground truth: 1.119, Wasserstein-2 error: 3.511
+Test_accuracy: 0.718, top 90% accuracy: 0.7252
+
+======= flare_solar =======
+GT energy bias: 8.068e-04, test acc: 0.6169, test acc top 90%: 0.6247
+NUTS: 
+ESS per sample: 0.8171, grad evals per sample: 97.47, GEPS/ESS: 119.3
+Energy dist vs ground truth: 0.0008303, Wasserstein-2 error: 2.106
+Test_accuracy: 0.6151, top 90% accuracy: 0.6226
+
+LMC QUICSORT: 
+ESS per sample: 0.1538, grad evals per sample: 78.13, GEPS/ESS: 508.1
+Energy dist vs ground truth: 0.0009825, Wasserstein-2 error: 5.009
+Test_accuracy: 0.6169, top 90% accuracy: 0.6246
+
+LMC Euler: 
+ESS per sample: 0.139, grad evals per sample: 195.3, GEPS/ESS: 1.405e+03
+Energy dist vs ground truth: 8.793, Wasserstein-2 error: 82.27
+Test_accuracy: 0.6052, top 90% accuracy: 0.6119
+
+======= german =======
+GT energy bias: 1.110e-04, test acc: 0.7837, test acc top 90%: 0.7872
+NUTS: 
+ESS per sample: 1.255, grad evals per sample: 15.79, GEPS/ESS: 12.58
+Energy dist vs ground truth: 9.884e-05, Wasserstein-2 error: 0.1668
+Test_accuracy: 0.7834, top 90% accuracy: 0.787
+
+LMC QUICSORT: 
+ESS per sample: 1.732, grad evals per sample: 12.62, GEPS/ESS: 7.283
+Energy dist vs ground truth: 0.0001003, Wasserstein-2 error: 0.1626
+Test_accuracy: 0.7841, top 90% accuracy: 0.7875
+
+LMC Euler: 
+ESS per sample: 1.019, grad evals per sample: 31.53, GEPS/ESS: 30.94
+Energy dist vs ground truth: 3.048, Wasserstein-2 error: 15.65
+Test_accuracy: 0.7045, top 90% accuracy: 0.7134
+
+======= heart =======
+GT energy bias: 1.212e-04, test acc: 0.8014, test acc top 90%: 0.8094
+NUTS: 
+ESS per sample: 1.241, grad evals per sample: 12.61, GEPS/ESS: 10.16
+Energy dist vs ground truth: 7.32e-05, Wasserstein-2 error: 0.354
+Test_accuracy: 0.8015, top 90% accuracy: 0.8096
+
+LMC QUICSORT: 
+ESS per sample: 0.3837, grad evals per sample: 10.09, GEPS/ESS: 26.3
+Energy dist vs ground truth: 9.588e-05, Wasserstein-2 error: 0.3542
+Test_accuracy: 0.7993, top 90% accuracy: 0.8073
+
+LMC Euler: 
+ESS per sample: 0.3962, grad evals per sample: 25.22, GEPS/ESS: 63.65
+Energy dist vs ground truth: 0.005055, Wasserstein-2 error: 0.4197
+Test_accuracy: 0.7973, top 90% accuracy: 0.8055
+
+======= image =======
+GT energy bias: 3.996e-04, test acc: 0.821, test acc top 90%: 0.8223
+NUTS: 
+ESS per sample: 1.063, grad evals per sample: 84.1, GEPS/ESS: 79.11
+Energy dist vs ground truth: 0.0004884, Wasserstein-2 error: 0.7849
+Test_accuracy: 0.8207, top 90% accuracy: 0.822
+
+LMC QUICSORT: 
+ESS per sample: 0.8605, grad evals per sample: 67.93, GEPS/ESS: 78.94
+Energy dist vs ground truth: 0.0003285, Wasserstein-2 error: 0.753
+Test_accuracy: 0.8212, top 90% accuracy: 0.8225
+
+LMC Euler: 
+ESS per sample: 0.2963, grad evals per sample: 167.8, GEPS/ESS: 566.3
+Energy dist vs ground truth: 13.09, Wasserstein-2 error: 143.8
+Test_accuracy: 0.6906, top 90% accuracy: 0.7003
+
+======= ringnorm =======
+GT energy bias: 1.145e-04, test acc: 0.7575, test acc top 90%: 0.7586
+NUTS: 
+ESS per sample: 1.744, grad evals per sample: 11.77, GEPS/ESS: 6.748
+Energy dist vs ground truth: 7.695e-05, Wasserstein-2 error: 0.1219
+Test_accuracy: 0.7572, top 90% accuracy: 0.7584
+
+LMC QUICSORT: 
+ESS per sample: 1.53, grad evals per sample: 9.961, GEPS/ESS: 6.512
+Energy dist vs ground truth: 0.0001049, Wasserstein-2 error: 0.121
+Test_accuracy: 0.7574, top 90% accuracy: 0.7585
+
+LMC Euler: 
+ESS per sample: 0.8361, grad evals per sample: 23.88, GEPS/ESS: 28.55
+Energy dist vs ground truth: 1.436, Wasserstein-2 error: 6.195
+Test_accuracy: 0.683, top 90% accuracy: 0.7006
+
+======= splice =======
+GT energy bias: 3.211e-04, test acc: 0.8264, test acc top 90%: 0.8275
+NUTS: 
+ESS per sample: 1.406, grad evals per sample: 153.8, GEPS/ESS: 109.4
+Energy dist vs ground truth: 0.0002113, Wasserstein-2 error: 0.8448
+Test_accuracy: 0.8264, top 90% accuracy: 0.8276
+
+LMC QUICSORT: 
+ESS per sample: 0.9728, grad evals per sample: 123.5, GEPS/ESS: 126.9
+Energy dist vs ground truth: 0.0004557, Wasserstein-2 error: 0.8592
+Test_accuracy: 0.8265, top 90% accuracy: 0.8278
+
+LMC Euler: 
+ESS per sample: 0.9689, grad evals per sample: 307.6, GEPS/ESS: 317.5
+Energy dist vs ground truth: 132.7, Wasserstein-2 error: 6.147e+03
+Test_accuracy: 0.5446, top 90% accuracy: 0.5554
+
+======= thyroid =======
+GT energy bias: 6.158e-05, test acc: 0.7996, test acc top 90%: 0.8062
+NUTS: 
+ESS per sample: 0.9857, grad evals per sample: 12.54, GEPS/ESS: 12.72
+Energy dist vs ground truth: 0.0001008, Wasserstein-2 error: 0.08194
+Test_accuracy: 0.8001, top 90% accuracy: 0.8067
+
+LMC QUICSORT: 
+ESS per sample: 0.2659, grad evals per sample: 10.08, GEPS/ESS: 37.9
+Energy dist vs ground truth: 0.0001657, Wasserstein-2 error: 0.09241
+Test_accuracy: 0.7989, top 90% accuracy: 0.8057
+
+LMC Euler: 
+ESS per sample: 0.2721, grad evals per sample: 25.19, GEPS/ESS: 92.58
+Energy dist vs ground truth: 0.002401, Wasserstein-2 error: 0.1175
+Test_accuracy: 0.7981, top 90% accuracy: 0.8048
+
+======= titanic =======
+GT energy bias: 8.428e-05, test acc: 0.5117, test acc top 90%: 0.5328
+NUTS: 
+ESS per sample: 0.9901, grad evals per sample: 11.41, GEPS/ESS: 11.53
+Energy dist vs ground truth: 0.0001159, Wasserstein-2 error: 0.02753
+Test_accuracy: 0.5162, top 90% accuracy: 0.5349
+
+LMC QUICSORT: 
+ESS per sample: 0.2331, grad evals per sample: 9.898, GEPS/ESS: 42.46
+Energy dist vs ground truth: 8.259e-05, Wasserstein-2 error: 0.02848
+Test_accuracy: 0.5203, top 90% accuracy: 0.5386
+
+LMC Euler: 
+ESS per sample: 0.2146, grad evals per sample: 23.73, GEPS/ESS: 110.6
+Energy dist vs ground truth: 0.2855, Wasserstein-2 error: 10.04
+Test_accuracy: 0.5246, top 90% accuracy: 0.5445
+
+======= twonorm =======
+GT energy bias: 2.240e-04, test acc: 0.9719, test acc top 90%: 0.9724
+NUTS: 
+ESS per sample: 1.441, grad evals per sample: 12.23, GEPS/ESS: 8.491
+Energy dist vs ground truth: 0.0002312, Wasserstein-2 error: 0.717
+Test_accuracy: 0.9719, top 90% accuracy: 0.9724
+
+LMC QUICSORT: 
+ESS per sample: 0.4066, grad evals per sample: 10.03, GEPS/ESS: 24.67
+Energy dist vs ground truth: 0.0002498, Wasserstein-2 error: 0.7042
+Test_accuracy: 0.9719, top 90% accuracy: 0.9724
+
+LMC Euler: 
+ESS per sample: 0.409, grad evals per sample: 25.07, GEPS/ESS: 61.28
+Energy dist vs ground truth: 0.00729, Wasserstein-2 error: 0.816
+Test_accuracy: 0.9711, top 90% accuracy: 0.9716
+
+======= waveform =======
+GT energy bias: 2.431e-04, test acc: 0.8749, test acc top 90%: 0.8758
+NUTS: 
+ESS per sample: 1.361, grad evals per sample: 32.79, GEPS/ESS: 24.09
+Energy dist vs ground truth: 0.0001958, Wasserstein-2 error: 0.4343
+Test_accuracy: 0.8748, top 90% accuracy: 0.8757
+
+LMC QUICSORT: 
+ESS per sample: 2.113, grad evals per sample: 27.45, GEPS/ESS: 12.99
+Energy dist vs ground truth: 0.0001771, Wasserstein-2 error: 0.4152
+Test_accuracy: 0.8751, top 90% accuracy: 0.876
+
+LMC Euler: 
+ESS per sample: 1.72, grad evals per sample: 65.57, GEPS/ESS: 38.11
+Energy dist vs ground truth: 15.87, Wasserstein-2 error: 132.6
+Test_accuracy: 0.8044, top 90% accuracy: 0.8175
+

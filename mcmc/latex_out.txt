@@ -1,0 +1,53 @@
+RESULTS\multirow{3}{*}{banana(d=?)}
+   & QUICSORT & 7 & 0.93 & -1e+01 & -7.7 & 0.55 \\
+   & Euler & 16 & 0.52 & 0.87 & 2.6 & 0.51 \\
+   & NUTS & 8 & 0.96 & -1.2e+01 & -7.8 & 0.55 \\
+\midrule\multirow{3}{*}{breast_cancer(d=?)}
+   & QUICSORT & 10 & 0.4 & -9.6 & -2.0 & 0.66 \\
+   & Euler & 25 & 0.42 & -4.9 & -1.6 & 0.66 \\
+   & NUTS & 12 & 1.2 & -9.3 & -2.0 & 0.66 \\
+\midrule\multirow{3}{*}{diabetis(d=?)}
+   & QUICSORT & 10 & 0.62 & -1e+01 & -3.2 & 0.78 \\
+   & Euler & 24 & 0.76 & 0.11 & 1.3 & 0.72 \\
+   & NUTS & 12 & 1.2 & -1e+01 & -3.2 & 0.78 \\
+\midrule\multirow{3}{*}{flare_solar(d=?)}
+   & QUICSORT & 78 & 0.15 & -6.9 & 1.6 & 0.62 \\
+   & Euler & 195 & 0.14 & 2.2 & 4.4 & 0.61 \\
+   & NUTS & 97 & 0.82 & -7.1 & 0.74 & 0.62 \\
+\midrule\multirow{3}{*}{german(d=?)}
+   & QUICSORT & 13 & 1.7 & -9.2 & -1.8 & 0.78 \\
+   & Euler & 32 & 1.0 & 1.1 & 2.8 & 0.7 \\
+   & NUTS & 16 & 1.3 & -9.2 & -1.8 & 0.78 \\
+\midrule\multirow{3}{*}{heart(d=?)}
+   & QUICSORT & 10 & 0.38 & -9.3 & -1.0 & 0.8 \\
+   & Euler & 25 & 0.4 & -5.3 & -0.87 & 0.8 \\
+   & NUTS & 13 & 1.2 & -9.5 & -1.0 & 0.8 \\
+\midrule\multirow{3}{*}{image(d=?)}
+   & QUICSORT & 68 & 0.86 & -8.0 & -0.28 & 0.82 \\
+   & Euler & 168 & 0.3 & 2.6 & 5.0 & 0.69 \\
+   & NUTS & 84 & 1.1 & -7.6 & -0.24 & 0.82 \\
+\midrule\multirow{3}{*}{ringnorm(d=?)}
+   & QUICSORT & 10 & 1.5 & -9.2 & -2.1 & 0.76 \\
+   & Euler & 24 & 0.84 & 0.36 & 1.8 & 0.68 \\
+   & NUTS & 12 & 1.7 & -9.5 & -2.1 & 0.76 \\
+\midrule\multirow{3}{*}{splice(d=?)}
+   & QUICSORT & 123 & 0.97 & -7.7 & -0.15 & 0.83 \\
+   & Euler & 308 & 0.97 & 4.9 & 8.7 & 0.54 \\
+   & NUTS & 154 & 1.4 & -8.5 & -0.17 & 0.83 \\
+\midrule\multirow{3}{*}{thyroid(d=?)}
+   & QUICSORT & 10 & 0.27 & -8.7 & -2.4 & 0.8 \\
+   & Euler & 25 & 0.27 & -6.0 & -2.1 & 0.8 \\
+   & NUTS & 13 & 0.99 & -9.2 & -2.5 & 0.8 \\
+\midrule\multirow{3}{*}{titanic(d=?)}
+   & QUICSORT & 10 & 0.23 & -9.4 & -3.6 & 0.52 \\
+   & Euler & 24 & 0.21 & -1.3 & 2.3 & 0.52 \\
+   & NUTS & 11 & 0.99 & -9.1 & -3.6 & 0.52 \\
+\midrule\multirow{3}{*}{twonorm(d=?)}
+   & QUICSORT & 10 & 0.41 & -8.3 & -0.35 & 0.97 \\
+   & Euler & 25 & 0.41 & -4.9 & -0.2 & 0.97 \\
+   & NUTS & 12 & 1.4 & -8.4 & -0.33 & 0.97 \\
+\midrule\multirow{3}{*}{waveform(d=?)}
+   & QUICSORT & 27 & 2.1 & -8.6 & -0.88 & 0.88 \\
+   & Euler & 66 & 1.7 & 2.8 & 4.9 & 0.8 \\
+   & NUTS & 33 & 1.4 & -8.5 & -0.83 & 0.87 \\
+\midrule

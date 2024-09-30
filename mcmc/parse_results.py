@@ -1,61 +1,39 @@
+import glob
 import math
+import os
 import pickle
 
 import numpy as np
 
 
 def dict_to_latex(result_dict):
-    eps = result_dict["ess_per_sample"]
+    ess_ps = result_dict["ess_per_sample"]
     grad_evals = result_dict["grad_evals_per_sample"]
     log_energy = math.log(result_dict["energy_gt"])
     log_w2 = math.log(result_dict["w2"])
     test_accuracy = result_dict["test_accuracy"]
-    top90_accuracy = result_dict["top90_accuracy"]
     return (
-        f"{grad_evals:.2} & {eps:.2} & {log_energy:.2} & {log_w2:.2} &"
-        f" {test_accuracy:.2} & {top90_accuracy:.2}"
+        f"{grad_evals:.0f} & {ess_ps:.2} & {log_energy:.2} & {log_w2:.2} &"
+        f" {test_accuracy:.2}"
     )
 
 
-names = [
-    "banana",
-    "breast_cancer",
-    "diabetis",
-    "flare_solar",
-    "german",
-    "heart",
-    "image",
-    "ringnorm",
-    "splice",
-    "thyroid",
-    "titanic",
-    "twonorm",
-    "waveform",
-]
-
-
-def result_dicts_to_latex(dict_filename, output_filename):
-    str = "Results\n\n\n"
-
-    reverse_names = names[::-1]
+def result_dicts_to_latex(dict_filename):
     with open(dict_filename, "rb") as f:
-        for name in reverse_names:
-            result_dict = pickle.load(f)
-            print(name)
-            data_name = result_dict["dataset_name"]
-            assert data_name == name, f"Expected {name}, got {data_name}"
-            quic_result = result_dict["QUICSORT"]
-            nuts_result = result_dict["NUTS"]
-            euler_result = result_dict["Euler"]
+        result_dict = pickle.load(f)
 
-            str += f"{data_name}\n"
-            str += f"QUICSORT & {dict_to_latex(quic_result)} \\\\\n"
-            str += f"Euler & {dict_to_latex(euler_result)} \\\\\n"
-            str += f"NUTS & {dict_to_latex(nuts_result)} \\\\\n"
-            str += "\n\n"
+    data_name = result_dict["dataset_name"]
+    quic_result = result_dict["QUICSORT"]
+    nuts_result = result_dict["NUTS"]
+    euler_result = result_dict["Euler"]
 
-    with open(output_filename, "w") as f:
-        f.write(str)
+    str = r"\multirow{3}{*}{" + f"{data_name}" + r"(d=?)}" + "\n"
+    str += f"   & QUICSORT & {dict_to_latex(quic_result)} \\\\\n"
+    str += f"   & Euler & {dict_to_latex(euler_result)} \\\\\n"
+    str += f"   & NUTS & {dict_to_latex(nuts_result)} \\\\\n"
+    str += r"\midrule"
+
+    return str
 
 
 def result_dict_to_string(result_dict):
@@ -89,6 +67,31 @@ def result_dict_to_string(result_dict):
 
 
 if __name__ == "__main__":
-    dicts_filename = "mcmc_data/results_dict_2024-09-29_16-43-33.pkl"
-    output_filename = "mcmc_data/latex_string_2024-09-29_16-43-33.txt"
-    result_dicts_to_latex(dicts_filename, output_filename)
+    names = [
+        "banana",
+        "breast_cancer",
+        "diabetis",
+        "flare_solar",
+        "german",
+        "heart",
+        "image",
+        "ringnorm",
+        "splice",
+        "thyroid",
+        "titanic",
+        "twonorm",
+        "waveform",
+    ]
+    full_str = "RESULTS"
+    for name in names:
+        # search for a file of the form
+        # f"progressive_results/result_dict_{name}_{timestamp}.pkl"
+        filenames = glob.glob(f"mcmc_data/results_dict_{name}_*.pkl")
+        filenames.sort(key=os.path.getmtime)
+        latest_dict = filenames[-1]
+        str = result_dicts_to_latex(latest_dict)
+        print(str)
+        full_str += str
+
+    with open("latex_out.txt", "w") as f:
+        f.write(full_str)
