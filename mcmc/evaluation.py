@@ -1,12 +1,16 @@
 import math
+import os
 from functools import partial, reduce
 from operator import mul
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import numpy as np
 import ot  # pyright: ignore
 from jax import Array
+from numpyro.infer import MCMC, NUTS  # pyright: ignore
 
 
 def dict_to_array(dct: dict):
@@ -45,20 +49,20 @@ def adjust_max_len(max_len, data_dim):
     return max_len
 
 
-def truncate_samples(x, y, max_len: int = 2**16):
-    assert x.shape[1:] == y.shape[1:]
+def truncate_samples(x, max_len: Optional[int]):
+    if max_len is None:
+        return x
+
     data_dim = reduce(mul, x.shape[1:], 1)
     max_len = adjust_max_len(max_len, data_dim)
-
     if x.shape[0] > max_len:
         x = x[:max_len]
-    if y.shape[0] > max_len:
-        y = y[:max_len]
-    return x, y
+    return x
 
 
-def compute_w2(x, y, num_iters, max_len: int = 2**11):
-    x, y = truncate_samples(x, y, max_len)
+def compute_w2(x, y, num_iters, max_len: Optional[int] = 2**11):
+    x = truncate_samples(x, max_len)
+    y = truncate_samples(y, max_len)
     source_samples = np.array(x)
     target_samples = np.array(y)
     source_weights = np.ones(source_samples.shape[0]) / source_samples.shape[0]
@@ -67,10 +71,16 @@ def compute_w2(x, y, num_iters, max_len: int = 2**11):
     return ot.emd2(source_weights, target_weights, mm, numItermax=num_iters)
 
 
-@partial(jax.jit, static_argnames=("max_len",))
-def energy_distance(x: Array, y: Array, max_len: int = 2**14):
+@partial(jax.jit, static_argnames=("max_len_x", "max_len_y"))
+def energy_distance(
+    x: Array,
+    y: Array,
+    max_len_x: Optional[int] = 2**15,
+    max_len_y: Optional[int] = 2**15,
+):
     assert y.ndim == x.ndim
-    x, y = truncate_samples(x, y, max_len)
+    x = truncate_samples(x, max_len_x)
+    y = truncate_samples(y, max_len_y)
 
     @partial(jax.vmap, in_axes=(None, 0))
     def _dist_single(_x, _y_single):
@@ -117,3 +127,23 @@ def test_accuracy(x_test, labels_test, samples):
     best_sorted = jnp.sort(accuracy_per_sample)[len10:]
     accuracy_best90 = jnp.mean(best_sorted)
     return avg_accuracy, accuracy_best90
+
+
+def get_ground_truth(model, filename, x_train, labels_train):
+    # if ground_truth is not computed, compute it
+    if not os.path.exists(filename):
+        gt_nuts = MCMC(
+            NUTS(model, step_size=1.0),
+            num_warmup=2**10,
+            num_samples=2**13,
+            num_chains=2**3,
+            chain_method="vectorized",
+        )
+        gt_nuts.run(jr.PRNGKey(0), x_train, labels_train)
+        gt_logreg = vec_dict_to_array(gt_nuts.get_samples())
+        # shuffle the ground truth samples
+        gt_logreg = jr.permutation(jr.key(0), gt_logreg, axis=0)
+        np.save(filename, gt_logreg)
+    else:
+        gt_logreg = np.load(filename)
+    return gt_logreg

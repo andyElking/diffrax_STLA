@@ -1,0 +1,4 @@
+Results for time 2024-09-30_16-25-36
+
+======= banana =======
+GT energy bias: 2.455e-05, test acc: 0.5498, test acc top 90%: 0.556

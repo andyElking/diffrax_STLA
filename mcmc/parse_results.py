@@ -12,7 +12,7 @@ def dict_to_latex(result_dict):
     test_accuracy = result_dict["test_accuracy"]
     top90_accuracy = result_dict["top90_accuracy"]
     return (
-        f"{eps:.2} & {grad_evals:.2} & {log_energy:.2} & {log_w2:.2} &"
+        f"{grad_evals:.2} & {eps:.2} & {log_energy:.2} & {log_w2:.2} &"
         f" {test_accuracy:.2} & {top90_accuracy:.2}"
     )
 

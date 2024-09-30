@@ -1,8 +1,0 @@
-Results for time 2024-09-29_16-13-50
-
-======= splice =======
-GT energy bias: 8.853e-04, test acc: 0.8263, test acc top 90%: 0.8275
-QUICSORT acc: 0.8269, acc top 90%: 0.8281, energy: 6.407e-04, w2: 8.490e-01
-Euler acc: 0.5442, acc top 90%: 0.5549, energy: 3.713e+00, w2: 2.285e+01
-NUTS acc: 0.8263, acc top 90%: 0.8275, energy: 2.341e-02, w2: 9.465e-01
-

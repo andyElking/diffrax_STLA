@@ -1,9 +1,7 @@
-import os
 import pickle
 
 import diffrax
 import jax.random as jr
-import numpy as np
 import scipy
 from evaluation import (
     compute_w2,
@@ -17,6 +15,7 @@ from numpyro import diagnostics  # pyright: ignore
 from numpyro.infer import MCMC, NUTS, Predictive  # pyright: ignore
 
 from mcmc import run_lmc_numpyro
+from mcmc.evaluation import get_ground_truth
 from mcmc.parse_results import result_dict_to_string
 
 
@@ -33,21 +32,7 @@ def run_logreg_dataset(
     x_train, labels_train, x_test, labels_test = data_split
 
     gt_filename = f"mcmc_data/{name}_ground_truth.npy"
-
-    # if ground_truth is not computed, compute it
-    if not os.path.exists(gt_filename):
-        gt_nuts = MCMC(
-            NUTS(model, step_size=1.0),
-            num_warmup=2**10,
-            num_samples=2**13,
-            num_chains=2**3,
-            chain_method="vectorized",
-        )
-        gt_nuts.run(jr.PRNGKey(0), x_train, labels_train)
-        gt_logreg = vec_dict_to_array(gt_nuts.get_samples())
-        np.save(gt_filename, gt_logreg)
-    else:
-        gt_logreg = np.load(gt_filename)
+    gt_logreg = get_ground_truth(model, gt_filename, x_train, labels_train)
 
     size_gt_half = int(gt_logreg.shape[0] // 2)
     gt_energy_bias = energy_distance(gt_logreg[:size_gt_half], gt_logreg[size_gt_half:])
@@ -60,7 +45,7 @@ def run_logreg_dataset(
     with open(log_filename, "a") as f:
         f.write(f"======= {name} =======\n" f"{str_gt}\n")
 
-    num_chains = 2**8
+    num_chains = 2**7
     num_samples_per_chain = 2**8
     warmup_len = 2**7
 
@@ -232,7 +217,9 @@ def eval_logreg(
     energy_self = energy_distance(reshaped[:half_len], reshaped[half_len:])
 
     if ground_truth is not None:
-        energy_gt = energy_distance(reshaped, ground_truth)
+        energy_gt = energy_distance(
+            reshaped, ground_truth, max_len_x=2**15, max_len_y=2**16
+        )
         result_str += f"\nEnergy dist vs ground truth: {energy_gt:.4}"
     else:
         energy_gt = None
