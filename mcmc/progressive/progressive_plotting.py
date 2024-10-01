@@ -75,9 +75,9 @@ if __name__ == "__main__":
     for name in names:
         # search for a file of the form
         # f"progressive_results/result_dict_{name}_{timestamp}.pkl"
-        filenames = glob.glob(f"../progressive_results/result_dict_{name}_*.pkl")
+        filenames = glob.glob(f"progressive_results/{name}_*.pkl")
         filenames.sort(key=os.path.getmtime)
         latest_dict = filenames[-1]
         print(f"Plotting {latest_dict}")
-        save_name = f"progressive_results/plots/fig_{name}.pdf"
+        save_name = f"progressive_results/plots/fig2_{name}.pdf"
         figs = make_figs(latest_dict, save_name)

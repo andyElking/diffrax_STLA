@@ -38,7 +38,8 @@ def run_experiment(
             samples, aux_output = method.run(
                 key, model, model_args, result_dict, config
             )
-            method_dict = evaluator.eval(samples, aux_output, gt, config)
+            method_dict = evaluator.eval(samples, aux_output, gt, config, None)
+            del samples, aux_output
         else:
             method_dict = loaded_dict
         result_dict[method.method_name] = method_dict

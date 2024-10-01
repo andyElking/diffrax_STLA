@@ -10,7 +10,7 @@ class ProgressiveLogger(AbstractLogger):
         best_energy = jnp.min(method_dict["energy_err"])
         best_w2 = jnp.min(method_dict["w2"])
         str_out = (
-            f"acc: {best_acc:.4}, acc top 90%: {best_acc90:.4},"
+            f"{method_name}: acc: {best_acc:.4}, acc top 90%: {best_acc90:.4},"
             f" energy: {best_energy:.3e}, w2: {best_w2:.3e}"
         )
         return str_out

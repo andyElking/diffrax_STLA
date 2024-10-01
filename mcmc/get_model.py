@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import numpyro  # pyright: ignore
-from numpyro import distributions as dist  # pyright: ignore
+import numpyro
+from numpyro import distributions as dist
 
 
 def get_model_and_data(data, name):
@@ -29,10 +29,10 @@ def get_model_and_data(data, name):
         x_var = jnp.var(x, axis=0)
         W = numpyro.sample(
             "W",
-            dist.Normal(jnp.zeros(data_dim), 0.5 / x_var),
+            dist.Normal(jnp.zeros(data_dim), 0.5 / x_var),  # pyright: ignore
         )
-        b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 1))
+        b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 1))  # pyright: ignore
         logits = jnp.sum(W * x, axis=-1) + b
         return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
-    return model, (x_train, labels_train, x_test, labels_test)
+    return model, (x_train, labels_train), (x_test, labels_test)

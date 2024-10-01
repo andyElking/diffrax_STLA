@@ -2,8 +2,7 @@ from mcmc.evaluation import compute_energy, test_accuracy
 
 
 def eval_gt_logreg(gt, config):
-    x_test = config["x_test"]
-    labels_test = config["labels_test"]
+    x_test, labels_test = config["test_args"]
     size_gt_half = int(gt.shape[0] // 2)
     gt_energy_bias = compute_energy(gt[:size_gt_half], gt[size_gt_half:])
     gt_test_acc, gt_test_acc_best90 = test_accuracy(x_test, labels_test, gt)

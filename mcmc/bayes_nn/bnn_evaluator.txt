@@ -1,0 +1,25 @@
+from jax import Array
+from numpyro import handlers
+
+from ..evaluation import compute_energy
+from ..progressive import AbstractProgressiveEvaluator
+
+
+def predict(model, rng_key, samples, X, D_H):
+    model = handlers.substitute(handlers.seed(model, rng_key), samples)
+    # note that Y will be sampled in the model because we pass Y=None here
+    model_trace = handlers.trace(model).get_trace(X=X, Y=None, D_H=D_H)
+    return model_trace["Y"]["value"]
+
+
+class ProgBNNEvaluator(AbstractProgressiveEvaluator):
+    def vectorisable_metrics(
+        self, sample_slice, ground_truth, test_args, model
+    ) -> dict[str, Array]:
+        energy_err = compute_energy(
+            sample_slice, ground_truth, max_len_x=2**14, max_len_y=2**15
+        )
+
+        return {
+            "energy_err": energy_err,
+        }

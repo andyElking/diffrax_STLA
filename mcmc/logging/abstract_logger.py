@@ -26,7 +26,7 @@ class AbstractLogger:
                 f.write(f"Results for {timestamp}\n")
 
     def start_model_section(self, model_name: str, gt_str: Optional[str]):
-        log_str = f"======= {model_name} =======\n"
+        log_str = f"\n======= {model_name} =======\n"
         if gt_str is not None:
             log_str += gt_str + "\n"
         self.print_log(log_str)
