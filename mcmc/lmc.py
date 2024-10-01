@@ -20,8 +20,8 @@ from diffrax import (
     StepTo,
 )
 from jaxtyping import PyTree
-from numpyro.infer import Predictive  # pyright: ignore
-from numpyro.infer.util import initialize_model  # pyright: ignore
+from numpyro.infer import Predictive
+from numpyro.infer.util import initialize_model
 
 
 def run_lmc_numpyro(
