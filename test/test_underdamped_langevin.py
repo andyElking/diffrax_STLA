@@ -132,18 +132,18 @@ def fine_uld_solutions():
     bm_tol = 0.5 * (t1 - t0) * 2**-level_precise
 
     hosc_sde = get_harmonic_oscillator(t0, t1, jnp.float64)
-    hosc_sol, _ = simple_batch_sde_solve(
+    hosc_sols = simple_batch_sde_solve(
         bmkeys, hosc_sde, ref_solver, levy_area, None, controller, bm_tol, saveat
     )
 
     bqp_sde = get_bqp(t0, t1, jnp.float64)
-    bqp_sol, _ = simple_batch_sde_solve(
+    bqp_sols = simple_batch_sde_solve(
         bmkeys, bqp_sde, ref_solver, levy_area, None, controller, bm_tol, saveat
     )
 
     sols = {
-        "hosc": hosc_sol,
-        "bqp": bqp_sol,
+        "hosc": hosc_sols.ys,
+        "bqp": bqp_sols.ys,
     }
     return sols, t0, t1, bmkeys, saveat, level_coarse, level_fine, levy_area, bm_tol
 

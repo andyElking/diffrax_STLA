@@ -226,7 +226,7 @@ def _outer_buffers(state):
 def _save(
     t: FloatScalarLike,
     y: PyTree[Array],
-    num_steps: IntScalarLike,
+    num_accepted_steps: IntScalarLike,
     args: PyTree,
     fn: Callable,
     save_state: SaveState,
@@ -238,7 +238,7 @@ def _save(
 
     ts = ts.at[save_index].set(t)
     ys = jtu.tree_map(lambda ys_, y_: ys_.at[save_index].set(y_), ys, fn(t, y, args))
-    num_steps_running = num_steps_running.at[save_index].set(num_steps)
+    num_steps_running = num_steps_running.at[save_index].set(num_accepted_steps)
     save_index = save_index + 1
 
     return eqx.tree_at(
@@ -450,7 +450,7 @@ def loop(
                 )
                 _num_steps_running = _save_state.num_steps_running.at[
                     _save_state.save_index
-                ].set(num_steps)
+                ].set(num_accepted_steps)
                 return SaveState(
                     saveat_ts_index=_save_state.saveat_ts_index + 1,
                     ts=_ts,
@@ -484,7 +484,9 @@ def loop(
                     save_state.ys,
                 )
                 num_steps_running = maybe_inplace(
-                    save_state.save_index, num_steps, save_state.num_steps_running
+                    save_state.save_index,
+                    num_accepted_steps,
+                    save_state.num_steps_running,
                 )
                 save_index = save_state.save_index + jnp.where(keep_step, 1, 0)
                 save_state = eqx.tree_at(
@@ -786,7 +788,7 @@ def loop(
                 save_state = _save(
                     tfinal,
                     yfinal,
-                    final_state.num_steps,
+                    final_state.num_aaccepted_steps,
                     args,
                     subsaveat.fn,
                     save_state,
@@ -799,7 +801,7 @@ def loop(
                 save_state = _save(
                     tfinal,
                     yfinal,
-                    final_state.num_steps,
+                    final_state.num_accepted_steps,
                     args,
                     subsaveat.fn,
                     save_state,

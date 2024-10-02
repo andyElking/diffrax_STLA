@@ -172,17 +172,18 @@ def test_sde_strong_limit(
     levy_area = diffrax.SpaceTimeLevyArea  # must be common for all solvers
 
     if solutions[sol_type][noise] is None:
-        correct_sol, _ = simple_batch_sde_solve(
+        correct_sol = simple_batch_sde_solve(
             bmkeys, sde, ref_solver, levy_area, None, contr_fine, 2**-10, saveat
         )
-        solutions[sol_type][noise] = correct_sol
+        correct_ys = correct_sol.ys
+        solutions[sol_type][noise] = correct_ys
     else:
-        correct_sol = solutions[sol_type][noise]
+        correct_ys = solutions[sol_type][noise]
 
-    sol, _ = simple_batch_sde_solve(
+    sols = simple_batch_sde_solve(
         bmkeys, sde, solver_ctr(), levy_area, None, contr_coarse, 2**-10, saveat
     )
-    error = path_l2_dist(correct_sol, sol)
+    error = path_l2_dist(correct_ys, sols.ys)
     assert error < 0.05
 
 

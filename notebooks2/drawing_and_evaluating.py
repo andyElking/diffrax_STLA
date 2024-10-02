@@ -129,7 +129,7 @@ FUNNEL_LIMS = [-8, 8]
 
 
 def animated_funnel_plot(sol, skip=8):
-    xs = sol[0][0]
+    xs = sol[0]
     num_times = xs.shape[1]
     fig, (ax1, ax2) = plt.subplots(2)
     scat = ax1.scatter(xs[:, 0, 0], xs[:, 0, 1])
@@ -169,10 +169,10 @@ def get_fine_solutions(
     controller = diffrax.StepTo(
         ts=jnp.linspace(sde.t0, sde.t1, 2**level_fine + 1, endpoint=True)
     )
-    sol, _ = simple_batch_sde_solve(
+    sol = simple_batch_sde_solve(
         keys, sde, solver, levy_area, None, controller, bm_tol, saveat
     )
-    return sol
+    return sol.ys
 
 
 def save_ref_sol(sol, name):

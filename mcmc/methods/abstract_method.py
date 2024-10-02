@@ -27,7 +27,7 @@ class AbstractMethod:
         latest_filename = filenames[-1]
         with open(latest_filename, "rb") as f:
             prev_results = pickle.load(f)
-        return prev_results
+        return prev_results[self.method_name]
 
     def run(self, key, model, model_args, result_dict, config) -> tuple[Array, dict]:
         """

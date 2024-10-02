@@ -58,7 +58,8 @@ class ProgressiveNUTS(AbstractMethod):
             nuts.get_extra_fields()["num_steps"], (num_particles, -1)
         )
         steps_nuts = jnp.concatenate((warmup_steps, run_steps), axis=-1)
-        steps_nuts = jnp.reshape(steps_nuts, (-1,))
+        steps_nuts = jnp.mean(steps_nuts, axis=0)
+        cumulative_evals = jnp.cumsum(steps_nuts)
 
-        aux_output = {"evals_per_sample": steps_nuts, "wall_time": time_nuts}
+        aux_output = {"cumulative_evals": cumulative_evals, "wall_time": time_nuts}
         return samples, aux_output

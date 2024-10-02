@@ -59,18 +59,18 @@ def make_figs(result_dict_filename, save_name=None):
 if __name__ == "__main__":
     names = [
         "banana",
-        "breast_cancer",
-        "diabetis",
-        "flare_solar",
-        "german",
-        "heart",
-        "image",
-        "ringnorm",
-        "splice",
-        "thyroid",
-        "titanic",
-        "twonorm",
-        "waveform",
+        # "breast_cancer",
+        # "diabetis",
+        # "flare_solar",
+        # "german",
+        # "heart",
+        # "image",
+        # "ringnorm",
+        # "splice",
+        # "thyroid",
+        # "titanic",
+        # "twonorm",
+        # "waveform",
     ]
     for name in names:
         # search for a file of the form

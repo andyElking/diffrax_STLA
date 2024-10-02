@@ -191,10 +191,7 @@ def _sde_solve(
         progress_meter=meter,
         adjoint=adjoint,
     )
-    steps = sol.stats["num_accepted_steps"]
-    if isinstance(solver, diffrax.HalfSolver):
-        steps *= 3
-    return sol.ys, steps
+    return sol
 
 
 _batch_sde_solve = eqx.filter_jit(
@@ -307,7 +304,7 @@ def sde_solver_strong_order(
     if ref_solution is None:
         assert ref_solver is not None
         dt, step_controller = get_dt_and_controller(ref_level)
-        correct_sols, _ = _batch_sde_solve(
+        correct_sols = _batch_sde_solve(
             keys,
             get_terms,
             w_shape,
@@ -324,13 +321,14 @@ def sde_solver_strong_order(
             use_progress_meter=False,
             use_vbt=True,
         )
+        correct_ys = correct_sols.ys
     else:
-        correct_sols = ref_solution
+        correct_ys = ref_solution
 
     errs_list, steps_list = [], []
     for level in range(level_coarse, level_fine + 1):
         dt, step_controller = get_dt_and_controller(level)
-        sols, steps = _batch_sde_solve(
+        sols = _batch_sde_solve(
             keys,
             get_terms,
             w_shape,
@@ -347,7 +345,9 @@ def sde_solver_strong_order(
             use_progress_meter=False,
             use_vbt=True,
         )
-        errs = path_l2_dist(sols, correct_sols)
+        ys = sols.ys
+        steps = sols.stats["num_accepted_steps"]
+        errs = path_l2_dist(ys, correct_ys)
         errs_list.append(errs)
         steps_list.append(jnp.average(steps))
     errs_arr = jnp.array(errs_list)

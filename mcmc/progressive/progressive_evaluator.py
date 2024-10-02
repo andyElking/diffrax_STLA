@@ -43,28 +43,20 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
 
     def eval(self, samples, aux_output, ground_truth, config, model):
         test_args = config["test_args"]
-        evals_per_sample = aux_output["evals_per_sample"]
+        cumulative_evals = aux_output["cumulative_evals"]
         wall_time = aux_output["wall_time"]
         if isinstance(samples, dict):
             samples = vec_dict_to_array(samples)
 
         num_chains, chain_len, sample_dim = samples.shape
 
-        if jnp.shape(evals_per_sample) == (num_chains * chain_len,):
-            evals_per_sample = jnp.reshape(evals_per_sample, (num_chains, chain_len))
-            evals_per_sample = jnp.mean(evals_per_sample, axis=0)
-        elif jnp.size(evals_per_sample) == 1:
-            evals_per_sample = jnp.broadcast_to(evals_per_sample, (chain_len,))
-        else:
-            assert False, f"evals_per_sample shape: {evals_per_sample.shape}"
-
-        assert jnp.shape(evals_per_sample) == (
+        assert jnp.shape(cumulative_evals) == (
             chain_len,
-        ), f"{evals_per_sample.shape} != {(chain_len,)}"
+        ), f"{cumulative_evals.shape} != {(chain_len,)}"
 
         assert chain_len >= self.num_points and chain_len % self.num_points == 0
         metric_eval_interval = chain_len // self.num_points
-        cumulative_evals = jnp.cumsum(evals_per_sample)[::metric_eval_interval]
+        cumulative_evals = cumulative_evals[::metric_eval_interval]
         samples_for_eval = samples[:, ::metric_eval_interval]
         del samples
         assert jnp.shape(samples_for_eval) == (num_chains, self.num_points, sample_dim)
