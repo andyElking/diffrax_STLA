@@ -1,6 +1,8 @@
 import pickle
 from typing import Callable, Optional
 
+import jax.random as jr
+
 from .evaluation import AbstractEvaluator
 from .logging import AbstractLogger
 from .methods import AbstractMethod
@@ -16,14 +18,15 @@ def run_experiment(
     config,
     evaluator: AbstractEvaluator,
     logger: AbstractLogger,
+    compute_gt_fun: Callable,
     gt_dirname: Optional[str],
     gt_eval_fun: Optional[Callable],
     get_result_filename: Optional[Callable[[str], str]] = None,
 ):
     gt_str = ""
     if gt_dirname is not None:
-        gt_filename = f"{gt_dirname}/{model_name}_ground_truth.npy"
-        gt = get_ground_truth(model, gt_filename, *model_args)
+        gt_filename = f"{gt_dirname}/{model_name}_ground_truth.pkl"
+        gt = get_ground_truth(model, gt_filename, model_args, compute_gt_fun)
         if gt_eval_fun is not None:
             gt_str = gt_eval_fun(gt, config)
     else:
@@ -35,10 +38,13 @@ def run_experiment(
     for method in methods:
         loaded_dict = method.previous_results(model_name)
         if loaded_dict is None:
+            key_sample, key_eval = jr.split(key, 2)
             samples, aux_output = method.run(
                 key, model, model_args, result_dict, config
             )
-            method_dict = evaluator.eval(samples, aux_output, gt, config, None)
+            method_dict = evaluator.eval(
+                samples, aux_output, gt, config, None, key_eval
+            )
             del samples, aux_output
         else:
             method_dict = loaded_dict

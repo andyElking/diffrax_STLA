@@ -26,22 +26,22 @@ def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
 
 
 class AbstractProgressiveEvaluator(AbstractEvaluator):
-    def __init__(self, num_iters_w2=100000, max_samples_w2=2**11, num_points=32):
-        self.num_iters_w2 = num_iters_w2
-        self.max_samples_w2 = max_samples_w2
+    def __init__(self, num_points=32):
         self.num_points = num_points
 
     @abstractmethod
     def vectorisable_metrics(
-        self, sample_slice, ground_truth, test_args, model
+        self, sample_slice, ground_truth, test_args, model, key
     ) -> dict[str, Array]:
         raise NotImplementedError
 
     @abstractmethod
-    def sequential_metrics(self, sample_slice, ground_truth, test_args, model) -> dict:
+    def sequential_metrics(
+        self, sample_slice, ground_truth, test_args, model, key
+    ) -> dict:
         raise NotImplementedError
 
-    def eval(self, samples, aux_output, ground_truth, config, model):
+    def eval(self, samples, aux_output, ground_truth, config, model, key):
         test_args = config["test_args"]
         cumulative_evals = aux_output["cumulative_evals"]
         wall_time = aux_output["wall_time"]
@@ -68,6 +68,7 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
             ground_truth=ground_truth[: 2**14],
             test_args=test_args,
             model=model,
+            key=key,
         )
         # vectorize over the chain_len dimension
         vec_metrics = jax.jit(jax.vmap(partial_metrics, in_axes=1))
@@ -75,18 +76,9 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
 
         # compute metrics which cannot be vectorised (like W2)
         seq_dict: dict[str, list] = {}
-        w2_list = []
         for i in range(jnp.shape(samples_for_eval)[1]):
-            if self.num_iters_w2 > 0:
-                w2_single = compute_w2(
-                    samples_for_eval[:, i],
-                    ground_truth,
-                    self.num_iters_w2,
-                    self.max_samples_w2,
-                )
-                w2_list.append(w2_single)
             seq_out = self.sequential_metrics(
-                samples_for_eval[:, i], ground_truth, test_args, model
+                samples_for_eval[:, i], ground_truth, test_args, model, key
             )
             for key, value in seq_out.items():
                 if key not in seq_dict:
@@ -96,7 +88,6 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
         result_dict = {
             "cumulative_evals": cumulative_evals,
             "wall_time": wall_time,
-            "w2": jnp.array(w2_list) if self.num_iters_w2 > 0 else None,
         }
         for key, value in vec_dict.items():
             result_dict[key] = value
@@ -107,10 +98,26 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
 
 
 class ProgressiveEvaluator(AbstractProgressiveEvaluator):
+    def __init__(self, num_iters_w2=100000, max_samples_w2=2**11, num_points=32):
+        self.num_iters_w2 = num_iters_w2
+        self.max_samples_w2 = max_samples_w2
+        super().__init__(num_points=num_points)
+
     def vectorisable_metrics(
-        self, sample_slice, ground_truth, test_args, model
+        self, sample_slice, ground_truth, test_args, model, key
     ) -> dict[str, Array]:
         return compute_metrics(sample_slice, ground_truth, *test_args)
 
-    def sequential_metrics(self, sample_slice, ground_truth, test_args, model) -> dict:
-        return {}
+    def sequential_metrics(
+        self, sample_slice, ground_truth, test_args, model, key
+    ) -> dict:
+        if self.num_iters_w2 > 0:
+            w2 = compute_w2(
+                sample_slice,
+                ground_truth,
+                self.num_iters_w2,
+                self.max_samples_w2,
+            )
+            return {"w2": w2}
+        else:
+            return {}

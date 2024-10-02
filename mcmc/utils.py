@@ -1,6 +1,7 @@
 import os
 
 import jax
+import jax.tree_util as jtu
 import numpy as np
 from jax import numpy as jnp, random as jr
 from numpyro.infer import MCMC, NUTS
@@ -27,21 +28,43 @@ def flatten_samples(samples):
     return jnp.reshape(samples, (-1, samples.shape[-1]))
 
 
-def get_ground_truth(model, filename, x_train, labels_train):
-    # if ground_truth is not computed, compute it
-    if not os.path.exists(filename):
+def compute_gt_logreg(model, model_args):
+    gt_nuts = MCMC(
+        NUTS(model, step_size=1.0),
+        num_warmup=2**10,
+        num_samples=2**13,
+        num_chains=2**3,
+        chain_method="vectorized",
+    )
+    gt_nuts.run(jr.PRNGKey(0), *model_args)
+    gt_logreg = vec_dict_to_array(gt_nuts.get_samples())
+    return gt_logreg
+
+
+def get_bnn_gt_fun(test_args):
+    def compute_gt_bnn(model, model_args):
         gt_nuts = MCMC(
-            NUTS(model, step_size=1.0),
+            NUTS(model),
             num_warmup=2**10,
             num_samples=2**13,
             num_chains=2**3,
             chain_method="vectorized",
         )
-        gt_nuts.run(jr.PRNGKey(0), x_train, labels_train)
-        gt_logreg = vec_dict_to_array(gt_nuts.get_samples())
+        gt_nuts.run(jr.PRNGKey(0), *model_args)
+        gt_bnn = gt_nuts.get_samples()
+        return gt_bnn
+
+    return compute_gt_bnn
+
+
+def get_ground_truth(model, filename, model_args, compute_gt_fun):
+    # if ground_truth is not computed, compute it
+    if not os.path.exists(filename):
+        gt = compute_gt_fun(model, model_args)
         # shuffle the ground truth samples
-        gt_logreg = jr.permutation(jr.key(0), gt_logreg, axis=0)
-        np.save(filename, gt_logreg)
+        permute = jax.jit(lambda x: jr.permutation(jr.key(0), x, axis=0))
+        gt = jtu.tree_map(permute, gt)
+        np.save(filename, gt)
     else:
-        gt_logreg = np.load(filename)
-    return gt_logreg
+        gt = np.load(filename, allow_pickle=True)
+    return gt

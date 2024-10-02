@@ -68,8 +68,14 @@ def model(X, Y, D_H, D_Y=1):
 
 
 def get_model_and_data():
-    X, Y, X_test, Y_test = get_data()
+    sigma_obs = 0.05
+    X, Y, X_test, Y_test = get_data(sigma_obs=sigma_obs)
     D_H = 4
     model_args = (X, Y, D_H)
-    test_args = (X_test, Y_test, D_H)
+    test_args = {
+        "X": X_test,
+        "Y_true": Y_test,
+        "D_H": D_H,
+        "sigma_obs": sigma_obs,
+    }
     return model, model_args, test_args

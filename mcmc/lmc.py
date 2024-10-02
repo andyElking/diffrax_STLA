@@ -280,6 +280,10 @@ def run_simple_lmc(
     xs_mcmc = jtu.tree_map(
         lambda x: jnp.nan_to_num(x, nan=0, posinf=0, neginf=0), xs_mcmc
     )
+    print(
+        f"avg accepted: {jnp.mean(sols_mcmc.stats['num_accepted_steps']):.2f},"
+        f" avg rejected: {jnp.mean(sols_mcmc.stats['num_rejected_steps']):.2f}"
+    )
 
     cumulative_evals = steps_mult * sols_mcmc.num_steps_running
     assert cumulative_evals.shape == (num_particles, chain_len)
