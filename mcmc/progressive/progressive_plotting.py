@@ -24,10 +24,36 @@ def plot_progressive_results(result_dict, axs, label=None):
     if w2 is not None:
         axs[2].plot(cumulative_evals, w2, label=label)
         axs[2].set_yscale("log")
-        axs[2].set_xlabel("Number of function evaluations")
         axs[2].set_ylabel("Wasserstein-2 error")
-    else:
-        axs[1].set_xlabel("Number of function evaluations")
+    axs[-1].set_xlabel("Number of function evaluations")
+
+
+def plot_bnn_results(result_dict, axs, label=None):
+    energy_err = result_dict["energy_err"]
+    mean_err = result_dict["mean_err"]
+    pred_energy_err = result_dict["pred_energy_err"]
+    cumulative_evals = result_dict["cumulative_evals"]
+    w2 = result_dict["w2"]
+
+    num_subplots = 4 if w2 is not None else 3
+    assert len(axs) == num_subplots
+
+    axs[0].plot(cumulative_evals, energy_err, label=label)
+    axs[0].set_yscale("log")
+
+    axs[1].plot(cumulative_evals, mean_err, label=label)
+    axs[1].set_ylabel("Mean error")
+
+    axs[2].plot(cumulative_evals, pred_energy_err, label=label)
+    axs[2].set_yscale("log")
+    axs[2].set_ylabel("Energy error of model predictions")
+
+    axs[-1].set_xlabel("Number of function evaluations")
+
+    if w2 is not None:
+        axs[3].plot(cumulative_evals, w2, label=label)
+        axs[3].set_yscale("log")
+        axs[3].set_ylabel("Wasserstein-2 error")
 
 
 def make_figs(result_dict_filename, save_name=None):
@@ -79,5 +105,5 @@ if __name__ == "__main__":
         filenames.sort(key=os.path.getmtime)
         latest_dict = filenames[-1]
         print(f"Plotting {latest_dict}")
-        save_name = f"progressive_results/plots/fig_const_{name}.pdf"
+        save_name = f"progressive_results/plots/fig_pid5_{name}.pdf"
         figs = make_figs(latest_dict, save_name)

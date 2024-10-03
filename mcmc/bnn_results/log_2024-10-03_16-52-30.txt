@@ -1,0 +1,5 @@
+Results for 2024-10-03_16-52-30
+
+======= bnn =======
+sample energy bias: 5.108e-01, mean_err: 1.192, pred_energy_err: 36.9
+

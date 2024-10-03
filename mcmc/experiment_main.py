@@ -6,7 +6,6 @@ import jax.random as jr
 from .evaluation import AbstractEvaluator
 from .logging import AbstractLogger
 from .methods import AbstractMethod
-from .utils import get_ground_truth
 
 
 def run_experiment(
@@ -18,19 +17,16 @@ def run_experiment(
     config,
     evaluator: AbstractEvaluator,
     logger: AbstractLogger,
-    compute_gt_fun: Callable,
-    gt_dirname: Optional[str],
+    get_gt_fun: Callable,
     gt_eval_fun: Optional[Callable],
-    get_result_filename: Optional[Callable[[str], str]] = None,
+    get_result_filename: Optional[Callable[[str], str]],
 ):
-    gt_str = ""
-    if gt_dirname is not None:
-        gt_filename = f"{gt_dirname}/{model_name}_ground_truth.pkl"
-        gt = get_ground_truth(model, gt_filename, model_args, compute_gt_fun)
-        if gt_eval_fun is not None:
-            gt_str = gt_eval_fun(gt, config)
+    key_gt, key = jr.split(key, 2)
+    gt = get_gt_fun(model, model_name, model_args, config, key_gt)
+    if gt_eval_fun is not None:
+        gt_str = gt_eval_fun(gt, config)
     else:
-        gt = None
+        gt_str = ""
 
     logger.start_model_section(model_name, gt_str)
     result_dict = {"model_name": model_name}

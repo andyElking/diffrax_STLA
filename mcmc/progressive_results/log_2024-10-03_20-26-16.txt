@@ -1,0 +1,6 @@
+Results for 2024-10-03_20-26-16
+
+======= banana =======
+GT energy bias: 1.361e-05, test acc: 0.549, test acc top 90%: 0.5554
+
+NUTS: acc: 0.5506, acc top 90%: 0.557, energy: 1.658e-05, w2: 3.582e-04

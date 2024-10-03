@@ -1,4 +1,6 @@
 import math
+
+from mcmc.utils import get_prior_samples
 from test.helpers import (
     _batch_sde_solve_multi_y0,
     make_underdamped_langevin_term,
@@ -42,8 +44,9 @@ def run_lmc_numpyro(
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = Predictive(model, num_samples=num_particles)(model_key, *model_args)
-    del x0["obs"]
+    x0 = get_prior_samples(model_key, model, model_args, num_particles)
+    x0.pop("obs", None)
+    x0.pop("Y", None)
     return run_lmc(
         lmc_key,
         log_p,
@@ -306,8 +309,9 @@ def run_simple_lmc_numpyro(
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = Predictive(model, num_samples=num_particles)(model_key, *model_args)
-    del x0["obs"]
+    x0 = get_prior_samples(model_key, model, model_args, num_particles)
+    x0.pop("obs", None)
+    x0.pop("Y", None)
     return run_simple_lmc(
         lmc_key,
         log_p,
