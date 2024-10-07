@@ -1,16 +1,13 @@
 import os
 
 import jax
-import jax.numpy as jnp
-import jax.random as jr
 import numpy as np
 import numpyro
-from jax import random as jr, tree_util as jtu, numpy as jnp
-from numpyro import distributions as dist, handlers
+from jax import numpy as jnp, random as jr, tree_util as jtu
+from numpyro import distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 from .metrics import compute_energy
-from .utils import get_prior_samples
 
 
 def get_model(data_dim):
@@ -24,12 +21,13 @@ def get_model(data_dim):
         logits = jnp.sum(W * x, axis=-1) + b
         obs = numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
         return {"W": W, "b": b, "obs": obs}
+
     return model
 
 
 def get_model_and_data(data, name):
-    if name == "tbp":
-        return get_taiwanese_bankruptcy_prediction()
+    if name in ["tbp", "isolet"]:
+        return get_uci_data(name)
 
     dset = data[name][0, 0]
     x = dset["x"]
@@ -49,29 +47,30 @@ def get_model_and_data(data, name):
     labels_train = labels[:n_train]
     x_test = x[n_train:]
     labels_test = labels[n_train:]
-    print(x_train[:5, :10])
-    print(labels_train[:5])
-    print(f"x_train shape: {x_train.shape}, labels_train shape: {labels_train.shape}"
-          f"x_train dtype: {x_train.dtype}, labels_train dtype: {labels_train.dtype}")
+    print(
+        f"x_train shape: {x_train.shape}, labels_train shape: {labels_train.shape}"
+        f"x_train dtype: {x_train.dtype}, labels_train dtype: {labels_train.dtype}"
+    )
 
     return get_model(data_dim), (x_train, labels_train), (x_test, labels_test)
 
 
-def get_taiwanese_bankruptcy_prediction():
-    x = np.load("tbp_data/tbp_x.npy")
-    labels = np.load("tbp_data/tbp_y.npy")
+def get_uci_data(name):
+    x = np.load(f"mcmc_data/{name}_x.npy")
+    labels = np.load(f"mcmc_data/{name}_y.npy")
     labels = jnp.array(labels, dtype=jnp.float64)
     x = jnp.array(x, dtype=jnp.float64)
-    x_train = x[:1000]
-    labels_train = labels[:1000]
-    x_test = x[1000:]
-    labels_test = labels[1000:]
+    n_samples = min(x.shape[0], 1400)
+    half_n = n_samples // 2
+    x_train = x[:half_n]
+    labels_train = labels[:half_n]
+    x_test = x[half_n:]
+    labels_test = labels[half_n:]
     data_dim = x.shape[1]
-    assert data_dim == 95, f"Data dim should be 95, but is {data_dim}"
-    print(x_train[:5, :10])
-    print(labels_train[:5])
-    print(f"x_train shape: {x_train.shape}, labels_train shape: {labels_train.shape}"
-          f"x_train dtype: {x_train.dtype}, labels_train dtype: {labels_train.dtype}")
+    print(
+        f"x_train shape: {x_train.shape}, labels_train shape: {labels_train.shape},"
+        f" x_test shape: {x_test.shape}, labels_test shape: {labels_test.shape}"
+    )
     return get_model(data_dim), (x_train, labels_train), (x_test, labels_test)
 
 
@@ -79,22 +78,19 @@ def get_gt_logreg(model, model_name, model_args, config, key):
     filename = f"ground_truth/{model_name}_ground_truth.npy"
     # if ground_truth is not computed, compute it
     if not os.path.exists(filename):
-        num_chains = 2 ** 3
-        x0 = get_prior_samples(key, model, model_args, num_chains)
-        x0.pop("obs", None)
-        x0.pop("Y", None)
-        print(jtu.tree_map(lambda x: x.shape, x0))
+        num_chains = 2**3
+        key_run, key_perm = jr.split(key, 2)
         gt_nuts = MCMC(
-            NUTS(model, step_size=1.0),
-            num_warmup=2 ** 10,
-            num_samples=2 ** 13,
+            NUTS(model),
+            num_warmup=2**10,
+            num_samples=2**13,
             num_chains=num_chains,
             chain_method="vectorized",
         )
-        gt_nuts.run(jr.PRNGKey(0), *model_args, init_params=x0)
+        gt_nuts.run(jr.PRNGKey(0), *model_args)
         gt = vec_dict_to_array(gt_nuts.get_samples())
         # shuffle the ground truth samples
-        permute = jax.jit(lambda x: jr.permutation(jr.key(0), x, axis=0))
+        permute = jax.jit(lambda x: jr.permutation(key_perm, x, axis=0))
         gt = jtu.tree_map(permute, gt)
         np.save(filename, gt)
     else:

@@ -4,10 +4,9 @@ from typing import Callable, Optional
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
-from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer import MCMC, NUTS
 
 from ..methods.abstract_method import AbstractMethod
-from ..utils import get_prior_samples
 
 
 class ProgressiveNUTS(AbstractMethod):
@@ -26,9 +25,9 @@ class ProgressiveNUTS(AbstractMethod):
         num_particles = config["num_particles"]
 
         key_init, key_warmup, key_run = jr.split(key, 3)
-        x0 = get_prior_samples(key_init, model, model_args, num_particles)
-        x0.pop("obs", None)
-        x0.pop("Y", None)
+        # x0 = Predictive(model, num_samples=num_particles)(key_init, *model_args)
+        # x0.pop("obs", None)
+        # x0.pop("Y", None)
 
         # run NUTS and record wall time
         start_nuts = time.time()
@@ -42,7 +41,7 @@ class ProgressiveNUTS(AbstractMethod):
         nuts.warmup(
             key_warmup,
             *model_args,
-            init_params=x0,
+            # init_params=x0,
             extra_fields=("num_steps",),
             collect_warmup=True,
         )

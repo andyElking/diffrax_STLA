@@ -7,18 +7,18 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import scipy
-from mcmc.lmc import run_simple_lmc_numpyro  # noqa: F401
 from numpyro.infer import MCMC, NUTS, Predictive  # noqa: F401
 
-from mcmc.metrics import adjust_max_len
 from mcmc.experiment_main import run_experiment
+from mcmc.lmc import run_simple_lmc_numpyro  # noqa: F401
+from mcmc.logreg_utils import eval_gt_logreg, get_gt_logreg, get_model_and_data
+from mcmc.metrics import adjust_max_len
 from mcmc.progressive import (
     ProgressiveEvaluator,
     ProgressiveLMC,
     ProgressiveLogger,
     ProgressiveNUTS,
 )
-from mcmc.logreg_utils import get_gt_logreg, eval_gt_logreg, get_model_and_data
 
 
 warnings.simplefilter("ignore", FutureWarning)
@@ -29,7 +29,8 @@ print(jax.devices("cuda"))
 
 dataset = scipy.io.loadmat("mcmc_data/benchmarks.mat")
 names = [
-    "tbp",
+    # "tbp",
+    "isolet",
     # "banana",
     # "breast_cancer",
     # "diabetis",
@@ -54,9 +55,9 @@ evaluator = ProgressiveEvaluator()
 logger = ProgressiveLogger(log_filename=f"progressive_results/log_{timestamp}.txt")
 logger.start_log(timestamp)
 
-nust = ProgressiveNUTS(20, 2**6, get_prev_result_filename)
+nust = ProgressiveNUTS(60, 2**7)
 
-USE_PID = False
+USE_PID = True
 
 
 def make_pid(atol, dt0):
@@ -113,9 +114,9 @@ for name in names:
         "num_particles": num_particles,
         "test_args": test_args,
     }
-    quic_dt0 = dt0s.get(name, 0.07)
-    chain_sep = seps.get(name, 0.5)
-    atol = atols.get(name, 0.8)
+    quic_dt0 = dt0s.get(name, 0.1)
+    chain_sep = seps.get(name, 2.0)
+    atol = atols.get(name, 1.0)
     quic.lmc_kwargs["dt0"], quic.lmc_kwargs["chain_sep"] = quic_dt0, chain_sep
     quic.lmc_kwargs["pid"] = make_pid(atol, quic_dt0)
     euler.lmc_kwargs["dt0"], euler.lmc_kwargs["chain_sep"] = (

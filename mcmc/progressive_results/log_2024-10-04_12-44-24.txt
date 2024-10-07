@@ -1,0 +1,5 @@
+Results for 2024-10-04_12-44-24
+
+======= tbp =======
+GT energy bias: nan, test acc: 0.268, test acc top 90%: 0.2937
+

@@ -1,6 +1,4 @@
 import math
-
-from mcmc.utils import get_prior_samples
 from test.helpers import (
     _batch_sde_solve_multi_y0,
     make_underdamped_langevin_term,
@@ -23,8 +21,17 @@ from diffrax import (
     StepTo,
 )
 from jaxtyping import PyTree
-from numpyro.infer import Predictive
 from numpyro.infer.util import initialize_model
+
+
+def get_x0(model, model_args, num_particles, key):
+    model_info = initialize_model(key, model, model_args=model_args)
+    x0 = model_info.param_info.z
+    x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
+    # x0 = Predictive(model, num_samples=num_particles)(key, *model_args)
+    # x0.pop("obs", None)
+    # x0.pop("Y", None)
+    return x0
 
 
 def run_lmc_numpyro(
@@ -44,9 +51,8 @@ def run_lmc_numpyro(
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = get_prior_samples(model_key, model, model_args, num_particles)
-    x0.pop("obs", None)
-    x0.pop("Y", None)
+    x0 = get_x0(model, model_args, num_particles, model_key)
+
     return run_lmc(
         lmc_key,
         log_p,
@@ -309,9 +315,7 @@ def run_simple_lmc_numpyro(
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = get_prior_samples(model_key, model, model_args, num_particles)
-    x0.pop("obs", None)
-    x0.pop("Y", None)
+    x0 = get_x0(model, model_args, num_particles, model_key)
     return run_simple_lmc(
         lmc_key,
         log_p,

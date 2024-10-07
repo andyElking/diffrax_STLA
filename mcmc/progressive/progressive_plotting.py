@@ -84,19 +84,20 @@ def make_figs(result_dict_filename, save_name=None):
 
 if __name__ == "__main__":
     names = [
-        "banana",
-        "breast_cancer",
-        "diabetis",
-        "flare_solar",
-        "german",
-        "heart",
-        "image",
-        "ringnorm",
-        "splice",
-        "thyroid",
-        "titanic",
-        "twonorm",
-        "waveform",
+        # "banana",
+        # "breast_cancer",
+        # "diabetis",
+        # "flare_solar",
+        # "german",
+        # "heart",
+        # "image",
+        # "ringnorm",
+        # "splice",
+        # "thyroid",
+        # "titanic",
+        # "twonorm",
+        # "waveform",
+        "tbp",
     ]
     for name in names:
         # search for a file of the form
@@ -105,5 +106,5 @@ if __name__ == "__main__":
         filenames.sort(key=os.path.getmtime)
         latest_dict = filenames[-1]
         print(f"Plotting {latest_dict}")
-        save_name = f"progressive_results/plots/fig_pid5_{name}.pdf"
+        save_name = f"progressive_results/plots/fig_pid6_{name}.pdf"
         figs = make_figs(latest_dict, save_name)
