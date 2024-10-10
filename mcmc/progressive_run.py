@@ -30,34 +30,37 @@ print(jax.devices("cuda"))
 dataset = scipy.io.loadmat("mcmc_data/benchmarks.mat")
 names = [
     # "tbp",
-    "isolet",
-    # "banana",
-    # "breast_cancer",
-    # "diabetis",
-    # "flare_solar",
-    # "german",
-    # "heart",
-    # "image",
-    # "ringnorm",
-    # "splice",
-    # "thyroid",
-    # "titanic",
-    # "twonorm",
-    # "waveform",
+    # "isolet_ab",
+    "banana",
+    "breast_cancer",
+    "diabetis",
+    "flare_solar",
+    "german",
+    "heart",
+    "image",
+    "ringnorm",
+    "splice",
+    "thyroid",
+    "titanic",
+    "twonorm",
+    "waveform",
 ]
 
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-get_result_filename = lambda name: f"progressive_results/{name}_pid_{timestamp}.pkl"
 get_prev_result_filename = lambda name: f"progressive_results/{name}_*.pkl"
 
 evaluator = ProgressiveEvaluator()
 logger = ProgressiveLogger(log_filename=f"progressive_results/log_{timestamp}.txt")
 logger.start_log(timestamp)
 
-nust = ProgressiveNUTS(60, 2**7)
+nuts = ProgressiveNUTS(30, 2**6)
 
-USE_PID = True
+USE_PID = False
+pid_str = "pid_" if USE_PID else ""
+get_result_filename = (
+    lambda name: f"progressive_results/{name}_{pid_str}{timestamp}.pkl"
+)
 
 
 def make_pid(atol, dt0):
@@ -89,16 +92,16 @@ euler_kwargs = {
     "pid": make_pid(0.1, 0.03),
 }
 euler = ProgressiveLMC(euler_kwargs)
-methods = [nust, quic]
+methods = [nuts, quic]
 
 dt0s = {
     "banana": 0.04,
-    "splice": 0.01,
+    "splice": 0.005,
     "flare_solar": 0.08,
 }
 seps = {
     "banana": 0.3,
-    "splice": 1.0,
+    "splice": 0.5,
     "flare_solar": 2.0,
     "image": 1.0,
     "waveform": 1.0,
@@ -114,9 +117,9 @@ for name in names:
         "num_particles": num_particles,
         "test_args": test_args,
     }
-    quic_dt0 = dt0s.get(name, 0.1)
-    chain_sep = seps.get(name, 2.0)
-    atol = atols.get(name, 1.0)
+    quic_dt0 = dt0s.get(name, 0.07)
+    chain_sep = seps.get(name, 0.5)
+    atol = atols.get(name, 0.1)
     quic.lmc_kwargs["dt0"], quic.lmc_kwargs["chain_sep"] = quic_dt0, chain_sep
     quic.lmc_kwargs["pid"] = make_pid(atol, quic_dt0)
     euler.lmc_kwargs["dt0"], euler.lmc_kwargs["chain_sep"] = (

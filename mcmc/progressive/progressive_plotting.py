@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt  # pyright: ignore
 
 def plot_progressive_results(result_dict, axs, label=None):
     energy_err = result_dict["energy_err"]
-    test_acc = result_dict["test_acc"]
+    test_acc = result_dict["test_acc_best80"]
     cumulative_evals = result_dict["cumulative_evals"]
     w2 = result_dict["w2"]
 
@@ -67,7 +67,9 @@ def make_figs(result_dict_filename, save_name=None):
         if method != "model_name":
             plot_progressive_results(value, axs, label=method)
 
-    width = result_dict["QUICSORT"]["cumulative_evals"][-1]
+    quic_width = result_dict["QUICSORT"]["cumulative_evals"][-1]
+    nuts_width = result_dict["NUTS"]["cumulative_evals"][-1]
+    width = max(quic_width, nuts_width / 3)
     axs[0].set_xlim(0, width)
     axs[1].set_xlim(0, width)
 
@@ -97,7 +99,8 @@ if __name__ == "__main__":
         # "titanic",
         # "twonorm",
         # "waveform",
-        "tbp",
+        # "tbp",
+        "isolet_ab",
     ]
     for name in names:
         # search for a file of the form
@@ -106,5 +109,5 @@ if __name__ == "__main__":
         filenames.sort(key=os.path.getmtime)
         latest_dict = filenames[-1]
         print(f"Plotting {latest_dict}")
-        save_name = f"progressive_results/plots/fig_pid6_{name}.pdf"
+        save_name = f"progressive_results/plots/final2_{name}.pdf"
         figs = make_figs(latest_dict, save_name)

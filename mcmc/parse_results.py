@@ -58,9 +58,9 @@ def result_dict_to_string(result_dict):
 
     test_acc = result_dict["test_accuracy"]
     if test_acc is not None:
-        test_acc_best90 = result_dict["top90_accuracy"]
+        test_acc_best80 = result_dict["top90_accuracy"]
         result_str += (
-            f"\nTest_accuracy: {test_acc:.4}, top 90% accuracy: {test_acc_best90:.4}"
+            f"\nTest_accuracy: {test_acc:.4}, top 80% accuracy: {test_acc_best80:.4}"
         )
 
     return result_str

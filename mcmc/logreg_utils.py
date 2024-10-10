@@ -19,14 +19,23 @@ def get_model(data_dim):
         )
         b = numpyro.sample("b", dist.Normal(jnp.zeros((1,)), 1))  # pyright: ignore
         logits = jnp.sum(W * x, axis=-1) + b
-        obs = numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
-        return {"W": W, "b": b, "obs": obs}
+        return numpyro.sample("obs", dist.Bernoulli(logits=logits), obs=labels)
 
     return model
 
 
+def train_test_split(x, labels, n_train_max):
+    n_train = min(int(0.8 * x.shape[0]), n_train_max)
+    n_test = min(x.shape[0] - n_train, n_train_max)
+    x_train = x[:n_train]
+    labels_train = labels[:n_train]
+    x_test = x[n_train : n_train + n_test]
+    labels_test = labels[n_train : n_train + n_test]
+    return x_train, labels_train, x_test, labels_test
+
+
 def get_model_and_data(data, name):
-    if name in ["tbp", "isolet"]:
+    if name in ["tbp", "isolet", "isolet_ab"]:
         return get_uci_data(name)
 
     dset = data[name][0, 0]
@@ -42,11 +51,7 @@ def get_model_and_data(data, name):
     x = x[perm]
     labels = labels[perm]
 
-    n_train = min(int(n * 0.8), 1000)
-    x_train = x[:n_train]
-    labels_train = labels[:n_train]
-    x_test = x[n_train:]
-    labels_test = labels[n_train:]
+    x_train, labels_train, x_test, labels_test = train_test_split(x, labels, 700)
     print(
         f"x_train shape: {x_train.shape}, labels_train shape: {labels_train.shape}"
         f"x_train dtype: {x_train.dtype}, labels_train dtype: {labels_train.dtype}"
@@ -60,13 +65,8 @@ def get_uci_data(name):
     labels = np.load(f"mcmc_data/{name}_y.npy")
     labels = jnp.array(labels, dtype=jnp.float64)
     x = jnp.array(x, dtype=jnp.float64)
-    n_samples = min(x.shape[0], 1400)
-    half_n = n_samples // 2
-    x_train = x[:half_n]
-    labels_train = labels[:half_n]
-    x_test = x[half_n:]
-    labels_test = labels[half_n:]
     data_dim = x.shape[1]
+    x_train, labels_train, x_test, labels_test = train_test_split(x, labels, 700)
     print(
         f"x_train shape: {x_train.shape}, labels_train shape: {labels_train.shape},"
         f" x_test shape: {x_test.shape}, labels_test shape: {labels_test.shape}"
@@ -115,10 +115,10 @@ def eval_gt_logreg(gt, config):
     x_test, labels_test = config["test_args"]
     size_gt_half = int(gt.shape[0] // 2)
     gt_energy_bias = compute_energy(gt[:size_gt_half], gt[size_gt_half:])
-    gt_test_acc, gt_test_acc_best90 = test_accuracy(x_test, labels_test, gt)
+    gt_test_acc, gt_test_acc_best80 = test_accuracy(x_test, labels_test, gt)
     str_gt = (
         f"GT energy bias: {gt_energy_bias:.3e}, test acc: {gt_test_acc:.4},"
-        f" test acc top 90%: {gt_test_acc_best90:.4}"
+        f" test acc top 80%: {gt_test_acc_best80:.4}"
     )
     return str_gt
 
@@ -156,7 +156,7 @@ def test_accuracy(x_test, labels_test, samples):
 
     avg_accuracy = jnp.mean(accuracy_per_sample)
 
-    len10 = int(0.1 * accuracy_per_sample.shape[0])
-    best_sorted = jnp.sort(accuracy_per_sample)[len10:]
-    accuracy_best90 = jnp.mean(best_sorted)
-    return avg_accuracy, accuracy_best90
+    len20 = int(0.2 * accuracy_per_sample.shape[0])
+    best_sorted = jnp.sort(accuracy_per_sample)[len20:]
+    accuracy_best80 = jnp.mean(best_sorted)
+    return avg_accuracy, accuracy_best80

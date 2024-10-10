@@ -2,12 +2,12 @@ from abc import abstractmethod
 from functools import partial
 
 import jax
-from jax import Array, numpy as jnp
 import jax.tree_util as jtu
+from jax import Array, numpy as jnp
 
 from ..evaluation import AbstractEvaluator
+from ..logreg_utils import test_accuracy, vec_dict_to_array
 from ..metrics import compute_energy, compute_w2
-from ..logreg_utils import vec_dict_to_array, test_accuracy
 
 
 def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
@@ -16,14 +16,14 @@ def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
     )
 
     if x_test is not None and labels_test is not None:
-        test_acc, test_acc_best90 = test_accuracy(x_test, labels_test, sample_slice)
+        test_acc, test_acc_best80 = test_accuracy(x_test, labels_test, sample_slice)
     else:
-        test_acc, test_acc_best90 = None, None
+        test_acc, test_acc_best80 = None, None
 
     return {
         "energy_err": energy_err,
         "test_acc": test_acc,
-        "test_acc_best90": test_acc_best90,
+        "test_acc_best80": test_acc_best80,
     }
 
 
@@ -62,9 +62,11 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
         eval_interval = chain_len // self.num_points
         cumulative_evals = cumulative_evals[::eval_interval]
         samples = jtu.tree_map(lambda x: x[:, ::eval_interval], samples)
-        assert jtu.tree_all(jtu.tree_map(
-            lambda x: x.shape[:2] == (num_chains, self.num_points), samples
-        )), f"expected shapes prefixed by {(num_chains, self.num_points)} but got {jtu.tree_map(lambda x: x.shape, samples)}"
+        assert jtu.tree_all(
+            jtu.tree_map(
+                lambda x: x.shape[:2] == (num_chains, self.num_points), samples
+            )
+        ), f"expected shapes prefixed by {(num_chains, self.num_points)} but got {jtu.tree_map(lambda x: x.shape, samples)}"
         assert jnp.shape(cumulative_evals) == (self.num_points,)
 
         # now we go along chain_len and compute the metrics for each step

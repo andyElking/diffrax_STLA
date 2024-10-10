@@ -1,7 +1,0 @@
-Results for 2024-10-07_15-21-40
-
-======= tbp =======
-GT energy bias: 1.943e+00, test acc: 0.8863, test acc top 90%: 0.8865
-
-NUTS: acc: 0.886, acc top 90%: 0.8864, energy: 2.231e+03, w2: 1.626e+07
-QUICSORT: acc: 0.8163, acc top 90%: 0.8223, energy: 2.189e+03, w2: 1.617e+07
