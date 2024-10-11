@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 from numpyro.infer import MCMC, NUTS
+from numpyro.infer.util import initialize_model
 
 from ..methods.abstract_method import AbstractMethod
 
@@ -25,6 +26,9 @@ class ProgressiveNUTS(AbstractMethod):
         num_particles = config["num_particles"]
 
         key_init, key_warmup, key_run = jr.split(key, 3)
+        model_info = initialize_model(key, model, model_args=model_args)
+        x0 = model_info.param_info.z
+        x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
         # x0 = Predictive(model, num_samples=num_particles)(key_init, *model_args)
         # x0.pop("obs", None)
         # x0.pop("Y", None)
@@ -41,12 +45,12 @@ class ProgressiveNUTS(AbstractMethod):
         nuts.warmup(
             key_warmup,
             *model_args,
-            # init_params=x0,
+            init_params=x0,
             extra_fields=("num_steps",),
             collect_warmup=True,
         )
         warmup_steps = jnp.reshape(
-            nuts.get_extra_fields()["num_steps"], (num_particles, self.num_warmup)
+            nuts.get_extra_fields()["num_steps"], (num_particles, -1)
         )
         warmup_samples = nuts.get_samples(group_by_chain=True)
         nuts.run(key_run, *model_args, extra_fields=("num_steps",))

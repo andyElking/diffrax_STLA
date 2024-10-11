@@ -24,11 +24,12 @@ def run_experiment(
     key_gt, key = jr.split(key, 2)
     gt = get_gt_fun(model, model_name, model_args, config, key_gt)
     if gt_eval_fun is not None:
-        gt_str = gt_eval_fun(gt, config)
+        gt_str = gt_eval_fun(gt, config) + "\n"
     else:
         gt_str = ""
 
-    logger.start_model_section(model_name, gt_str)
+    logger.print_log(gt_str)
+
     result_dict = {"model_name": model_name}
 
     for method in methods:

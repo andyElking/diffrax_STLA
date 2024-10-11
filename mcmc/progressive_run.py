@@ -19,6 +19,7 @@ from mcmc.progressive import (
     ProgressiveLogger,
     ProgressiveNUTS,
 )
+from mcmc.progressive.progressive_plotting import make_figs
 
 
 warnings.simplefilter("ignore", FutureWarning)
@@ -30,31 +31,34 @@ print(jax.devices("cuda"))
 dataset = scipy.io.loadmat("mcmc_data/benchmarks.mat")
 names = [
     # "tbp",
-    # "isolet_ab",
-    "banana",
-    "breast_cancer",
-    "diabetis",
-    "flare_solar",
-    "german",
-    "heart",
-    "image",
-    "ringnorm",
-    "splice",
-    "thyroid",
-    "titanic",
-    "twonorm",
-    "waveform",
+    "isolet_ab",
+    # "banana",
+    # "breast_cancer",
+    # "diabetis",
+    # "flare_solar",
+    # "german",
+    # "heart",
+    # "image",
+    # "ringnorm",
+    # "splice",
+    # "thyroid",
+    # "titanic",
+    # "twonorm",
+    # "waveform",
 ]
 
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-get_prev_result_filename = lambda name: f"progressive_results/{name}_*.pkl"
+prev_result_quic = lambda name: f"progressive_results/{name}_*.pkl"
+prev_result_nuts = lambda name: f"progressive_results/{name}_2024-10-10*.pkl"
 
 evaluator = ProgressiveEvaluator()
 logger = ProgressiveLogger(log_filename=f"progressive_results/log_{timestamp}.txt")
 logger.start_log(timestamp)
 
-nuts = ProgressiveNUTS(30, 2**6)
+nuts_warmup = 80
+nuts_len = 2**8
+nuts = ProgressiveNUTS(nuts_warmup, nuts_len)
 
 USE_PID = False
 pid_str = "pid_" if USE_PID else ""
@@ -83,7 +87,7 @@ quic_kwargs = {
     "solver": diffrax.QUICSORT(0.1),
     "pid": make_pid(0.1, 0.07),
 }
-quic = ProgressiveLMC(quic_kwargs)
+quic = ProgressiveLMC(quic_kwargs, prev_result_quic)
 euler_kwargs = {
     "chain_len": 2**5,
     "chain_sep": 0.5,
@@ -96,15 +100,17 @@ methods = [nuts, quic]
 
 dt0s = {
     "banana": 0.04,
-    "splice": 0.005,
-    "flare_solar": 0.08,
+    "splice": 0.01,
+    "flare_solar": 0.1,
+    "isolet_ab": 0.001,
 }
 seps = {
     "banana": 0.3,
-    "splice": 0.5,
+    "splice": 1.0,
     "flare_solar": 2.0,
     "image": 1.0,
     "waveform": 1.0,
+    "isolet_ab": 0.5,
 }
 atols = {}
 
@@ -119,7 +125,7 @@ for name in names:
     }
     quic_dt0 = dt0s.get(name, 0.07)
     chain_sep = seps.get(name, 0.5)
-    atol = atols.get(name, 0.1)
+    atol = atols.get(name, 1.0)
     quic.lmc_kwargs["dt0"], quic.lmc_kwargs["chain_sep"] = quic_dt0, chain_sep
     quic.lmc_kwargs["pid"] = make_pid(atol, quic_dt0)
     euler.lmc_kwargs["dt0"], euler.lmc_kwargs["chain_sep"] = (
@@ -127,6 +133,13 @@ for name in names:
         chain_sep / 20,
     )
     euler.lmc_kwargs["pid"] = make_pid(atol, quic_dt0 / 20)
+
+    logger.start_model_section(name)
+    quic_atol_str = f"atol={atol}, " if USE_PID else ""
+    logger.print_log(
+        f"NUTS(warmup={nuts.num_warmup}, total={nuts.chain_len}),"
+        f" QUICSORT({quic_atol_str}dt0={quic_dt0}, sep={chain_sep})\n"
+    )
 
     run_experiment(
         jr.key(0),
@@ -140,4 +153,9 @@ for name in names:
         get_gt_logreg,
         eval_gt_logreg,
         get_result_filename,
+    )
+
+    result_filename = get_result_filename(name)
+    figs = make_figs(
+        result_filename, save_name=f"progressive_results/plots/{name}_{timestamp}.pdf"
     )
