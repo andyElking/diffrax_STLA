@@ -1,0 +1,88 @@
+Results for 2024-10-12_14-03-17
+
+======= banana =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.04, sep=0.3)
+
+GT energy bias: 7.474e-06, test acc: 0.5607, test acc top 80%: 0.573
+
+NUTS: acc: 0.5619, acc top 80%: 0.5739, energy: 1.061e-05, w2: 5.444e-04
+QUICSORT: acc: 0.5625, acc top 80%: 0.574, energy: 1.233e-05, w2: 5.202e-04
+Euler: acc: 0.5535, acc top 80%: 0.5729, energy: 8.419e-03, w2: 2.692e-02
+
+======= breast_cancer =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.07, sep=0.5)
+
+GT energy bias: 7.908e-05, test acc: 0.6609, test acc top 80%: 0.6713
+
+NUTS: acc: 0.6631, acc top 80%: 0.6786, energy: 8.817e-05, w2: 1.356e-01
+QUICSORT: acc: 0.6659, acc top 80%: 0.6767, energy: 1.227e-04, w2: 1.360e-01
+Euler: acc: 0.6737, acc top 80%: 0.6875, energy: 5.520e-02, w2: 2.504e-01
+
+======= diabetis =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.07, sep=0.5)
+
+GT energy bias: 4.782e-05, test acc: 0.7777, test acc top 80%: 0.7824
+
+NUTS: acc: 0.7789, acc top 80%: 0.7834, energy: 5.154e-05, w2: 3.952e-02
+QUICSORT: acc: 0.7809, acc top 80%: 0.7857, energy: 8.595e-05, w2: 3.866e-02
+Euler: acc: 0.7675, acc top 80%: 0.775, energy: 1.258e-01, w2: 2.758e-01
+
+======= flare_solar =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.1, sep=2.0)
+
+GT energy bias: 5.386e-04, test acc: 0.6162, test acc top 80%: 0.6292
+
+NUTS: acc: 0.6186, acc top 80%: 0.6324, energy: 5.129e-04, w2: 1.737e+00
+QUICSORT: acc: 0.6259, acc top 80%: 0.6405, energy: 7.137e-03, w2: 1.720e+00
+Euler: acc: 0.6243, acc top 80%: 0.6424, energy: 2.816e+00, w2: 2.198e+01
+
+======= german =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.07, sep=0.5)
+
+GT energy bias: 1.335e-04, test acc: 0.7675, test acc top 80%: 0.7731
+
+NUTS: acc: 0.7698, acc top 80%: 0.7752, energy: 1.884e-04, w2: 1.830e-01
+QUICSORT: acc: 0.7707, acc top 80%: 0.776, energy: 2.170e-04, w2: 1.806e-01
+Euler: acc: 0.7524, acc top 80%: 0.7608, energy: 1.964e-01, w2: 8.493e-01
+
+======= heart =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.07, sep=0.5)
+
+GT energy bias: 1.635e-04, test acc: 0.7983, test acc top 80%: 0.8117
+
+NUTS: acc: 0.8034, acc top 80%: 0.8178, energy: 1.390e-04, w2: 3.415e-01
+QUICSORT: acc: 0.806, acc top 80%: 0.82, energy: 1.877e-04, w2: 3.431e-01
+Euler: acc: 0.8178, acc top 80%: 0.8275, energy: 1.102e-01, w2: 6.477e-01
+
+======= image =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.07, sep=1.0)
+
+GT energy bias: 3.662e-04, test acc: 0.8243, test acc top 80%: 0.8282
+
+NUTS: acc: 0.8241, acc top 80%: 0.828, energy: 4.453e-04, w2: 9.282e-01
+QUICSORT: acc: 0.8258, acc top 80%: 0.8298, energy: 5.407e-04, w2: 9.208e-01
+Euler: acc: 0.7812, acc top 80%: 0.7934, energy: 4.291e-01, w2: 3.481e+00
+
+======= ringnorm =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.07, sep=0.5)
+
+GT energy bias: 2.091e-04, test acc: 0.732, test acc top 80%: 0.7358
+
+NUTS: acc: 0.7329, acc top 80%: 0.7364, energy: 1.649e-04, w2: 1.644e-01
+QUICSORT: acc: 0.7328, acc top 80%: 0.7364, energy: 2.499e-04, w2: 1.623e-01
+Euler: acc: 0.7316, acc top 80%: 0.7387, energy: 2.054e-01, w2: 7.217e-01
+
+======= splice =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.005, sep=0.5)
+
+GT energy bias: 5.768e-04, test acc: 0.8212, test acc top 80%: 0.8246
+

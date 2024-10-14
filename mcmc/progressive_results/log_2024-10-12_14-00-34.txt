@@ -1,0 +1,8 @@
+Results for 2024-10-12_14-00-34
+
+======= splice =======
+
+NUTS(warmup=10, total=64), QUICSORT(dt0=0.005, sep=0.5)
+
+GT energy bias: 5.768e-04, test acc: 0.8212, test acc top 80%: 0.8246
+

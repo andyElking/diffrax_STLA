@@ -76,7 +76,10 @@ def make_figs(result_dict_filename, save_name=None, plot_accuracy=True):
 
     quic_width = result_dict["QUICSORT"]["cumulative_evals"][-1]
     nuts_width = result_dict["NUTS"]["cumulative_evals"][-1]
-    width = max(quic_width, nuts_width / 3)
+    width = max(quic_width, nuts_width / 2)
+    if "Euler" in result_dict:
+        width_euler = result_dict["Euler"]["cumulative_evals"][-1]
+        width = max(width, width_euler / 2)
 
     for i in range(num_rows):
         axs[i].set_xlim(0, width)

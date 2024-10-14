@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from functools import partial
+from typing import Optional
 
 import jax
 import jax.tree_util as jtu
@@ -11,17 +12,12 @@ from ..metrics import compute_energy, compute_w2
 
 
 def compute_metrics(sample_slice, ground_truth, x_test, labels_test):
-    energy_err = compute_energy(
-        sample_slice, ground_truth, max_len_x=2**14, max_len_y=2**15
-    )
-
     if x_test is not None and labels_test is not None:
         test_acc, test_acc_best80 = test_accuracy(x_test, labels_test, sample_slice)
     else:
         test_acc, test_acc_best80 = None, None
 
     return {
-        "energy_err": energy_err,
         "test_acc": test_acc,
         "test_acc_best80": test_acc_best80,
     }
@@ -34,7 +30,7 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
     @abstractmethod
     def vectorisable_metrics(
         self, sample_slice, ground_truth, config, model, key
-    ) -> dict[str, Array]:
+    ) -> dict[str, Optional[Array]]:
         raise NotImplementedError
 
     @abstractmethod
@@ -66,13 +62,16 @@ class AbstractProgressiveEvaluator(AbstractEvaluator):
             jtu.tree_map(
                 lambda x: x.shape[:2] == (num_chains, self.num_points), samples
             )
-        ), f"expected shapes prefixed by {(num_chains, self.num_points)} but got {jtu.tree_map(lambda x: x.shape, samples)}"
+        ), (
+            f"expected shapes prefixed by {(num_chains, self.num_points)}"
+            f" but got {jtu.tree_map(lambda x: x.shape, samples)}"
+        )
         assert jnp.shape(cumulative_evals) == (self.num_points,)
 
         # now we go along chain_len and compute the metrics for each step
         partial_metrics = partial(
             self.vectorisable_metrics,
-            ground_truth=ground_truth[: 2**14],
+            ground_truth=ground_truth,
             config=config,
             model=model,
             key=key,
@@ -115,12 +114,17 @@ class ProgressiveEvaluator(AbstractProgressiveEvaluator):
 
     def vectorisable_metrics(
         self, sample_slice, ground_truth, config, model, key
-    ) -> dict[str, Array]:
+    ) -> dict[str, Optional[Array]]:
         return compute_metrics(sample_slice, ground_truth, *config["test_args"])
 
     def sequential_metrics(
         self, sample_slice, ground_truth, config, model, key
-    ) -> dict:
+    ) -> dict[str, Optional[Array]]:
+        energy_err = compute_energy(
+            sample_slice, ground_truth, max_len_x=2**14, max_len_y=2**15
+        )
+        result = {"energy_err": energy_err}
+
         if self.num_iters_w2 > 0:
             w2 = compute_w2(
                 sample_slice,
@@ -128,9 +132,9 @@ class ProgressiveEvaluator(AbstractProgressiveEvaluator):
                 self.num_iters_w2,
                 self.max_samples_w2,
             )
-            return {"w2": w2}
-        else:
-            return {}
+            result["w2"] = w2
+
+        return result
 
     def preprocess_samples(self, samples, config):
         if isinstance(samples, dict):

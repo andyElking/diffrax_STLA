@@ -21,16 +21,16 @@ from diffrax import (
     StepTo,
 )
 from jaxtyping import PyTree
-from numpyro.infer.util import initialize_model
+from numpyro.infer.util import initialize_model, Predictive
 
 
 def get_x0(model, model_args, num_particles, key):
-    model_info = initialize_model(key, model, model_args=model_args)
-    x0 = model_info.param_info.z
-    x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
-    # x0 = Predictive(model, num_samples=num_particles)(key, *model_args)
-    # x0.pop("obs", None)
-    # x0.pop("Y", None)
+    # model_info = initialize_model(key, model, model_args=model_args)
+    # x0 = model_info.param_info.z
+    # x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
+    x0 = Predictive(model, num_samples=num_particles)(key, *model_args)
+    x0.pop("obs", None)
+    x0.pop("Y", None)
     return x0
 
 
