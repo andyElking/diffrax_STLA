@@ -50,15 +50,19 @@ names = [
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 prev_result_quic = lambda name: f"progressive_results/{name}_*.pkl"
-prev_result_nuts = lambda name: f"progressive_results/{name}_pid_2024-10-10*.pkl"
+prev_result_nuts = lambda name: f"progressive_results/{name}_*.pkl"
 
 evaluator = ProgressiveEvaluator()
 logger = ProgressiveLogger(log_filename=f"progressive_results/log_{timestamp}.txt")
 logger.start_log(timestamp)
 
+PRIOR_START = False
+
 nuts_warmup = 80
 nuts_len = 2**8
-nuts = ProgressiveNUTS(nuts_warmup, nuts_len)
+nuts = ProgressiveNUTS(
+    nuts_warmup, nuts_len, prior_start=PRIOR_START, get_previous_result_filename=None
+)
 
 USE_PID = False
 pid_str = "pid_" if USE_PID else ""
@@ -86,14 +90,18 @@ quic_kwargs = {
     "dt0": 0.07,
     "solver": diffrax.QUICSORT(0.1),
     "pid": make_pid(0.1, 0.07),
+    "prior_start": PRIOR_START,
 }
-quic = ProgressiveLMC(quic_kwargs, prev_result_quic)
+quic = ProgressiveLMC(
+    quic_kwargs,
+)
 euler_kwargs = {
     "chain_len": 2**5,
     "chain_sep": 0.5,
     "dt0": 0.03,
     "solver": diffrax.Euler(),
     "pid": make_pid(0.1, 0.03),
+    "prior_start": PRIOR_START,
 }
 euler = ProgressiveLMC(euler_kwargs)
 methods = [nuts, quic]
@@ -136,7 +144,7 @@ for name in names:
     quic_atol_str = f"atol={atol}, " if USE_PID else ""
     logger.print_log(
         f"NUTS(warmup={nuts.num_warmup}, total={nuts.chain_len}),"
-        f" QUICSORT({quic_atol_str}dt0={quic_dt0}, sep={chain_sep})\n"
+        f" QUICSORT({quic_atol_str}dt0={quic_dt0}, sep={chain_sep}), prior_start = {PRIOR_START}\n"
     )
 
     run_experiment(

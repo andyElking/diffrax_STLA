@@ -120,6 +120,7 @@ from ._solver import (
     StochasticButcherTableau as StochasticButcherTableau,
     StratonovichMilstein as StratonovichMilstein,
     Tsit5 as Tsit5,
+    UBU as UBU,
 )
 from ._step_size_controller import (
     AbstractAdaptiveStepSizeController as AbstractAdaptiveStepSizeController,

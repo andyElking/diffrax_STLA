@@ -24,13 +24,15 @@ from jaxtyping import PyTree
 from numpyro.infer.util import initialize_model, Predictive
 
 
-def get_x0(model, model_args, num_particles, key):
-    # model_info = initialize_model(key, model, model_args=model_args)
-    # x0 = model_info.param_info.z
-    # x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
-    x0 = Predictive(model, num_samples=num_particles)(key, *model_args)
-    x0.pop("obs", None)
-    x0.pop("Y", None)
+def get_x0(model, model_args, num_particles, key, prior_start):
+    if prior_start:
+        x0 = Predictive(model, num_samples=num_particles)(key, *model_args)
+        x0.pop("obs", None)
+        x0.pop("Y", None)
+    else:
+        model_info = initialize_model(key, model, model_args=model_args)
+        x0 = model_info.param_info.z
+        x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
     return x0
 
 
@@ -47,11 +49,12 @@ def run_lmc_numpyro(
     pid_mcmc: Optional[diffrax.PIDController] = None,
     pid_warmup: Optional[diffrax.PIDController] = None,
     solver: AbstractSolver = QUICSORT(0.1),
+    prior_start: bool = False,
 ):
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = get_x0(model, model_args, num_particles, model_key)
+    x0 = get_x0(model, model_args, num_particles, model_key, prior_start)
 
     return run_lmc(
         lmc_key,
@@ -311,11 +314,12 @@ def run_simple_lmc_numpyro(
     dt0: float,
     pid: Optional[diffrax.PIDController] = None,
     solver: AbstractSolver = QUICSORT(0.1),
+    prior_start: bool = False,
 ):
     model_key, lmc_key = jr.split(key, 2)
     model_info = initialize_model(model_key, model, model_args=model_args)
     log_p = jax.jit(model_info.potential_fn)
-    x0 = get_x0(model, model_args, num_particles, model_key)
+    x0 = get_x0(model, model_args, num_particles, model_key, prior_start)
     return run_simple_lmc(
         lmc_key,
         log_p,

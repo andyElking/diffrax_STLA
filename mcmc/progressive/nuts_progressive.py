@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
 from numpyro.infer import MCMC, NUTS
-from numpyro.infer.util import Predictive
+from numpyro.infer.util import initialize_model, Predictive
 
 from ..methods.abstract_method import AbstractMethod
 
@@ -16,22 +16,26 @@ class ProgressiveNUTS(AbstractMethod):
         num_warmup: int,
         chain_len: int,
         get_previous_result_filename: Optional[Callable[[str], str]] = None,
+        prior_start: bool = False,
     ):
         super().__init__(get_previous_result_filename)
         self.method_name = "NUTS"
         self.num_warmup = num_warmup
         self.chain_len = chain_len
+        self.prior_start = prior_start
 
     def run(self, key, model, model_args, result_dict, config):
         num_particles = config["num_particles"]
 
         key_init, key_warmup, key_run = jr.split(key, 3)
-        # model_info = initialize_model(key, model, model_args=model_args)
-        # x0 = model_info.param_info.z
-        # x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
-        x0 = Predictive(model, num_samples=num_particles)(key_init, *model_args)
-        x0.pop("obs", None)
-        x0.pop("Y", None)
+        if self.prior_start:
+            x0 = Predictive(model, num_samples=num_particles)(key, *model_args)
+            x0.pop("obs", None)
+            x0.pop("Y", None)
+        else:
+            model_info = initialize_model(key, model, model_args=model_args)
+            x0 = model_info.param_info.z
+            x0 = jtu.tree_map(lambda x: jnp.tile(x, (num_particles, 1)), x0)
 
         # run NUTS and record wall time
         start_nuts = time.time()

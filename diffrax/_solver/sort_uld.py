@@ -212,7 +212,7 @@ class SORT(AbstractFosterLangevinSRK[_SORTCoeffs, None]):
                 x0**ω
                 + coeffs.a1**ω * v1**ω
                 + coeffs.b1**ω
-                * (-(uh**ω) * (1 / 3 * f0**ω + 2 / 3 * f1**ω) + rho_w_k**ω)
+                * (-(uh**ω) * (1 / 3 * f0**ω + 2 / 3 * _f1**ω) + rho_w_k**ω)
             ).ω
             return x, _f1, _f1
 
