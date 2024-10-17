@@ -31,7 +31,7 @@ print(jax.devices("cuda"))
 dataset = scipy.io.loadmat("mcmc_data/benchmarks.mat")
 names = [
     # "tbp",
-    # "isolet_ab",
+    "isolet_ab",
     # "banana",
     # "breast_cancer",
     # "diabetis",
@@ -40,7 +40,7 @@ names = [
     # "heart",
     # "image",
     # "ringnorm",
-    "splice",
+    # "splice",
     # "thyroid",
     # "titanic",
     # "twonorm",
@@ -49,18 +49,18 @@ names = [
 
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-prev_result_quic = lambda name: f"progressive_results/{name}_2024-10-12_21-03-56.pkl"
-prev_result_nuts = lambda name: f"progressive_results/{name}_*.pkl"
+prev_result_quic = lambda name: f"progressive_results/{name}_*.pkl"
+prev_result_nuts = lambda name: f"progressive_results/{name}_pid_2024-10-10*.pkl"
 
 evaluator = ProgressiveEvaluator()
 logger = ProgressiveLogger(log_filename=f"progressive_results/log_{timestamp}.txt")
 logger.start_log(timestamp)
 
-nuts_warmup = 30
-nuts_len = 2**7
+nuts_warmup = 80
+nuts_len = 2**8
 nuts = ProgressiveNUTS(nuts_warmup, nuts_len)
 
-USE_PID = True
+USE_PID = False
 pid_str = "pid_" if USE_PID else ""
 get_result_filename = (
     lambda name: f"progressive_results/{name}_{pid_str}{timestamp}.pkl"
@@ -128,10 +128,8 @@ for name in names:
     atol = atols.get(name, 1.0)
     quic.lmc_kwargs["dt0"], quic.lmc_kwargs["chain_sep"] = quic_dt0, chain_sep
     quic.lmc_kwargs["pid"] = make_pid(atol, quic_dt0)
-    euler.lmc_kwargs["dt0"], euler.lmc_kwargs["chain_sep"] = (
-        quic_dt0 / 100,
-        chain_sep / 5,
-    )
+    euler.lmc_kwargs["dt0"] = quic_dt0 / 20
+    euler.lmc_kwargs["chain_sep"] = chain_sep
     euler.lmc_kwargs["pid"] = make_pid(atol, quic_dt0 / 20)
 
     logger.start_model_section(name)
@@ -142,7 +140,7 @@ for name in names:
     )
 
     run_experiment(
-        jr.key(0),
+        jr.key(1),
         model,
         model_args,
         name,

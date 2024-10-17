@@ -6,3 +6,5 @@ NUTS(warmup=30, total=128), QUICSORT(atol=1.0, dt0=0.01, sep=1.0)
 
 GT energy bias: 5.768e-04, test acc: 0.8212, test acc top 80%: 0.8246
 
+NUTS: acc: 0.8212, acc top 80%: 0.8247, energy: 4.705e-04, w2: 1.176e+00
+QUICSORT: acc: 0.8217, acc top 80%: 0.8252, energy: 4.705e-04, w2: 1.173e+00
