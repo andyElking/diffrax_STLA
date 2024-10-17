@@ -28,6 +28,7 @@ from .milstein import (
     ItoMilstein as ItoMilstein,
     StratonovichMilstein as StratonovichMilstein,
 )
+from .n_ubu import nUBU as nUBU
 from .quicsort import QUICSORT as QUICSORT
 from .ralston import Ralston as Ralston
 from .reversible_heun import ReversibleHeun as ReversibleHeun

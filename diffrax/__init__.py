@@ -103,6 +103,7 @@ from ._solver import (
     LeapfrogMidpoint as LeapfrogMidpoint,
     Midpoint as Midpoint,
     MultiButcherTableau as MultiButcherTableau,
+    nUBU as nUBU,
     QUICSORT as QUICSORT,
     Ralston as Ralston,
     ReversibleHeun as ReversibleHeun,

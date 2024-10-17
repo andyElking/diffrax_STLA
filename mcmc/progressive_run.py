@@ -61,7 +61,10 @@ PRIOR_START = False
 nuts_warmup = 80
 nuts_len = 2**8
 nuts = ProgressiveNUTS(
-    nuts_warmup, nuts_len, prior_start=PRIOR_START, get_previous_result_filename=None
+    nuts_warmup,
+    nuts_len,
+    prior_start=PRIOR_START,
+    get_previous_result_filename=prev_result_nuts,
 )
 
 USE_PID = False
@@ -92,9 +95,7 @@ quic_kwargs = {
     "pid": make_pid(0.1, 0.07),
     "prior_start": PRIOR_START,
 }
-quic = ProgressiveLMC(
-    quic_kwargs,
-)
+quic = ProgressiveLMC(quic_kwargs, prev_result_quic)
 euler_kwargs = {
     "chain_len": 2**5,
     "chain_sep": 0.5,
@@ -104,7 +105,18 @@ euler_kwargs = {
     "prior_start": PRIOR_START,
 }
 euler = ProgressiveLMC(euler_kwargs)
-methods = [nuts, quic]
+
+ubu_kwargs = {
+    "chain_len": 2**5,
+    "chain_sep": 1.0,
+    "dt0": 0.035,
+    "solver": diffrax.UBU(0.1),
+    "pid": make_pid(0.1, 0.07),
+    "prior_start": PRIOR_START,
+}
+ubu = ProgressiveLMC(ubu_kwargs)
+
+methods = [nuts, quic, ubu]
 
 dt0s = {
     "banana": 0.04,
@@ -131,6 +143,8 @@ for name in names:
         "num_particles": num_particles,
         "test_args": test_args,
     }
+
+    # LMC settings
     quic_dt0 = dt0s.get(name, 0.07)
     chain_sep = seps.get(name, 0.5)
     atol = atols.get(name, 1.0)
@@ -139,6 +153,9 @@ for name in names:
     euler.lmc_kwargs["dt0"] = quic_dt0 / 20
     euler.lmc_kwargs["chain_sep"] = chain_sep
     euler.lmc_kwargs["pid"] = make_pid(atol, quic_dt0 / 20)
+    ubu.lmc_kwargs["dt0"] = quic_dt0 / 2
+    ubu.lmc_kwargs["chain_sep"] = chain_sep
+    ubu.lmc_kwargs["pid"] = make_pid(atol, quic_dt0 / 2)
 
     logger.start_model_section(name)
     quic_atol_str = f"atol={atol}, " if USE_PID else ""

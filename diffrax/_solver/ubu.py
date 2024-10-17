@@ -13,7 +13,6 @@ from .._custom_types import (
 from .._local_interpolation import LocalLinearInterpolation
 from .._term import (
     UnderdampedLangevinLeaf,
-    UnderdampedLangevinTuple,
     UnderdampedLangevinX,
 )
 from .foster_langevin_srk import (
@@ -62,10 +61,7 @@ class _UBUCoeffs(AbstractCoeffs):
         self.dtype = jnp.result_type(*all_leaves)
 
 
-_ErrorEstimate = UnderdampedLangevinTuple
-
-
-class UBU(AbstractFosterLangevinSRK[_UBUCoeffs, _ErrorEstimate]):
+class UBU(AbstractFosterLangevinSRK[_UBUCoeffs, None]):
     r"""The UBU method by Alfonso Álamo Zapatero.
     This is a second order solver for the Underdamped Langevin Diffusion.
     Uses one vector field evaluation per step.
@@ -228,7 +224,7 @@ class UBU(AbstractFosterLangevinSRK[_UBUCoeffs, _ErrorEstimate]):
         ).ω
         x1 = (
             x0**ω
-            + coeffs.a1**ω * v1**ω
+            + coeffs.a1**ω * v0**ω
             - coeffs.a_half**ω * fz_uh**ω
             + rho**ω * (coeffs.b1**ω * w**ω + coeffs.chh**ω * hh**ω)
         ).ω
