@@ -1,0 +1,11 @@
+Results for 2024-10-17_22-28-16
+
+======= isolet_ab =======
+
+NUTS(warmup=80, total=256), QUICSORT(dt0=0.001, sep=0.5), prior_start = False
+
+GT energy bias: 9.768e-03, test acc: 0.4999, test acc top 80%: 0.5187
+
+NUTS: acc: 0.5006, acc top 80%: 0.5191, energy: 8.565e-02, w2: 5.897e+01
+QUICSORT: acc: 0.5167, acc top 80%: 0.5229, energy: 1.245e-02, w2: 5.597e+01
+UBU: acc: 0.5167, acc top 80%: 0.5253, energy: 1.245e-02, w2: 5.601e+01

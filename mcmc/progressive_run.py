@@ -31,11 +31,11 @@ print(jax.devices("cuda"))
 dataset = scipy.io.loadmat("mcmc_data/benchmarks.mat")
 names = [
     # "tbp",
-    "isolet_ab",
+    # "isolet_ab",
     # "banana",
     # "breast_cancer",
     # "diabetis",
-    # "flare_solar",
+    "flare_solar",
     # "german",
     # "heart",
     # "image",
@@ -49,8 +49,8 @@ names = [
 
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-prev_result_quic = lambda name: f"progressive_results/{name}_*.pkl"
-prev_result_nuts = lambda name: f"progressive_results/{name}_*.pkl"
+prev_result_quic = lambda name: f"progressive_results/good_results/{name}_*.pkl"
+prev_result_nuts = lambda name: f"progressive_results/good_results/{name}_*.pkl"
 
 evaluator = ProgressiveEvaluator()
 logger = ProgressiveLogger(log_filename=f"progressive_results/log_{timestamp}.txt")
@@ -58,8 +58,8 @@ logger.start_log(timestamp)
 
 PRIOR_START = False
 
-nuts_warmup = 80
-nuts_len = 2**8
+nuts_warmup = 20
+nuts_len = 2**5
 nuts = ProgressiveNUTS(
     nuts_warmup,
     nuts_len,
@@ -95,7 +95,7 @@ quic_kwargs = {
     "pid": make_pid(0.1, 0.07),
     "prior_start": PRIOR_START,
 }
-quic = ProgressiveLMC(quic_kwargs, prev_result_quic)
+quic = ProgressiveLMC(quic_kwargs)
 euler_kwargs = {
     "chain_len": 2**5,
     "chain_sep": 0.5,
@@ -116,7 +116,7 @@ ubu_kwargs = {
 }
 ubu = ProgressiveLMC(ubu_kwargs)
 
-methods = [nuts, quic, ubu]
+methods = [nuts, quic]
 
 dt0s = {
     "banana": 0.04,
@@ -126,8 +126,8 @@ dt0s = {
 }
 seps = {
     "banana": 0.3,
-    "splice": 1.0,
-    "flare_solar": 2.0,
+    "splice": 0.5,
+    "flare_solar": 3.0,
     "image": 1.0,
     "waveform": 1.0,
     "isolet_ab": 0.5,
@@ -161,7 +161,8 @@ for name in names:
     quic_atol_str = f"atol={atol}, " if USE_PID else ""
     logger.print_log(
         f"NUTS(warmup={nuts.num_warmup}, total={nuts.chain_len}),"
-        f" QUICSORT({quic_atol_str}dt0={quic_dt0}, sep={chain_sep}), prior_start = {PRIOR_START}\n"
+        f" QUICSORT({quic_atol_str}dt0={quic_dt0}, sep={chain_sep}),"
+        f" prior_start = {PRIOR_START}\n"
     )
 
     run_experiment(

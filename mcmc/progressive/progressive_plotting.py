@@ -3,12 +3,19 @@ import os.path
 import pickle
 
 import matplotlib  # pyright: ignore
+import numpy as np
 from matplotlib import pyplot as plt  # pyright: ignore
 
 
-def plot_progressive_results(result_dict, axs, label=None, plot_accuracy=True):
-    energy_err = result_dict["energy_err"]
+def plot_progressive_results(
+    result_dict, axs, label=None, plot_accuracy=True, width=float("inf")
+):
     cumulative_evals = result_dict["cumulative_evals"]
+    # we only use the entries with cumulative_evals <= width
+    num_entries = np.sum(cumulative_evals <= width * 1.2)
+    cumulative_evals = cumulative_evals[:num_entries]
+
+    energy_err = result_dict["energy_err"][:num_entries]
     w2 = result_dict["w2"]
 
     if len(axs) == 1:
@@ -21,11 +28,13 @@ def plot_progressive_results(result_dict, axs, label=None, plot_accuracy=True):
     if plot_accuracy:
         i += 1
         test_acc = result_dict["test_acc"]
+        test_acc = test_acc[:num_entries]
         axs[i].plot(cumulative_evals, test_acc, label=label)
         axs[i].set_ylabel("Accuracy")
 
     if w2 is not None:
         i += 1
+        w2 = w2[:num_entries]
         axs[i].plot(cumulative_evals, w2, label=label)
         axs[i].set_yscale("log")
         axs[i].set_ylabel("Wasserstein-2 error")
@@ -60,7 +69,9 @@ def plot_bnn_results(result_dict, axs, label=None):
         axs[3].set_ylabel("Wasserstein-2 error")
 
 
-def make_figs(result_dict_filename, save_name=None, plot_accuracy=True):
+def make_figs(
+    result_dict_filename, save_name=None, plot_accuracy=True, exclude_methods=()
+):
     matplotlib.rcParams.update({"font.size": 15})
     with open(result_dict_filename, "rb") as f:
         result_dict = pickle.load(f)
@@ -70,16 +81,23 @@ def make_figs(result_dict_filename, save_name=None, plot_accuracy=True):
     num_rows += 1 if "w2" in result_dict["QUICSORT"] else 0
     fig, axs = plt.subplots(num_rows, 1, figsize=(7, 5 * num_rows))
     # fig.suptitle(data_name)
+    # first find the width of the plot
+    width = 0
+    # "model_name" is the only key that is not a method
+    exclude_methods = set(exclude_methods) | {"model_name"}
     for method, value in result_dict.items():
-        if method != "model_name":
-            plot_progressive_results(value, axs, method, plot_accuracy)
+        if method in exclude_methods:
+            continue
+        method_width = value["cumulative_evals"][-1]
+        method_width = method_width if method == "QUICSORT" else method_width / 3
+        width = max(width, method_width)
 
-    quic_width = result_dict["QUICSORT"]["cumulative_evals"][-1]
-    nuts_width = result_dict["NUTS"]["cumulative_evals"][-1]
-    width = max(quic_width, nuts_width / 2)
-    if "Euler" in result_dict:
-        width_euler = result_dict["Euler"]["cumulative_evals"][-1]
-        width = max(width, width_euler)
+    # now plot the results
+    for method, value in result_dict.items():
+        if method in exclude_methods:
+            # "model_name" is the only key that is not a method
+            continue
+        plot_progressive_results(value, axs, method, plot_accuracy, width)
 
     for i in range(num_rows):
         axs[i].set_xlim(0, width)
@@ -117,9 +135,11 @@ if __name__ == "__main__":
     for name in names:
         # search for a file of the form
         # f"progressive_results/result_dict_{name}_{timestamp}.pkl"
-        filenames = glob.glob(f"progressive_results/{name}_pid_2024-10-03*.pkl")
+        filenames = glob.glob(f"progressive_results/good_results/{name}_*.pkl")
         filenames.sort(key=os.path.getmtime)
         latest_dict = filenames[-1]
         print(f"Plotting {latest_dict}")
-        save_name = f"progressive_results/good_plots/{name}_paper_version.pdf"
-        figs = make_figs(latest_dict, save_name, False)
+        save_name = f"progressive_results/good_plots/{name}_final.pdf"
+        # save_name = (f"progressive_results/good_plots/"
+        #              f"paper_versions/{name}_paper_version.pdf")
+        figs = make_figs(latest_dict, save_name, True, ("UBU",))

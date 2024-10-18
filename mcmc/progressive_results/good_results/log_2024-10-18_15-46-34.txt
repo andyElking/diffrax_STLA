@@ -1,0 +1,118 @@
+Results for 2024-10-18_15-46-34
+
+======= banana =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.04, sep=0.3), prior_start = False
+
+GT energy bias: 7.474e-06, test acc: 0.5607, test acc top 80%: 0.573
+
+NUTS: acc: 0.5636, acc top 80%: 0.5765, energy: 1.051e-05, w2: 5.451e-04
+QUICSORT: acc: 0.6023, acc top 80%: 0.6101, energy: 1.739e-04, w2: 5.476e-04
+
+======= breast_cancer =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 7.908e-05, test acc: 0.6609, test acc top 80%: 0.6713
+
+NUTS: acc: 0.693, acc top 80%: 0.7031, energy: 9.843e-05, w2: 1.349e-01
+QUICSORT: acc: 0.7421, acc top 80%: 0.7499, energy: 1.253e-04, w2: 1.361e-01
+
+======= diabetis =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 4.782e-05, test acc: 0.7777, test acc top 80%: 0.7824
+
+NUTS: acc: 0.7788, acc top 80%: 0.7834, energy: 5.833e-05, w2: 3.922e-02
+QUICSORT: acc: 0.7838, acc top 80%: 0.789, energy: 9.261e-05, w2: 3.872e-02
+
+======= flare_solar =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.1, sep=2.0), prior_start = False
+
+GT energy bias: 5.386e-04, test acc: 0.6162, test acc top 80%: 0.6292
+
+NUTS: acc: 0.6185, acc top 80%: 0.6315, energy: 1.001e-01, w2: 2.912e+00
+QUICSORT: acc: 0.6282, acc top 80%: 0.6369, energy: 3.540e-02, w2: 2.033e+00
+
+======= german =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.335e-04, test acc: 0.7675, test acc top 80%: 0.7731
+
+NUTS: acc: 0.7696, acc top 80%: 0.7749, energy: 1.882e-04, w2: 1.845e-01
+QUICSORT: acc: 0.773, acc top 80%: 0.7785, energy: 2.351e-04, w2: 1.805e-01
+
+======= heart =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.635e-04, test acc: 0.7983, test acc top 80%: 0.8117
+
+NUTS: acc: 0.8039, acc top 80%: 0.8177, energy: 1.484e-04, w2: 3.394e-01
+QUICSORT: acc: 0.8243, acc top 80%: 0.8371, energy: 1.965e-04, w2: 3.451e-01
+
+======= image =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=1.0), prior_start = False
+
+GT energy bias: 3.662e-04, test acc: 0.8243, test acc top 80%: 0.8282
+
+NUTS: acc: 0.824, acc top 80%: 0.8279, energy: 6.628e-04, w2: 9.428e-01
+QUICSORT: acc: 0.8249, acc top 80%: 0.8288, energy: 5.407e-04, w2: 9.208e-01
+
+======= ringnorm =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 2.091e-04, test acc: 0.732, test acc top 80%: 0.7358
+
+NUTS: acc: 0.7324, acc top 80%: 0.7407, energy: 1.887e-04, w2: 1.677e-01
+QUICSORT: acc: 0.7342, acc top 80%: 0.738, energy: 2.566e-04, w2: 1.629e-01
+
+======= splice =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.01, sep=0.5), prior_start = False
+
+GT energy bias: 5.768e-04, test acc: 0.8212, test acc top 80%: 0.8246
+
+NUTS: acc: 0.8195, acc top 80%: 0.8232, energy: 3.535e-01, w2: 2.414e+00
+QUICSORT: acc: 0.8214, acc top 80%: 0.8249, energy: 7.242e-04, w2: 1.177e+00
+
+======= thyroid =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.854e-04, test acc: 0.7997, test acc top 80%: 0.8118
+
+NUTS: acc: 0.802, acc top 80%: 0.8134, energy: 8.942e-05, w2: 8.202e-02
+QUICSORT: acc: 0.818, acc top 80%: 0.8275, energy: 9.184e-05, w2: 8.366e-02
+
+======= titanic =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.762e-04, test acc: 0.5156, test acc top 80%: 0.5515
+
+NUTS: acc: 0.6111, acc top 80%: 0.6278, energy: 8.927e-05, w2: 2.404e-02
+QUICSORT: acc: 0.6, acc top 80%: 0.6007, energy: 7.621e-05, w2: 2.437e-02
+
+======= twonorm =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 3.544e-04, test acc: 0.9725, test acc top 80%: 0.9742
+
+NUTS: acc: 0.9726, acc top 80%: 0.9743, energy: 4.098e-04, w2: 8.289e-01
+QUICSORT: acc: 0.9751, acc top 80%: 0.9757, energy: 3.942e-04, w2: 8.324e-01
+
+======= waveform =======
+
+NUTS(warmup=20, total=32), QUICSORT(dt0=0.07, sep=1.0), prior_start = False
+
+GT energy bias: 4.074e-04, test acc: 0.8726, test acc top 80%: 0.875
+
+NUTS: acc: 0.8732, acc top 80%: 0.8755, energy: 3.673e-04, w2: 5.590e-01
+QUICSORT: acc: 0.8792, acc top 80%: 0.8803, energy: 3.586e-04, w2: 5.525e-01

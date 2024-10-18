@@ -1,0 +1,131 @@
+Results for 2024-10-18_12-36-31
+
+======= banana =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.04, sep=0.3), prior_start = False
+
+GT energy bias: 7.474e-06, test acc: 0.5607, test acc top 80%: 0.573
+
+NUTS: acc: 0.5644, acc top 80%: 0.5765, energy: 7.016e-06, w2: 5.184e-04
+QUICSORT: acc: 0.6023, acc top 80%: 0.6101, energy: 1.739e-04, w2: 5.476e-04
+UBU: acc: 0.602, acc top 80%: 0.6098, energy: 1.225e-04, w2: 5.333e-04
+
+======= breast_cancer =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 7.908e-05, test acc: 0.6609, test acc top 80%: 0.6713
+
+NUTS: acc: 0.693, acc top 80%: 0.7031, energy: 1.115e-04, w2: 1.348e-01
+QUICSORT: acc: 0.7421, acc top 80%: 0.7499, energy: 1.253e-04, w2: 1.361e-01
+UBU: acc: 0.7421, acc top 80%: 0.7498, energy: 1.272e-04, w2: 1.361e-01
+
+======= diabetis =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 4.782e-05, test acc: 0.7777, test acc top 80%: 0.7824
+
+NUTS: acc: 0.7785, acc top 80%: 0.7832, energy: 5.697e-05, w2: 3.922e-02
+QUICSORT: acc: 0.7838, acc top 80%: 0.789, energy: 9.261e-05, w2: 3.872e-02
+UBU: acc: 0.7839, acc top 80%: 0.7893, energy: 9.423e-05, w2: 3.916e-02
+
+======= flare_solar =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.1, sep=2.0), prior_start = False
+
+GT energy bias: 5.386e-04, test acc: 0.6162, test acc top 80%: 0.6292
+
+NUTS: acc: 0.6188, acc top 80%: 0.6322, energy: 7.596e-04, w2: 1.709e+00
+QUICSORT: acc: 0.6282, acc top 80%: 0.6369, energy: 3.540e-02, w2: 2.033e+00
+UBU: acc: 0.6202, acc top 80%: 0.6352, energy: 3.429e-02, w2: 2.025e+00
+
+======= german =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.335e-04, test acc: 0.7675, test acc top 80%: 0.7731
+
+NUTS: acc: 0.7693, acc top 80%: 0.7748, energy: 1.713e-04, w2: 1.845e-01
+QUICSORT: acc: 0.773, acc top 80%: 0.7785, energy: 2.351e-04, w2: 1.805e-01
+UBU: acc: 0.773, acc top 80%: 0.7784, energy: 2.081e-04, w2: 1.828e-01
+
+======= heart =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.635e-04, test acc: 0.7983, test acc top 80%: 0.8117
+
+NUTS: acc: 0.8033, acc top 80%: 0.8169, energy: 1.484e-04, w2: 3.384e-01
+QUICSORT: acc: 0.8243, acc top 80%: 0.8371, energy: 1.965e-04, w2: 3.451e-01
+UBU: acc: 0.8243, acc top 80%: 0.8372, energy: 2.018e-04, w2: 3.449e-01
+
+======= image =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=1.0), prior_start = False
+
+GT energy bias: 3.662e-04, test acc: 0.8243, test acc top 80%: 0.8282
+
+NUTS: acc: 0.8241, acc top 80%: 0.8279, energy: 4.705e-04, w2: 9.371e-01
+QUICSORT: acc: 0.8249, acc top 80%: 0.8288, energy: 5.407e-04, w2: 9.208e-01
+UBU: acc: 0.827, acc top 80%: 0.831, energy: 5.579e-04, w2: 9.234e-01
+
+======= ringnorm =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 2.091e-04, test acc: 0.732, test acc top 80%: 0.7358
+
+NUTS: acc: 0.7327, acc top 80%: 0.7407, energy: 1.896e-04, w2: 1.667e-01
+QUICSORT: acc: 0.7342, acc top 80%: 0.738, energy: 2.566e-04, w2: 1.629e-01
+UBU: acc: 0.7341, acc top 80%: 0.7379, energy: 2.187e-04, w2: 1.643e-01
+
+======= splice =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.01, sep=1.0), prior_start = False
+
+GT energy bias: 5.768e-04, test acc: 0.8212, test acc top 80%: 0.8246
+
+NUTS: acc: 0.8209, acc top 80%: 0.8245, energy: 9.729e-04, w2: 1.188e+00
+QUICSORT: acc: 0.8216, acc top 80%: 0.8251, energy: 5.259e-04, w2: 1.172e+00
+UBU: acc: 0.8215, acc top 80%: 0.8249, energy: 5.548e-04, w2: 1.173e+00
+
+======= thyroid =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.854e-04, test acc: 0.7997, test acc top 80%: 0.8118
+
+NUTS: acc: 0.8014, acc top 80%: 0.814, energy: 1.100e-04, w2: 8.202e-02
+QUICSORT: acc: 0.818, acc top 80%: 0.8275, energy: 9.184e-05, w2: 8.366e-02
+UBU: acc: 0.8181, acc top 80%: 0.8274, energy: 9.540e-05, w2: 8.361e-02
+
+======= titanic =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 1.762e-04, test acc: 0.5156, test acc top 80%: 0.5515
+
+NUTS: acc: 0.6111, acc top 80%: 0.6212, energy: 6.293e-05, w2: 2.442e-02
+QUICSORT: acc: 0.6, acc top 80%: 0.6007, energy: 7.621e-05, w2: 2.437e-02
+UBU: acc: 0.6, acc top 80%: 0.601, energy: 7.753e-05, w2: 2.438e-02
+
+======= twonorm =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=0.5), prior_start = False
+
+GT energy bias: 3.544e-04, test acc: 0.9725, test acc top 80%: 0.9742
+
+NUTS: acc: 0.9727, acc top 80%: 0.9746, energy: 4.060e-04, w2: 8.325e-01
+QUICSORT: acc: 0.9751, acc top 80%: 0.9757, energy: 3.942e-04, w2: 8.324e-01
+UBU: acc: 0.9752, acc top 80%: 0.9758, energy: 3.936e-04, w2: 8.317e-01
+
+======= waveform =======
+
+NUTS(warmup=30, total=64), QUICSORT(dt0=0.07, sep=1.0), prior_start = False
+
+GT energy bias: 4.074e-04, test acc: 0.8726, test acc top 80%: 0.875
+
+NUTS: acc: 0.8729, acc top 80%: 0.8752, energy: 3.441e-04, w2: 5.620e-01
+QUICSORT: acc: 0.8792, acc top 80%: 0.8803, energy: 3.586e-04, w2: 5.525e-01
+UBU: acc: 0.8735, acc top 80%: 0.8758, energy: 3.445e-04, w2: 5.541e-01
