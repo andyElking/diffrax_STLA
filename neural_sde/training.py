@@ -1,3 +1,5 @@
+from functools import partial
+
 import equinox as eqx  # https://github.com/patrick-kidger/equinox
 import jax
 import jax.numpy as jnp
@@ -9,13 +11,16 @@ def loss(generator, discriminator, ts_i, ys_i, key, step, sde_solve_config):
     batch_size, _ = ts_i.shape
     key = jr.fold_in(key, step)
     key = jr.split(key, batch_size)
-    fake_ys_i = jax.vmap(generator)(ts_i, key=key, sde_solve_config=sde_solve_config)
+    fake_ys_i, steps = jax.vmap(generator, in_axes=(0, 0, None))(
+        ts_i, key, sde_solve_config
+    )
+    avg_steps = jnp.mean(steps)
     real_score = jax.vmap(discriminator)(ts_i, ys_i)
     fake_score = jax.vmap(discriminator)(ts_i, fake_ys_i)
-    return jnp.mean(real_score - fake_score)
+    return jnp.mean(real_score - fake_score), avg_steps
 
 
-@eqx.filter_grad
+@partial(eqx.filter_grad, has_aux=True)
 def grad_loss(g_d, ts_i, ys_i, key, step, sde_solve_config):
     generator, discriminator = g_d
     return loss(generator, discriminator, ts_i, ys_i, key, step, sde_solve_config)
@@ -40,7 +45,7 @@ def make_step(
     step,
     sde_solve_config,
 ):
-    g_grad, d_grad = grad_loss(
+    (g_grad, d_grad), avg_steps = grad_loss(
         (generator, discriminator), ts_i, ys_i, key, step, sde_solve_config
     )
     g_updates, g_opt_state = g_optim.update(g_grad, g_opt_state)
@@ -50,4 +55,4 @@ def make_step(
     generator = eqx.apply_updates(generator, g_updates)
     discriminator = eqx.apply_updates(discriminator, d_updates)
     discriminator = discriminator.clip_weights()
-    return generator, discriminator, g_opt_state, d_opt_state
+    return generator, discriminator, g_opt_state, d_opt_state, avg_steps

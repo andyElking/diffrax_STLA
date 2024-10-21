@@ -788,7 +788,7 @@ def loop(
                 save_state = _save(
                     tfinal,
                     yfinal,
-                    final_state.num_aaccepted_steps,
+                    final_state.num_accepted_steps,
                     args,
                     subsaveat.fn,
                     save_state,

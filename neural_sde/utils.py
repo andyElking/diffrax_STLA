@@ -26,16 +26,24 @@ def get_toy_data(key):
     bm = diffrax.UnsafeBrownianPath(
         shape=(), key=bm_key, levy_area=diffrax.SpaceTimeLevyArea
     )
-    drift = diffrax.ODETerm(drift)
-    diffusion = diffrax.ControlTerm(diffusion, bm)
-    terms = diffrax.MultiTerm(drift, diffusion)
+    drift_term = diffrax.ODETerm(drift)
+    diffusion_term = diffrax.ControlTerm(diffusion, bm)
+    terms = diffrax.MultiTerm(drift_term, diffusion_term)
     solver = diffrax.ShARK()
     dt0 = 0.01
     y0 = jr.uniform(y0_key, (1,), minval=-1, maxval=1)
     ts = jnp.linspace(t0, t1, t_size)
     saveat = diffrax.SaveAt(ts=ts)
     sol = diffrax.diffeqsolve(
-        terms, solver, t0, t1, dt0, y0, saveat=saveat, adjoint=diffrax.DirectAdjoint()
+        terms,
+        solver,
+        t0,
+        t1,
+        dt0,
+        y0,
+        saveat=saveat,
+        adjoint=diffrax.DirectAdjoint(),
+        max_steps=6400,
     )
 
     # Make the data irregularly sampled

@@ -6,7 +6,12 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
-from .vector_fields import ControlledVectorField, VectorField
+from .vector_fields import (
+    AbstractControlVF,
+    MatrixControlledVF,
+    MLPControlledVF,
+    VectorField,
+)
 
 
 class SDESolveConfig:
@@ -37,7 +42,7 @@ class SDESolveConfig:
 class NeuralSDE(eqx.Module):
     initial: eqx.nn.MLP
     vf: VectorField  # drift
-    cvf: ControlledVectorField  # diffusion
+    cvf: AbstractControlVF  # diffusion
     readout: eqx.nn.Linear
     initial_noise_size: int
     noise_size: int
@@ -50,6 +55,7 @@ class NeuralSDE(eqx.Module):
         hidden_size,
         width_size,
         depth,
+        use_matrix_control: bool = False,
         *,
         key,
         **kwargs,
@@ -61,24 +67,32 @@ class NeuralSDE(eqx.Module):
             initial_noise_size, hidden_size, width_size, depth, key=initial_key
         )
         self.vf = VectorField(hidden_size, width_size, depth, scale=True, key=vf_key)
-        self.cvf = ControlledVectorField(
-            noise_size, hidden_size, width_size, depth, scale=True, key=cvf_key
-        )
+        if use_matrix_control:
+            self.cvf = MatrixControlledVF(noise_size, hidden_size, key=cvf_key)
+        else:
+            self.cvf = MLPControlledVF(
+                noise_size, hidden_size, width_size, depth, scale=True, key=cvf_key
+            )
         self.readout = eqx.nn.Linear(hidden_size, data_size, key=readout_key)
 
         self.initial_noise_size = initial_noise_size
         self.noise_size = noise_size
 
-    def __call__(self, ts, *, key, sde_solve_config: SDESolveConfig):
+    def __call__(self, ts, key, sde_solve_config: SDESolveConfig):
         t0 = ts[0]
         t1 = ts[-1]
         init_key, bm_key = jr.split(key, 2)
         init = jr.normal(init_key, (self.initial_noise_size,))
         solver, step_controller, dt0 = sde_solve_config.to_tuple()
+        tol = (
+            dt0 / 2
+            if isinstance(step_controller, diffrax.ConstantStepSize)
+            else dt0 / 10
+        )
         control = diffrax.VirtualBrownianTree(
             t0=t0,
             t1=t1,
-            tol=dt0 / 2,
+            tol=tol,
             shape=(self.noise_size,),
             key=bm_key,
             levy_area=diffrax.SpaceTimeLevyArea,
@@ -88,14 +102,17 @@ class NeuralSDE(eqx.Module):
         terms = diffrax.MultiTerm(vf, cvf)
         y0 = self.initial(init)
         saveat = diffrax.SaveAt(ts=ts)
-        sol = diffrax.diffeqsolve(terms, solver, t0, t1, dt0, y0, saveat=saveat)
-        return jax.vmap(self.readout)(sol.ys)
+        sol = diffrax.diffeqsolve(
+            terms, solver, t0, t1, dt0, y0, saveat=saveat, max_steps=10000
+        )
+        assert sol.ys is not None
+        return jax.vmap(self.readout)(sol.ys), sol.stats["num_steps"]
 
 
 class NeuralCDE(eqx.Module):
     initial: eqx.nn.MLP
     vf: VectorField
-    cvf: ControlledVectorField
+    cvf: MLPControlledVF
     readout: eqx.nn.Linear
 
     def __init__(self, data_size, hidden_size, width_size, depth, *, key, **kwargs):
@@ -106,7 +123,7 @@ class NeuralCDE(eqx.Module):
             data_size + 1, hidden_size, width_size, depth, key=initial_key
         )
         self.vf = VectorField(hidden_size, width_size, depth, scale=False, key=vf_key)
-        self.cvf = ControlledVectorField(
+        self.cvf = MLPControlledVF(
             data_size, hidden_size, width_size, depth, scale=False, key=cvf_key
         )
         self.readout = eqx.nn.Linear(hidden_size, 1, key=readout_key)
@@ -142,6 +159,7 @@ class NeuralCDE(eqx.Module):
             saveat=saveat,
             stepsize_controller=step_controller,
         )
+        assert sol.ys is not None
         return jax.vmap(self.readout)(sol.ys)
 
     @eqx.filter_jit
@@ -152,7 +170,7 @@ class NeuralCDE(eqx.Module):
         new_leaves = []
         for leaf in leaves:
             if isinstance(leaf, eqx.nn.Linear):
-                lim = 1 / leaf.out_features
+                lim = 1 / leaf.out_features  # pyright: ignore
                 leaf = eqx.tree_at(
                     lambda x: x.weight, leaf, leaf.weight.clip(-lim, lim)
                 )
