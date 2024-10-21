@@ -18,7 +18,6 @@ from .._custom_types import (
 from .._misc import static_select, upcast_or_raise
 from .._solution import RESULTS
 from .._term import AbstractTerm
-from .adaptive_base import AbstractAdaptiveStepSizeController
 from .base import AbstractStepSizeController
 
 
@@ -161,7 +160,7 @@ class JumpStepWrapper(
     and `jump_ts`. The former are times to which the controller should step and the
     latter are times at which the vector field has a discontinuity (jump)."""
 
-    controller: AbstractAdaptiveStepSizeController[_ControllerState, _Dt0]
+    controller: AbstractStepSizeController[_ControllerState, _Dt0]
     step_ts: Optional[Real[Array, " steps"]]
     jump_ts: Optional[Real[Array, " jumps"]]
     rejected_step_buffer_len: Optional[int] = eqx.field(static=True)

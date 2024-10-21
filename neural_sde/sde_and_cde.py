@@ -83,12 +83,16 @@ class NeuralSDE(eqx.Module):
         t1 = ts[-1]
         init_key, bm_key = jr.split(key, 2)
         init = jr.normal(init_key, (self.initial_noise_size,))
-        solver, step_controller, dt0 = sde_solve_config.to_tuple()
-        tol = (
-            dt0 / 2
-            if isinstance(step_controller, diffrax.ConstantStepSize)
-            else dt0 / 10
-        )
+        solver, controller, dt0 = sde_solve_config.to_tuple()
+        if isinstance(controller, diffrax.ConstantStepSize):
+            tol = dt0 / 2
+        elif isinstance(controller, diffrax.PIDController):
+            tol = controller.dtmin
+            if tol is None:
+                tol = dt0 / 10
+        else:
+            raise ValueError(f"Unknown controller type: {type(controller)}")
+        controller = diffrax.JumpStepWrapper(controller, step_ts=ts)
         control = diffrax.VirtualBrownianTree(
             t0=t0,
             t1=t1,
@@ -103,7 +107,15 @@ class NeuralSDE(eqx.Module):
         y0 = self.initial(init)
         saveat = diffrax.SaveAt(ts=ts)
         sol = diffrax.diffeqsolve(
-            terms, solver, t0, t1, dt0, y0, saveat=saveat, max_steps=10000
+            terms,
+            solver,
+            t0,
+            t1,
+            dt0,
+            y0,
+            saveat=saveat,
+            max_steps=10000,
+            stepsize_controller=controller,
         )
         assert sol.ys is not None
         return jax.vmap(self.readout)(sol.ys), sol.stats["num_steps"]

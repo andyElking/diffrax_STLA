@@ -1,4 +1,8 @@
+import argparse
+import glob
 import json
+import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from warnings import simplefilter
@@ -10,10 +14,20 @@ import jax.numpy as jnp
 import jax.random as jr
 import matplotlib.pyplot as plt  # pyright: ignore
 import optax  # https://github.com/deepmind/optax
+from mcmc.metrics import compute_energy
 
 from neural_sde.sde_and_cde import NeuralCDE, NeuralSDE, SDESolveConfig
 from neural_sde.training import loss, make_step
 from neural_sde.utils import dataloader, get_toy_data
+
+
+solvers = {
+    "SPaRK": diffrax.SPaRK(),
+    "Euler": diffrax.Euler(),
+    "Heun": diffrax.Heun(),
+    "ShARK": diffrax.ShARK(),
+    "GeneralShARK": diffrax.GeneralShARK(),
+}
 
 
 @dataclass
@@ -35,29 +49,29 @@ class NeuralSDEConfig:
     pid_atol: float
     pid_pcoeff: float
     pid_icoeff: float
-    train_solver: diffrax.AbstractSolver
+    train_solver: str
 
     def __init__(
         self,
         data_size=1,
         initial_noise_size=5,
-        noise_size=8,
-        hidden_size=16,
-        width_size=16,
+        noise_size=4,
+        hidden_size=8,
+        width_size=8,
         depth=1,
-        generator_lr=1e-4,
-        discriminator_lr=3e-4,
+        generator_lr=2e-5,
+        discriminator_lr=1e-4,
         batch_size=1024,
-        steps=200,
-        steps_per_print=50,
+        steps=4000,
+        steps_per_print=100,
         dataset_size=8192,
         seed=5678,
         use_pid=True,
-        dt0=0.5,
+        dt0=0.1,
         pid_atol=1e-2,
         pid_pcoeff=0.2,
         pid_icoeff=0.6,
-        train_solver=diffrax.SPaRK(),
+        train_solver="ShARK",
     ):
         self.data_size = data_size
         self.initial_noise_size = initial_noise_size
@@ -123,22 +137,27 @@ def make_model(cfg: NeuralSDEConfig):
 
 
 def save_model(generator, discriminator, cfg, path):
+    json_filename = f"{path}.json"
+    model_filename = f"{path}.eqx"
     hyperparam_str = json.dumps(cfg.to_json())
-    with open(path, "wb") as f:
-        f.write((hyperparam_str + "\n").encode())
+    with open(json_filename, "w") as f:
+        f.write(hyperparam_str)
+    with open(model_filename, "wb") as f:
         eqx.tree_serialise_leaves(f, (generator, discriminator))
 
 
 def load_model(path):
-    with open(path, "rb") as f:
-        hyperparam_str = f.readline().decode().strip()
-        cfg = NeuralSDEConfig(**json.loads(hyperparam_str))
-        g_d = make_model(cfg)
-        generator, discriminator = eqx.tree_deserialise_leaves(f, g_d)
+    json_filename = f"{path}.json"
+    model_filename = f"{path}.eqx"
+    with open(json_filename, "r") as f:
+        cfg = NeuralSDEConfig(**json.load(f))
+    with open(model_filename, "rb") as f:
+        g_d_skeleton = make_model(cfg)
+        generator, discriminator = eqx.tree_deserialise_leaves(f, g_d_skeleton)
     return generator, discriminator, cfg
 
 
-def main(cfg: NeuralSDEConfig):
+def main(cfg: NeuralSDEConfig, timestamp=None, logging=True):
     key = jr.PRNGKey(cfg.seed)
     (
         data_key,
@@ -151,7 +170,8 @@ def main(cfg: NeuralSDEConfig):
     ) = jr.split(key, 7)
     data_key = jr.split(data_key, cfg.dataset_size)
 
-    ts, ys = get_toy_data(data_key)
+    ts, ys = get_toy_data(data_key, None, True)
+    assert isinstance(ys, jnp.ndarray)
     assert ys.shape[-1] == cfg.data_size
 
     generator = NeuralSDE(
@@ -170,20 +190,20 @@ def main(cfg: NeuralSDEConfig):
             rtol=0,
             pcoeff=cfg.pid_pcoeff,
             icoeff=cfg.pid_icoeff,
-            step_ts=ts,
             dtmin=cfg.dt0 / 10,
         )
     else:
         controller = diffrax.ConstantStepSize()
+    train_solver = solvers[cfg.train_solver]
     training_sde_solve_config = SDESolveConfig(
-        solver=cfg.train_solver,
+        solver=train_solver,
         step_controller=controller,
         dt0=cfg.dt0,
     )
     eval_sde_solve_config = SDESolveConfig(
         solver=diffrax.GeneralShARK(),
         step_controller=diffrax.ConstantStepSize(),
-        dt0=0.01,
+        dt0=0.005,
     )
 
     discriminator = NeuralCDE(
@@ -198,9 +218,52 @@ def main(cfg: NeuralSDEConfig):
     infinite_dataloader = dataloader(
         (ts, ys), cfg.batch_size, loop=True, key=dataloader_key
     )
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    avg_sde_steps_total = 0
-    avg_sde_steps_per_print = 0
+    if logging:
+        # Start log
+        with open(f"neural_sde/model_saves/{timestamp}.txt", "w+") as f:
+            f.write(f"Training run at {timestamp}\n")
+            f.write(f"Config: {cfg.to_json()}\n\n")
+
+    def write_log(s):
+        print(s)
+        if logging:
+            with open(f"neural_sde/model_saves/{timestamp}.txt", "a") as f:
+                f.write(s + "\n")
+
+    def evaluate(step, avg_sde_solver_steps, elapsed_time=None):
+        total_score = 0
+        num_batches = 0
+        for ts_i, ys_i in dataloader(
+            (ts, ys), cfg.batch_size, loop=False, key=evaluate_key
+        ):
+            score, _ = loss(
+                generator,
+                discriminator,
+                ts_i,
+                ys_i,
+                sample_key,
+                0,
+                eval_sde_solve_config,
+            )
+            total_score += score.item()
+            num_batches += 1
+
+        energy_err = evaluate_energy(generator, sample_key)
+        str = (
+            f"Step: {step}, Loss: {total_score / num_batches :.3f},"
+            f" energy error: {energy_err:.3f}, "
+            f"SDE solver steps: {avg_sde_solver_steps:.1f}"
+        )
+        if elapsed_time is not None:
+            str += f", Elapsed time: {elapsed_time:.2f} seconds"
+        write_log(str)
+
+    total_sde_steps = 0
+    sde_steps_per_print = 0
+    start_time = time.time()
     for step, (ts_i, ys_i) in zip(range(cfg.steps), infinite_dataloader):
         step = jnp.asarray(step)
         generator, discriminator, g_opt_state, d_opt_state, sde_steps = make_step(
@@ -216,39 +279,30 @@ def main(cfg: NeuralSDEConfig):
             step,
             training_sde_solve_config,
         )
-        avg_sde_steps_per_print += sde_steps
-        if (step % cfg.steps_per_print) == 0 or step == cfg.steps - 1:
-            total_score = 0
-            num_batches = 0
-            for ts_i, ys_i in dataloader(
-                (ts, ys), cfg.batch_size, loop=False, key=evaluate_key
-            ):
-                score, _ = loss(
-                    generator,
-                    discriminator,
-                    ts_i,
-                    ys_i,
-                    sample_key,
-                    0,
-                    eval_sde_solve_config,
-                )
-                total_score += score.item()
-                num_batches += 1
-            print(
-                f"Step: {step}, Loss: {total_score / num_batches}, "
-                f"SDE solver steps: {avg_sde_steps_per_print / cfg.steps_per_print}"
+        sde_steps_per_print += sde_steps
+        if ((step + 1) % cfg.steps_per_print) == 0 or step == cfg.steps - 1:
+            evaluate(
+                step,
+                sde_steps_per_print / cfg.steps_per_print,
+                time.time() - start_time,
             )
-            avg_sde_steps_total += avg_sde_steps_per_print
-            avg_sde_steps_per_print = 0
+            total_sde_steps += sde_steps_per_print
+            sde_steps_per_print = 0
 
-    avg_sde_steps_total /= cfg.steps
+    final_str = (
+        f"Training finished. Total SDE solver steps: {total_sde_steps},"
+        f" total time: {time.time() - start_time:.2f} seconds"
+    )
+    write_log(final_str)
+
     # Save the model
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    save_model(generator, discriminator, cfg, f"model_saves/{timestamp}.eqx")
+    save_model(generator, discriminator, cfg, f"neural_sde/model_saves/{timestamp}")
 
 
 def plot_samples(generator, dataset_size, sample_key):
-    ts, ys = get_toy_data(sample_key)
+    keys = jr.split(sample_key, dataset_size)
+    ts, ys = get_toy_data(keys, None, False)
+    assert isinstance(ys, jnp.ndarray)
     # Plot samples
     fig, ax = plt.subplots()
     num_samples = min(50, dataset_size)
@@ -264,7 +318,7 @@ def plot_samples(generator, dataset_size, sample_key):
     sde_solver_config = SDESolveConfig(
         solver=diffrax.GeneralShARK(),
         step_controller=diffrax.ConstantStepSize(),
-        dt0=0.01,
+        dt0=0.005,
     )
     ys_sampled, _ = jax.vmap(generator, in_axes=(0, 0, None))(
         ts_to_plot, jr.split(sample_key, num_samples), sde_solver_config
@@ -285,9 +339,82 @@ def plot_samples(generator, dataset_size, sample_key):
     plt.show()
 
 
+def evaluate_energy(generator, key):
+    num_samples = 2**12
+    num_ts = 4
+    ts = jnp.linspace(0.0, 37.0, num_ts)
+    keys = jr.split(key, num_samples)
+    ts, ys = get_toy_data(keys, ts, False)
+    assert ts.shape == (num_samples, num_ts)
+    assert isinstance(ys, jnp.ndarray)
+    assert ys.shape == (num_samples, num_ts, 1)
+
+    sde_solver_config = SDESolveConfig(
+        solver=diffrax.GeneralShARK(),
+        step_controller=diffrax.ConstantStepSize(),
+        dt0=0.005,
+    )
+    ys_sampled, _ = jax.vmap(generator, in_axes=(0, 0, None))(
+        ts, jr.split(key, num_samples), sde_solver_config
+    )
+    ys_sampled = ys_sampled
+    assert ys_sampled.shape == ys.shape, f"{ys_sampled.shape} != {ys.shape}"
+
+    energy_err = compute_energy(ys_sampled, ys)
+    return energy_err
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Neural SDE Training")
+    parser.add_argument(
+        "--generator_lr",
+        type=float,
+        default=2e-5,
+        help="Learning rate for the generator",
+    )
+    parser.add_argument(
+        "--discriminator_lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate for the discriminator",
+    )
+    parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")
+    parser.add_argument(
+        "--steps", type=int, default=10000, help="Number of training steps"
+    )
+    parser.add_argument(
+        "--steps_per_print", type=int, default=200, help="Steps per print"
+    )
+    parser.add_argument(
+        "--disable_pid", action="store_true", help="Disable PID controller"
+    )
+    parser.add_argument("--dt0", type=float, default=0.1, help="Initial time step")
+    parser.add_argument(
+        "--pid_atol", type=float, default=1e-3, help="PID absolute tolerance"
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     simplefilter("ignore", category=FutureWarning)
-    cfg = NeuralSDEConfig()
+    args = parse_args()
+
+    cfg = NeuralSDEConfig(
+        generator_lr=args.generator_lr,
+        discriminator_lr=args.discriminator_lr,
+        batch_size=args.batch_size,
+        steps=args.steps,
+        steps_per_print=args.steps_per_print,
+        use_pid=not args.disable_pid,
+        dt0=args.dt0,
+        pid_atol=args.pid_atol,
+    )
     main(cfg)
-    generator, discriminator, cfg = load_model("model_saves/2021-10-15_12-11-18.eqx")
+
+    filenames = glob.glob("neural_sde/model_saves/*.eqx")
+    filenames.sort(key=os.path.getmtime)
+    latest_path = filenames[-1][:-4]
+    generator, discriminator, cfg = load_model(latest_path)
     plot_samples(generator, cfg.dataset_size, jr.PRNGKey(cfg.seed))
+    energy_err = evaluate_energy(generator, jr.PRNGKey(cfg.seed))
+    print(f"Energy error: {energy_err}")
