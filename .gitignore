@@ -8,3 +8,4 @@ site/
 .pymon
 .idea/
 mcmc/mcmc_data/*.npy
+venv/

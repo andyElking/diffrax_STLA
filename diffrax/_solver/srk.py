@@ -608,7 +608,7 @@ class AbstractSRK(AbstractSolver[_SolverState]):
             diffusion_result = (diffusion_result**ω + time_var_term**ω).ω
 
         else:
-            # output of lax.scan is ((num_stages, _h_kfs, _w_kgs, _levylist_kgs), None)
+            # output of lax.scan is ((_h_kfs, _w_kgs, _levylist_kgs), None)
             (h_kfs, w_kgs, levylist_kgs), _ = scan_out
             b_w_kgs = sum_prev_stages(w_kgs, b_w)
             b_levylist_kgs = [
