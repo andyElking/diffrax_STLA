@@ -130,7 +130,7 @@ class AbstractWeakSRK(AbstractSolver[_SolverState]):
         # time increment
         h = t1 - t0
 
-        # First the drift related stuff
+        # Format the tableaus
         a0 = self._embed_a_lower(self.tableau.a0, dtype)
         a1 = self._embed_a_lower(self.tableau.a1, dtype)
         b0 = self._embed_a_lower(self.tableau.b0, dtype)
@@ -140,16 +140,8 @@ class AbstractWeakSRK(AbstractSolver[_SolverState]):
         beta0 = jnp.asarray(self.tableau.beta0, dtype=dtype)
         beta1 = jnp.asarray(self.tableau.beta1, dtype=dtype)
 
-        # Now the diffusion related stuff
-        # Brownian increment (and space-time Lévy area)
+        # Brownian increment
         bm_inc: AbstractBrownianIncrement = diffusion.contr(t0, t1, use_levy=True)
-
-        def recast_bm(bm):
-            bm = jnp.asarray(bm, dtype=dtype)
-            if bm.ndim == 0:
-                bm = bm[None]
-            assert bm.ndim == 1
-            return bm
 
         w = jnp.asarray(bm_inc.W, dtype=dtype)
         if w.ndim == 0:
@@ -157,7 +149,7 @@ class AbstractWeakSRK(AbstractSolver[_SolverState]):
         assert w.ndim == 1
         d = w.shape[0]
 
-        # Compute space-space Levy area using Foster's approximation
+        # Compute the weak random variables
         # Split the key
         state_key, rad_key = jr.split(solver_state, 2)
         eta1, eta2 = jr.rademacher(rad_key, shape=(2,))
@@ -170,7 +162,7 @@ class AbstractWeakSRK(AbstractSolver[_SolverState]):
         ii = 0.5 * (w[:, None] + eta1_triu - eta1_triu.T)
         # we set the diagonal to 0
         ii = ii.at[jnp.diag_indices(d)].set(0)
-
+        # the actual diagonal is used elsewhere
         ii_diag = (1 / (2 * xi)) * (w**2 - h)
 
         s = len(alpha)  # num stages

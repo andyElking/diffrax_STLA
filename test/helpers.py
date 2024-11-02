@@ -474,13 +474,13 @@ def diffusion(t, y, args):
         return 1.0 * mlp(y).reshape(y_dim, noise_dim)
 
 
-def get_mlp_sde(t0, t1, dtype, key, noise_dim, y_dim=3):
+def get_mlp_sde(t0, t1, dtype, key, noise_dim, y_dim=3, nn_depth=2):
     driftkey, diffusionkey, ykey = jr.split(key, 3)
     drift_mlp = eqx.nn.MLP(
         in_size=y_dim,
         out_size=y_dim,
         width_size=8,
-        depth=2,
+        depth=nn_depth,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=driftkey,
@@ -491,7 +491,7 @@ def get_mlp_sde(t0, t1, dtype, key, noise_dim, y_dim=3):
         in_size=y_dim,
         out_size=y_dim * noise_dim,
         width_size=8,
-        depth=2,
+        depth=nn_depth,
         activation=_squareplus,
         final_activation=jnp.tanh,
         key=diffusionkey,
