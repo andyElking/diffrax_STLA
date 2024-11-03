@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Generic, Optional, TYPE_CHECKING, TypeVar
+from typing import Generic, get_args, Optional, TYPE_CHECKING, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -18,8 +18,7 @@ from .._custom_types import (
 from .._misc import static_select, upcast_or_raise
 from .._solution import RESULTS
 from .._term import AbstractTerm
-from .adaptive_base import AbstractAdaptiveStepSizeController
-from .base import AbstractStepSizeController
+from .base import AbstractAdaptiveStepSizeController, AbstractStepSizeController
 
 
 _ControllerState = TypeVar("_ControllerState")
@@ -118,48 +117,51 @@ def _revisit_rejected(
     return _t1
 
 
-# EXPLANATION OF STEP_TS AND JUMP_TS
-# -----------------------------------
-# The `step_ts` and `jump_ts` are used to force the solver to step to certain times.
-# They mostly act in the same way, except that when we hit an element of `jump_ts`,
-# the controller must return `made_jump = True`, so that the diffeqsolve function
-# knows that the vector field has a discontinuity at that point. In addition, the
-# exact time of the jump will be skipped using jnp.prevbefore and jnp.nextafter.
-# So now to the explanation of the two (we will use `step_ts` as an example, but the
-# same applies to `jump_ts`):
-#
-# If `step_ts` is not None, we assume it is a sorted array of times.
-# At the start of the run, the init function finds the smallest index `i_step` such
-# that `step_ts[i_step] > t0`. At init and after each step of the solver, the
-# controller will propose a step t1_next, and we will clip it to
-# `t1_next = min(t1_next, step_ts[i_step])`.
-# At the start of the next step, if the step ended at t1 == step_ts[i_step] and
-# if the controller decides to keep the step, then this time has been successfully
-# stepped to and we increment `i_step` by 1.
-# We use a convenience function _get_t(i, ts) which returns ts[i] if i < len(ts) and
-# infinity otherwise.
-
-# EXPLANATION OF REVISITING REJECTED STEPS
-# ----------------------------------------
-# We use a "stack" of rejected steps, composed of a buffer `rejected_buffer` of length
-# `rejected_step_buffer_len` and a counter `i_reject`. The "stack" are all the items
-# in `rejected_buffer[i_reject:]` with `rejected_buffer[i_reject]` being the top of
-# the stack.
-# When `i_reject == rejected_step_buffer_len`, the stack is empty.
-# At the start of the run, `i_reject = rejected_step_buffer_len`. Each time a step is
-# rejected `i_reject -=1` and `rejected_buffer[i_reject] = t1`. Each time a step ends at
-# `t1 == rejected_buffer[i_reject]`, we increment `i_reject` by 1 (even if the step was
-# rejected, in which case we will re-add `t1` to the stack immediately).
-# We clip the next step to `t1_next = min(t1_next, rejected_buffer[i_reject])`.
-# If `i_reject < 0` then an error is raised.
-
-
 class JumpStepWrapper(
     AbstractStepSizeController[_JumpStepState[_ControllerState], _Dt0]
 ):
     """Wraps an existing step controller and adds the ability to specify `step_ts`
-    and `jump_ts`. The former are times to which the controller should step and the
-    latter are times at which the vector field has a discontinuity (jump)."""
+    and `jump_ts`. It also enables the feature of revisiting rejected steps, which
+    is useful when solving SDEs with an adaptive step controller.
+
+    Explanation of `step_ts` and `jump_ts`:
+
+    The `step_ts` and `jump_ts` are used to force the solver to step to certain times.
+    They mostly act in the same way, except that when we hit an element of `jump_ts`,
+    the controller must return `made_jump = True`, so that the diffeqsolve function
+    knows that the vector field has a discontinuity at that point. In addition, the
+    exact time of the jump will be skipped using eqxi.prevbefore and eqxi.nextafter.
+    So now to the explanation of the two (we will use `step_ts` as an example, but the
+    same applies to `jump_ts`):
+
+    If `step_ts` is not None, we assume it is a sorted array of times.
+    At the start of the run, the init function finds the smallest index `i_step` such
+    that `step_ts[i_step] > t0`. At init and after each step of the solver, the
+    controller will propose a step t1_next, and we will clip it to
+    `t1_next = min(t1_next, step_ts[i_step])`.
+    At the start of the next step, if the step ended at t1 == step_ts[i_step] and
+    if the controller decides to keep the step, then this time has been successfully
+    stepped to and we increment `i_step` by 1.
+    We use a convenience function _get_t(i, ts) which returns ts[i] if i < len(ts) and
+    infinity otherwise.
+
+    Explanation of revisiting rejected steps:
+
+    This feature should be used if and only if solving SDEs with non-commutative noise
+    using an adaptive step controller.
+
+    We use a "stack" of rejected steps, composed of a buffer `rejected_buffer` of length
+    `rejected_step_buffer_len` and a counter `i_reject`. The "stack" are all the items
+    in `rejected_buffer[i_reject:]` with `rejected_buffer[i_reject]` being the top of
+    the stack.
+    When `i_reject == rejected_step_buffer_len`, the stack is empty.
+    At the start of the run, `i_reject = rejected_step_buffer_len`. Each time a step is
+    rejected `i_reject -=1` and `rejected_buffer[i_reject] = t1`. Each time a step ends at
+    `t1 == rejected_buffer[i_reject]`, we increment `i_reject` by 1 (even if the step was
+    rejected, in which case we will re-add `t1` to the stack immediately).
+    We clip the next step to `t1_next = min(t1_next, rejected_buffer[i_reject])`.
+    If `i_reject < 0` then an error is raised.
+    """
 
     controller: AbstractAdaptiveStepSizeController[_ControllerState, _Dt0]
     step_ts: Optional[Real[Array, " steps"]]
@@ -185,13 +187,16 @@ class JumpStepWrapper(
         - `jump_ts`: Denotes extra times that must be stepped to, and at which the
             vector field has a known discontinuity. (This is used to force FSAL solvers
             so re-evaluate the vector field.)
-        - `rejected_step_buffer_len`: The length of the buffer storing rejected steps.
-            Can either be None or a positive integer.
-            If it is > 0, then the controller will revisit rejected steps. This is
-            useful for SDEs, where the solution is guaranteed to be correct if the
-            SDE is evaluated at all times at which the Brownian motion (BM) is
-            evaluated. Since the BM is also evaluated at rejected steps, we must later
-            evaluate the SDE at these times as well.
+        `rejected_step_buffer_len`: Length of the stack used to store rejected steps.
+            Can either be `None` or a positive integer.
+            If `None`, this feature will be off.
+            If it is > 0, then the controller will revisit rejected steps.
+            This should only be used when solving SDEs with an adaptive step size
+            controller. For most SDEs, setting this to `100` should be plenty,
+            but if more consecutive steps are rejected, then an error will be raised.
+            (Note that this is not the total number of rejected steps in a solve,
+            but just the number of rejected steps currently on the stack to be
+            revisited.)
         """
         self.controller = controller
         self.step_ts = _none_or_array(step_ts)
@@ -397,10 +402,12 @@ class JumpStepWrapper(
                 jump_keep, eqxi.nextafter(eqxi.nextafter(next_t0)), next_t0
             )
 
-        if TYPE_CHECKING:
+        if TYPE_CHECKING:  # if i don't seperate this out pyright complains
             assert isinstance(
                 next_t0, RealScalarLike
             ), f"type(next_t0) = {type(next_t0)}"
+        else:
+            isinstance(next_t0, get_args(RealScalarLike))
 
         # Clip the step to the next element of jump_ts or step_ts or
         # rejected_buffer. Important to do jump_ts last because otherwise

@@ -30,7 +30,7 @@ from .._custom_types import (
 )
 from .._solution import RESULTS
 from .._term import AbstractTerm, ODETerm
-from .adaptive_base import AbstractAdaptiveStepSizeController
+from .base import AbstractAdaptiveStepSizeController
 from .jump_step_wrapper import JumpStepWrapper
 
 

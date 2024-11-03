@@ -3,8 +3,23 @@
 The list of step size controllers is as follows. The most common cases are fixed step sizes with [`diffrax.ConstantStepSize`][] and adaptive step sizes with [`diffrax.PIDController`][].
 
 !!! warning
-
-    To perform adaptive stepping with SDEs requires [commutative noise](../usage/how-to-choose-a-solver.md#stochastic-differential-equations). Note that this commutativity condition is not checked.
+        
+    When solving SDEs with an adaptive step controller, then three requirements
+    have to be fulfilled in order for the solution to be guaranteed to converge to
+    the correct result:
+    
+    - the Brownian motion has to be generated using [`diffrax.VirtualBrownianTree`][],
+    - the solver must satisfy certain conditions (in practice all SDE solvers except
+    [`diffrax.Euler`][] satisfy these),
+    - either
+    a) the SDE must have [commutative noise](../usage/how-to-choose-a-solver.md#stochastic-differential-equations)
+    OR
+    b) the SDE is evaluated at all times at which the Brownian motion (BM) is
+    evaluated; since the BM is also evaluated at steps that are rejected by the step
+    controller, we must later evaluate the SDE at these times as well 
+    (i.e. revisit rejected steps). This can be done using [`diffrax.JumpStepWrapper`].
+    
+    Note that these conditions are not checked by Diffrax.
 
 
 ??? abstract "Abtract base classes"
@@ -38,6 +53,11 @@ The list of step size controllers is as follows. The most common cases are fixed
             - __init__
 
 ::: diffrax.PIDController
+    selection:
+        members:
+            - __init__
+
+::: diffrax.JumpStepWrapper
     selection:
         members:
             - __init__
