@@ -18,6 +18,7 @@ from diffrax._local_interpolation import LocalLinearInterpolation
 from diffrax._solution import RESULTS
 from diffrax._term import AbstractTerm, MultiTerm
 from jaxtyping import Array, PyTree
+import equinox as eqx
 
 
 _ErrorEstimate: TypeAlias = Optional[Array]
@@ -36,6 +37,7 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
     interpolation_cls = LocalLinearInterpolation
     term_compatible_contr_kwargs = (dict(), dict(use_levy=True))
     key: Array
+    compute_error: bool = eqx.field(static=True)
 
     # Indicates the type of Lévy area used by the solver.
     # The BM must generate at least this type of Lévy area, but can generate
@@ -45,8 +47,9 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
     # what kind of BM to use.
     minimal_levy_area = AbstractBrownianIncrement
 
-    def __init__(self, key):
+    def __init__(self, key, compute_error: bool = False):
         self.key = key
+        self.compute_error = compute_error
 
     def init(
         self,
@@ -101,10 +104,10 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
         ii_diag = (1 / (2 * xi)) * (w**2 - h)
 
         @jax.jit
-        def g_diag(_y):
+        def g_diag(_t, _y):
             assert _y.shape == (n, d)
             vec_g = jax.vmap(diffusion.vf, in_axes=(None, 1, None), out_axes=2)
-            g_y_full = vec_g(t0 + 0.5 * h, _y, args)
+            g_y_full = vec_g(_t, _y, args)
             assert g_y_full.shape == (
                 n,
                 d,
@@ -126,18 +129,36 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
         zs_half = (y_half + 1 / 2 * half_xi_g_y_half)[:, None] + jnp.tensordot(
             g_y_half, ii, axes=1
         )
+        g_z_half = g(t0 + 0.5 * h, z_half)
+        gz_minus_gy = g_z_half - g_y_half
+        gs_sum = g_diag(t0 + 0.5 * h, zs_half) + gz_minus_gy
 
-        gz_minus_gy = g(t0 + 0.5 * h, z_half) - g_y_half
-        gs_sum = g_diag(zs_half) + gz_minus_gy
-
-        y1 = (
-            y0
-            + 1 / 2 * (f0_h + f1_h)
+        update = (
+            1 / 2 * (f0_h + f1_h)
             + jnp.tensordot(gs_sum, w, axes=1)
             + 2 * jnp.tensordot(-gz_minus_gy, ii_diag, axes=1)
         )
 
-        error = None
+        if self.compute_error:
+            # instead of ii we use jj, which is the same as ii but with the diagonal
+            # entries equal to w
+            jj = jnp.where(jnp.eye(d, dtype=bool), w, ii)
+            zs_1 = y_half[:, None] + jnp.tensordot(g_y_half, jj, axes=1)
+            gs_sum_err = g_diag(t1, zs_1) + g_y_half
+            alt_update = (
+                + f0_h
+                + 0.5 * jnp.tensordot(gs_sum_err, w, axes=1)
+                + h/xi * jnp.sum(gz_minus_gy, axis=1)
+            )
+            error = update - alt_update
+
+            # just for testing I'll use alt_update for y1
+            y1 = y0 + alt_update
+
+        else:
+            y1 = y0 + update
+            error = None
+
         dense_info = dict(y0=y0, y1=y1)
         return y1, error, dense_info, state_key, RESULTS.successful
 
