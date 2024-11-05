@@ -159,9 +159,13 @@ class AbstractWeakSRK(AbstractSolver[_SolverState]):
         triu = jnp.zeros((d, d), dtype=dtype)
         triu = triu.at[triu_indices].set(1)
         eta1_triu = eta1 * triu
-        ii = 0.5 * (w[:, None] + eta1_triu - eta1_triu.T)
-        # we set the diagonal to 0
-        ii = ii.at[jnp.diag_indices(d)].set(0)
+        one_plusminus_eta1 = (
+            jnp.ones((d, d), dtype=dtype)
+            - jnp.eye(d, dtype=dtype)
+            + eta1_triu
+            - eta1_triu.T
+        )
+        ii = w[:, None] * 0.5 * one_plusminus_eta1
         # the actual diagonal is used elsewhere
         ii_diag = (1 / (2 * xi)) * (w**2 - h)
 
