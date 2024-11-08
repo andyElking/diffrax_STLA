@@ -365,6 +365,7 @@ class SDE:
     t0: float
     t1: float
     w_shape: Union[tuple[int, ...], PyTree[jax.ShapeDtypeStruct]]
+    multi_y0s: bool = False
 
     def get_dtype(self):
         return jnp.result_type(*jtu.tree_leaves(self.y0))
@@ -433,7 +434,12 @@ def simple_batch_sde_solve(
     use_progress_meter: bool = True,
     use_vbt: bool = True,
 ):
-    return _batch_sde_solve(
+    if SDE.multi_y0s:
+        batch_solve_fn = _batch_sde_solve_multi_y0
+    else:
+        batch_solve_fn = _batch_sde_solve
+
+    return batch_solve_fn(
         keys,
         sde.get_terms,
         sde.w_shape,
