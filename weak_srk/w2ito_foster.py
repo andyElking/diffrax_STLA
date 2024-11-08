@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.tree_util as jtu
+import numpy as np
 from diffrax import AbstractItoSolver
 from diffrax._custom_types import (
     AbstractBrownianIncrement,
@@ -40,7 +41,7 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
     error_mode: int = eqx.field(static=True)
     minimal_levy_area = AbstractBrownianIncrement
 
-    def __init__(self, key, error_mode: bool = False):
+    def __init__(self, key, error_mode: int = 0):
         self.key = key
         self.error_mode = error_mode
 
@@ -102,14 +103,14 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
         triu_indices = jnp.triu_indices(d, 1)
         triu = jnp.zeros((d, d), dtype=dtype)
         triu = triu.at[triu_indices].set(1)
-        eta1_triu = eta1 * triu
-        one_plusminus_eta1 = jnp.ones((d, d), dtype=dtype) + eta1_triu - eta1_triu.T
+        antisym = triu - triu.T
+        inv_eye = jnp.ones((d, d), dtype=dtype) - jnp.eye(d, dtype=dtype)
 
-        def comp_update(_y0, _h, _w):
+        def comp_update(_y0, _h, _w, _eta1, _xi):
             # make a matrix that has ones in upper triangle
-            ii = 0.5 * _w[:, None] * one_plusminus_eta1
+            ii = 0.5 * _w[:, None] * (inv_eye + _eta1 * antisym)
             ii = ii.at[jnp.diag_indices(d)].set(0)
-            ii_diag = (1 / (2 * xi)) * (_w**2 - _h)
+            ii_diag = (1 / (2 * _xi)) * (_w**2 - _h)
             f0_h = drift.vf_prod(t0, _y0, args, _h)
             y_half = _y0 + 1 / 2 * f0_h
             g = partial(diffusion.vf, args=args)
@@ -118,7 +119,7 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
             # I denote y^tilde by z
             z_1 = _y0 + f0_h + jnp.tensordot(g_y_half, _w, axes=1)
             f1_h = drift.vf_prod(t0, z_1, args, _h)
-            half_xi_g_y_half = 1 / 2 * xi * jnp.sum(g_y_half, axis=1)
+            half_xi_g_y_half = 1 / 2 * _xi * jnp.sum(g_y_half, axis=1)
             z_half = y_half - 1 / 2 * half_xi_g_y_half
             # zs half have an extra trailing dim of d
             zs_half = (y_half + 1 / 2 * half_xi_g_y_half)[:, None] + jnp.tensordot(
@@ -135,13 +136,15 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
             )
             return update, ii, y_half, g_y_half, f0_h, gz_minus_gy
 
-        update, ii, y_half, g_y_half, f0_h, gz_minus_gy = comp_update(y0, h, w)
+        update, ii, y_half, g_y_half, f0_h, gz_minus_gy = comp_update(
+            y0, h, w, eta1, xi
+        )
 
         y1 = y0 + update
 
         if self.error_mode == 1:
             del ii, y_half, g_y_half, f0_h, gz_minus_gy
-            update_backward, _, _, _, _, _ = comp_update(y1, -h, -w)
+            update_backward, _, _, _, _, _ = comp_update(y1, -h, -w, eta1, xi)
             error = update + update_backward
 
         elif self.error_mode in (2, 3):
@@ -166,6 +169,18 @@ class W2ItoFoster(AbstractItoSolver[_SolverState]):
                 + h / xi * jnp.sum(gz_minus_gy, axis=1)
             )
             error = update - alt_update
+
+        elif self.error_mode == 4:
+            # do half stepping
+            xi_half = np.sqrt(1 / 8) * xi
+            update_halfstep1, _, _, _, _, _ = comp_update(
+                y0, 0.5 * h, 0.5 * w, 0.5 * eta1, xi_half
+            )
+            y_halfstep1 = y0 + update_halfstep1
+            update_halfstep2, _, _, _, _, _ = comp_update(
+                y_halfstep1, 0.5 * h, 0.5 * w, 0.5 * eta1, xi_half
+            )
+            error = update_halfstep2 + update_halfstep1 - update
 
         else:
             error = None

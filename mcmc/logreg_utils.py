@@ -87,7 +87,7 @@ def get_gt_logreg(model, model_name, model_args, config, key):
             num_chains=num_chains,
             chain_method="vectorized",
         )
-        gt_nuts.run(jr.PRNGKey(0), *model_args)
+        gt_nuts.run_sde(jr.PRNGKey(0), *model_args)
         gt = vec_dict_to_array(gt_nuts.get_samples())
         # shuffle the ground truth samples
         permute = jax.jit(lambda x: jr.permutation(key_perm, x, axis=0))

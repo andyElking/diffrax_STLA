@@ -57,7 +57,7 @@ class ProgressiveNUTS(AbstractMethod):
             nuts.get_extra_fields()["num_steps"], (num_particles, -1)
         )
         warmup_samples = nuts.get_samples(group_by_chain=True)
-        nuts.run(key_run, *model_args, extra_fields=("num_steps",))
+        nuts.run_sde(key_run, *model_args, extra_fields=("num_steps",))
         run_samples = nuts.get_samples(group_by_chain=True)
         time_nuts = time.time() - start_nuts
         samples = jtu.tree_map(

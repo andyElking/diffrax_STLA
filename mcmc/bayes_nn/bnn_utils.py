@@ -2,14 +2,15 @@ import os
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
 from jax import random as jr
-import jax.tree_util as jtu
 from numpyro.infer import MCMC, NUTS
-from .bnn_evaluator import vec_predict, flatten_bnn_samples, bnn_pred_error
+
 from ..metrics import compute_energy
+from .bnn_evaluator import bnn_pred_error, flatten_bnn_samples, vec_predict
 
 
 # create artificial regression dataset
@@ -92,14 +93,16 @@ def get_gt_bnn(model, model_name, model_args, config, key):
     if not os.path.exists(filename_samples):
         gt_nuts = MCMC(
             NUTS(model),
-            num_warmup=2 ** 2,
-            num_samples=2 ** 4,
-            num_chains=2 ** 1,
+            num_warmup=2**2,
+            num_samples=2**4,
+            num_chains=2**1,
             chain_method="vectorized",
         )
-        gt_nuts.run(jr.PRNGKey(0), *model_args)
+        gt_nuts.run_sde(jr.PRNGKey(0), *model_args)
         gt_samples = gt_nuts.get_samples()
-        print(f"gt_samples before flatten: {jtu.tree_map(lambda x: x.shape, gt_samples)}")
+        print(
+            f"gt_samples before flatten: {jtu.tree_map(lambda x: x.shape, gt_samples)}"
+        )
         # Now use test_args and gt_bnn samples to compute predictions
         gt_pred = vec_predict(model, key, gt_samples, config["test_args"])
         print(f"gt_pred shape: {gt_pred.shape}")
@@ -120,7 +123,9 @@ def get_gt_bnn(model, model_name, model_args, config, key):
 def eval_gt_bnn(gt, config):
     gt_samples, gt_pred = gt
     size_gt_half = int(gt_samples.shape[0] // 2)
-    smp_energy_bias = compute_energy(gt_samples[:size_gt_half], gt_samples[size_gt_half:])
+    smp_energy_bias = compute_energy(
+        gt_samples[:size_gt_half], gt_samples[size_gt_half:]
+    )
     y_true = config["test_args"][1]
     y1 = gt_pred[:size_gt_half]
     y2 = gt_pred[size_gt_half:]
@@ -130,4 +135,3 @@ def eval_gt_bnn(gt, config):
         f" mean_err: {mean_err:.4}, pred_energy_err: {pred_energy_err:.4}"
     )
     return str_gt
-
