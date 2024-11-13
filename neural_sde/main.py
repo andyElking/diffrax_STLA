@@ -1,10 +1,9 @@
 import argparse
-import glob
 import json
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 from warnings import simplefilter
 
 import diffrax
@@ -18,7 +17,7 @@ from mcmc.metrics import compute_energy
 
 from neural_sde.sde_and_cde import NeuralCDE, NeuralSDE, SDESolveConfig
 from neural_sde.training import loss, make_step
-from neural_sde.utils import dataloader, get_toy_data
+from neural_sde.utils import dataloader, get_true_data
 
 
 solvers = {
@@ -170,7 +169,7 @@ def main(cfg: NeuralSDEConfig, timestamp=None, logging=True):
     ) = jr.split(key, 7)
     data_key = jr.split(data_key, cfg.dataset_size)
 
-    ts, ys = get_toy_data(data_key, None, True)
+    ts, ys = get_true_data(data_key, None, True)
     assert isinstance(ys, jnp.ndarray)
     assert ys.shape[-1] == cfg.data_size
 
@@ -221,17 +220,14 @@ def main(cfg: NeuralSDEConfig, timestamp=None, logging=True):
     if timestamp is None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    if logging:
-        # Start log
-        with open(f"neural_sde/model_saves/{timestamp}.txt", "w+") as f:
-            f.write(f"Training run at {timestamp}\n")
-            f.write(f"Config: {cfg.to_json()}\n\n")
-
     def write_log(s):
         print(s)
         if logging:
             with open(f"neural_sde/model_saves/{timestamp}.txt", "a") as f:
                 f.write(s + "\n")
+
+    write_log(f"Training run at {timestamp}")
+    write_log(f"Config: {cfg.to_json()}\n")
 
     def evaluate(step, avg_sde_solver_steps, elapsed_time=None):
         total_score = 0
@@ -296,12 +292,15 @@ def main(cfg: NeuralSDEConfig, timestamp=None, logging=True):
     write_log(final_str)
 
     # Save the model
-    save_model(generator, discriminator, cfg, f"neural_sde/model_saves/{timestamp}")
+    save_path = f"neural_sde/model_saves/{timestamp}"
+    save_model(generator, discriminator, cfg, save_path)
+
+    return save_path
 
 
-def plot_samples(generator, dataset_size, sample_key):
+def plot_samples(generator, dataset_size, sample_key, save_path: Optional[str] = None):
     keys = jr.split(sample_key, dataset_size)
-    ts, ys = get_toy_data(keys, None, False)
+    ts, ys = get_true_data(keys, None, False)
     assert isinstance(ys, jnp.ndarray)
     # Plot samples
     fig, ax = plt.subplots()
@@ -335,16 +334,28 @@ def plot_samples(generator, dataset_size, sample_key):
     ax.set_title(f"{num_samples} samples from both real and generated distributions.")
     fig.legend()
     fig.tight_layout()
-    fig.savefig("neural_sde.png")
+
+    if save_path is not None:
+        fig.savefig(f"{save_path}_fig.png")
     plt.show()
 
 
 def evaluate_energy(generator, key):
     num_samples = 2**12
     num_ts = 4
-    ts = jnp.linspace(0.0, 37.0, num_ts)
     keys = jr.split(key, num_samples)
-    ts, ys = get_toy_data(keys, ts, False)
+    ts, ys = get_true_data(keys, None, False)
+
+    len_ts = ts.shape[1]
+    # select num_ts indices from 0 to len_ts_true such that
+    # 0 and len_ts_true - 1 are included
+    interval = (len_ts - 1) // (num_ts - 1)
+    indices = jnp.arange(0, len_ts, interval)[:num_ts]
+    indices = indices.at[-1].set(len_ts - 1)
+    assert len(indices) == num_ts
+    ts = ts[:, indices]
+    ys = ys[:, indices]  # pyright: ignore
+
     assert ts.shape == (num_samples, num_ts)
     assert isinstance(ys, jnp.ndarray)
     assert ys.shape == (num_samples, num_ts, 1)
@@ -369,13 +380,13 @@ def parse_args():
     parser.add_argument(
         "--generator_lr",
         type=float,
-        default=2e-5,
+        default=1e-5,
         help="Learning rate for the generator",
     )
     parser.add_argument(
         "--discriminator_lr",
         type=float,
-        default=1e-4,
+        default=5e-5,
         help="Learning rate for the discriminator",
     )
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")
@@ -386,11 +397,11 @@ def parse_args():
         "--steps_per_print", type=int, default=200, help="Steps per print"
     )
     parser.add_argument(
-        "--disable_pid", action="store_true", help="Disable PID controller"
+        "--use_pid", type=int, default=1, help="Use PID controller (1) or not (0)"
     )
-    parser.add_argument("--dt0", type=float, default=0.1, help="Initial time step")
+    parser.add_argument("--dt0", type=float, default=1.0, help="Initial time step")
     parser.add_argument(
-        "--pid_atol", type=float, default=1e-3, help="PID absolute tolerance"
+        "--pid_atol", type=float, default=0.3, help="PID absolute tolerance"
     )
     return parser.parse_args()
 
@@ -398,23 +409,26 @@ def parse_args():
 if __name__ == "__main__":
     simplefilter("ignore", category=FutureWarning)
     args = parse_args()
-
+    if args.use_pid == 0:
+        use_pid = False
+    elif args.use_pid == 1:
+        use_pid = True
+    else:
+        raise ValueError("use_pid must be 0 or 1.")
     cfg = NeuralSDEConfig(
         generator_lr=args.generator_lr,
         discriminator_lr=args.discriminator_lr,
         batch_size=args.batch_size,
         steps=args.steps,
         steps_per_print=args.steps_per_print,
-        use_pid=not args.disable_pid,
+        use_pid=use_pid,
         dt0=args.dt0,
         pid_atol=args.pid_atol,
     )
-    main(cfg)
+    save_path = main(cfg)
+    # save_path is of the form f"neural_sde/model_saves/{timestamp}"
 
-    filenames = glob.glob("neural_sde/model_saves/*.eqx")
-    filenames.sort(key=os.path.getmtime)
-    latest_path = filenames[-1][:-4]
-    generator, discriminator, cfg = load_model(latest_path)
-    plot_samples(generator, cfg.dataset_size, jr.PRNGKey(cfg.seed))
+    generator, discriminator, cfg = load_model(save_path)
+    plot_samples(generator, cfg.dataset_size, jr.PRNGKey(cfg.seed), save_path)
     energy_err = evaluate_energy(generator, jr.PRNGKey(cfg.seed))
     print(f"Energy error: {energy_err}")

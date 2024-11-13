@@ -9,7 +9,7 @@ import jax.random as jr
 
 @eqx.filter_jit
 @partial(jax.vmap, in_axes=(0, None, None), out_axes=0)
-def get_toy_data(key, ts, drop_ys):
+def get_true_data(key, ts, drop_ys):
     bm_key, y0_key, drop_key = jr.split(key, 3)
 
     mu = 0.05
@@ -18,13 +18,15 @@ def get_toy_data(key, ts, drop_ys):
     sigma = 0.6
 
     if ts is None:
-        t0, t1 = 0.0, 32.0
-        t_size = int(t1 + 1)
-        ts = jnp.linspace(t0, t1, t_size)
+        t0 = 0.0
+        num_ts = 16 + 1
+        interval = 4.0
+        t1 = t0 + (num_ts - 1) * interval
+        ts = jnp.linspace(t0, t1, num_ts)
     else:
         t0 = ts[0]
         t1 = ts[-1]
-        t_size = ts.shape[0]
+        num_ts = ts.shape[0]
 
     def drift(t, y, args):
         return mu * t + theta * (a - y) - 10 * jax.nn.relu(y - 2 * a)
@@ -57,7 +59,7 @@ def get_toy_data(key, ts, drop_ys):
     ys = sol.ys
     if drop_ys:
         # Make the data irregularly sampled
-        to_drop = jr.bernoulli(drop_key, 0.3, (t_size, 1))
+        to_drop = jr.bernoulli(drop_key, 0.3, (num_ts, 1))
         ys = jnp.where(to_drop, jnp.nan, ys)
 
     return ts, ys
