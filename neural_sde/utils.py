@@ -53,7 +53,7 @@ def get_true_data(key, ts, drop_ys):
         y0,
         saveat=saveat,
         adjoint=diffrax.DirectAdjoint(),
-        max_steps=6400,
+        max_steps=10000,
     )
 
     ys = sol.ys

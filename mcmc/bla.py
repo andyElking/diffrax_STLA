@@ -1,5 +1,6 @@
 from ucimlrepo import fetch_ucirepo
 
+
 # fetch dataset
 taiwanese_bankruptcy_prediction = fetch_ucirepo(id=572)
 

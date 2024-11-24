@@ -114,7 +114,7 @@ class NeuralSDE(eqx.Module):
             dt0,
             y0,
             saveat=saveat,
-            max_steps=10000,
+            max_steps=20000,
             stepsize_controller=controller,
         )
         assert sol.ys is not None

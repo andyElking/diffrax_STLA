@@ -1,17 +1,19 @@
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jax import Array, tree_util as jtu, numpy as jnp
+from jax import Array, numpy as jnp, tree_util as jtu
 from numpyro import handlers
-import equinox as eqx
 
-from ..metrics import compute_energy, compute_w2
 from ..logging import AbstractLogger
+from ..metrics import compute_energy, compute_w2
 from ..progressive import AbstractProgressiveEvaluator
 
 
 def predict(model, key, samples, X, D_H):
-    print(f"Sample shape: {jtu.tree_map(lambda x: x.shape, samples)}, X shape: {X.shape}")
+    print(
+        f"Sample shape: {jtu.tree_map(lambda x: x.shape, samples)}, X shape: {X.shape}"
+    )
     model = handlers.substitute(handlers.seed(model, key), samples)
     # note that Y will be sampled in the model because we pass Y=None here
     model_trace = handlers.trace(model).get_trace(X=X, Y=None, D_H=D_H)
@@ -26,11 +28,17 @@ def vec_predict(model, key, samples, test_args):
     ), f"Expected{(linspace_len,)}, got {Y_true.shape}"
     num_samples = jtu.tree_leaves(samples)[0].shape[0]
     keys = jax.random.split(key, num_samples)
+
     def pred_fun(key, samples):
         return predict(model, key, samples, X, D_H)
+
     _vec_fun = eqx.filter_jit(jax.vmap(pred_fun, in_axes=0))
     y_pred = _vec_fun(keys, samples)
-    assert y_pred.shape == (num_samples, linspace_len, 1), f"Expected {(num_samples, linspace_len)}, got {y_pred.shape}"
+    assert y_pred.shape == (
+        num_samples,
+        linspace_len,
+        1,
+    ), f"Expected {(num_samples, linspace_len)}, got {y_pred.shape}"
     return y_pred[:, :, 0]
 
 
@@ -43,7 +51,7 @@ def bnn_pred_error(y, y_gt, y_true):
     diff_sparse = diff[::50]
     diff_gt_sparse = (y_gt - y_true)[::50]
     pred_energy_err = compute_energy(
-        diff_sparse, diff_gt_sparse, max_len_x=2 ** 14, max_len_y=2 ** 15
+        diff_sparse, diff_gt_sparse, max_len_x=2**14, max_len_y=2**15
     )
     return mean_err, pred_energy_err
 
