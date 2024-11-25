@@ -12,11 +12,6 @@ import lineax.internal as lxi
 import optimistix as optx
 from equinox.internal import ω
 
-
-if TYPE_CHECKING:
-    pass
-else:
-    pass
 from jaxtyping import PyTree
 from lineax.internal import complex_to_real_dtype
 

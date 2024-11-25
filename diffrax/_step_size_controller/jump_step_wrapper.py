@@ -36,19 +36,6 @@ class _JumpStepState(eqx.Module, Generic[_ControllerState]):
     jump_ts: Optional[Array]
     inner_state: _ControllerState
 
-    def get(self):
-        return (
-            self.made_jump,
-            self.prev_dt,
-            self.step_index,
-            self.jump_index,
-            self.rejected_index,
-            self.rejected_buffer,
-            self.step_ts,
-            self.jump_ts,
-            self.inner_state,
-        )
-
 
 def _none_or_array(x):
     if x is None:
@@ -129,7 +116,8 @@ class JumpStepWrapper(
     The `step_ts` and `jump_ts` are used to force the solver to step to certain times.
     They mostly act in the same way, except that when we hit an element of `jump_ts`,
     the controller must return `made_jump = True`, so that the diffeqsolve function
-    knows that the vector field has a discontinuity at that point. In addition, the
+    knows that the vector field has a discontinuity at that point, in which case it
+    re-evaluates it right after the jump point. In addition, the
     exact time of the jump will be skipped using eqxi.prevbefore and eqxi.nextafter.
     So now to the explanation of the two (we will use `step_ts` as an example, but the
     same applies to `jump_ts`):
@@ -163,6 +151,23 @@ class JumpStepWrapper(
     If `i_reject < 0` then an error is raised.
     """
 
+    # For more details on solving SDEs with adaptive stepping see
+    # docs/api/stepsize_controller.md
+    # I am putting this outside of the docstring, because this class appears in that
+    # part of the docs and I don't want to repeat the same thing twice on one page.
+    # For more details also refer to
+    # ```bibtex
+    #     @misc{foster2024convergenceadaptiveapproximationsstochastic,
+    #         title={On the convergence of adaptive approximations for stochastic differential equations},
+    #         author={James Foster and Andraž Jelinčič},
+    #         year={2024},
+    #         eprint={2311.14201},
+    #         archivePrefix={arXiv},
+    #         primaryClass={math.NA},
+    #         url={https://arxiv.org/abs/2311.14201},
+    #     }
+    # ```
+
     controller: AbstractAdaptiveStepSizeController[_ControllerState, _Dt0]
     step_ts: Optional[Real[Array, " steps"]]
     jump_ts: Optional[Real[Array, " jumps"]]
@@ -182,11 +187,11 @@ class JumpStepWrapper(
         **Arguments**:
 
         - `controller`: The controller to wrap.
-            Can be any diffrax.AbstractAdaptiveStepSizeController.
+            Can be any [`diffrax.AbstractAdaptiveStepSizeController`][].
         - `step_ts`: Denotes extra times that must be stepped to.
         - `jump_ts`: Denotes extra times that must be stepped to, and at which the
             vector field has a known discontinuity. (This is used to force FSAL solvers
-            so re-evaluate the vector field.)
+            to re-evaluate the vector field.)
         `rejected_step_buffer_len`: Length of the stack used to store rejected steps.
             Can either be `None` or a positive integer.
             If `None`, this feature will be off.
@@ -201,8 +206,9 @@ class JumpStepWrapper(
         self.controller = controller
         self.step_ts = _none_or_array(step_ts)
         self.jump_ts = _none_or_array(jump_ts)
-        if rejected_step_buffer_len is not None:
-            assert rejected_step_buffer_len > 0
+        if (rejected_step_buffer_len is not None) and (rejected_step_buffer_len <= 0):
+            raise ValueError("`rejected_step_buffer_len must either be `None`"
+                             " or a non-negative integer.")
         self.rejected_step_buffer_len = rejected_step_buffer_len
         self.callback_on_reject = _callback_on_reject
 
@@ -248,7 +254,7 @@ class JumpStepWrapper(
             # Upcast step_ts to the same dtype as t0, t1
             step_ts = upcast_or_raise(
                 self.step_ts,
-                jnp.zeros((), tdtype),
+                tdtype,
                 "`JumpStepWrapper.step_ts`",
                 "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
             )
@@ -259,7 +265,7 @@ class JumpStepWrapper(
             # Upcast jump_ts to the same dtype as t0, t1
             jump_ts = upcast_or_raise(
                 self.jump_ts,
-                jnp.zeros((), tdtype),
+                tdtype,
                 "`JumpStepWrapper.jump_ts`",
                 "time (the result type of `t0`, `t1`, `dt0`, `SaveAt(ts=...)` etc.)",
             )
@@ -313,28 +319,22 @@ class JumpStepWrapper(
         _JumpStepState[_ControllerState],
         RESULTS,
     ]:
-        (
-            made_jump,
-            prev_dt,
-            i_step,
-            i_jump,
-            i_reject,
-            rejected_buffer,
-            step_ts,
-            jump_ts,
-            inner_state,
-        ) = controller_state.get()
+        # just shortening the name
+        st = controller_state
+        i_step = st.step_index
+        i_jump = st.jump_index
+        i_reject = st.rejected_index
 
         # Let the controller do its thing
         (
             keep_step,
             next_t0,
             next_t1,
-            _,
+            _next_made_jump,
             inner_state,
             result,
         ) = self.controller.adapt_step_size(
-            t0, t1, y0, y1_candidate, args, y_error, error_order, inner_state
+            t0, t1, y0, y1_candidate, args, y_error, error_order, st.inner_state
         )
 
         # This is just a logging utility for testing purposes
@@ -343,18 +343,19 @@ class JumpStepWrapper(
 
         # Check whether we stepped over an element of step_ts/jump_ts/rejected_buffer
         # This is all still bookkeeping for the PREVIOUS STEP.
-        if step_ts is not None:
+        if st.step_ts is not None:
             # If we stepped to `t1 == step_ts[i_step]` and kept the step, then we
             # increment i_step and move on to the next t in step_ts.
-            step_inc_cond = keep_step & (t1 == _get_t(i_step, step_ts))
+            step_inc_cond = keep_step & (t1 == _get_t(i_step, st.step_ts))
             i_step = jnp.where(step_inc_cond, i_step + 1, i_step)
 
-        if jump_ts is not None:
-            next_jump_t = _get_t(i_jump, jump_ts)
+        if st.jump_ts is not None:
+            next_jump_t = _get_t(i_jump, st.jump_ts)
             jump_inc_cond = keep_step & (t1 >= eqxi.prevbefore(next_jump_t))
             i_jump = jnp.where(jump_inc_cond, i_jump + 1, i_jump)
 
         if self.rejected_step_buffer_len is not None:
+            rejected_buffer = st.rejected_buffer
             assert rejected_buffer is not None
             # If the step ended at t1==rejected_buffer[i_reject], then we have
             # successfully stepped to this time and we increment i_reject.
@@ -383,7 +384,7 @@ class JumpStepWrapper(
         # want it to stick to very small steps (e.g. the PID controller can only
         # increase steps by a factor of 10 at a time).
         dt_proposal = jnp.where(
-            keep_step, jnp.maximum(dt_proposal, prev_dt), dt_proposal
+            keep_step, jnp.maximum(dt_proposal, st.prev_dt), dt_proposal
         )
         new_prev_dt = dt_proposal
         next_t1 = next_t0 + dt_proposal
@@ -397,7 +398,7 @@ class JumpStepWrapper(
             # This is important because we don't know whether or not the jump is as a
             # result of a left- or right-discontinuity, so we have to skip the jump
             # location altogether.
-            jump_keep = made_jump & keep_step
+            jump_keep = st.made_jump & keep_step
             next_t0 = static_select(
                 jump_keep, eqxi.nextafter(eqxi.nextafter(next_t0)), next_t0
             )
@@ -413,8 +414,12 @@ class JumpStepWrapper(
         # rejected_buffer. Important to do jump_ts last because otherwise
         # jump_next_step could be a false positive.
         next_t1 = _revisit_rejected(next_t0, next_t1, i_reject, rejected_buffer)
-        next_t1, _ = _clip_ts(next_t0, next_t1, i_step, step_ts, False)
-        next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, jump_ts, True)
+        next_t1, _ = _clip_ts(next_t0, next_t1, i_step, st.step_ts, False)
+        next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, st.jump_ts, True)
+
+        # made_jump = [Is there a jump at `next_t0`]
+        # TODO: check if this is correct!!
+        made_jump = jnp.where(keep_step, jump_next_step, st.made_jump)
 
         state = _JumpStepState(
             jump_next_step,
@@ -423,8 +428,8 @@ class JumpStepWrapper(
             i_jump,
             i_reject,
             rejected_buffer,
-            step_ts,
-            jump_ts,
+            st.step_ts,
+            st.jump_ts,
             inner_state,
         )
 
