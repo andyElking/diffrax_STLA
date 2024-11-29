@@ -329,13 +329,14 @@ class JumpStepWrapper(
         (
             keep_step,
             next_t0,
-            next_t1,
-            _next_made_jump,
+            original_next_t1,
+            inner_made_jump,
             inner_state,
             result,
         ) = self.controller.adapt_step_size(
             t0, t1, y0, y1_candidate, args, y_error, error_order, st.inner_state
         )
+        next_t1 = original_next_t1
 
         # This is just a logging utility for testing purposes
         if self.callback_on_reject is not None:
@@ -376,12 +377,14 @@ class JumpStepWrapper(
             clipped_i = jnp.clip(i_reject, 0, self.rejected_step_buffer_len - 1)
             update_rejected_t = jnp.where(keep_step, rejected_buffer[clipped_i], t1)
             rejected_buffer = rejected_buffer.at[clipped_i].set(update_rejected_t)
+        else:
+            rejected_buffer = None
 
         # Now move on to the NEXT STEP
         dt_proposal = next_t1 - next_t0
         # The following line is so that in case prev_dt was intended to be large,
         # but then clipped to very small (because of step_ts or jump_ts), we don't
-        # want it to stick to very small steps (e.g. the PID controller can only
+        # want it to stick to very small steps (note the PID controller can only
         # increase steps by a factor of 10 at a time).
         dt_proposal = jnp.where(
             keep_step, jnp.maximum(dt_proposal, st.prev_dt), dt_proposal
@@ -417,9 +420,8 @@ class JumpStepWrapper(
         next_t1, _ = _clip_ts(next_t0, next_t1, i_step, st.step_ts, False)
         next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, st.jump_ts, True)
 
-        # made_jump = [Is there a jump at `next_t0`]
-        # TODO: check if this is correct!!
-        made_jump = jnp.where(keep_step, jump_next_step, st.made_jump)
+        # made_jump = (Is there a jump at `next_t0`)
+        # if keep_step, then
 
         state = _JumpStepState(
             jump_next_step,

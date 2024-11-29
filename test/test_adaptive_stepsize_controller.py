@@ -69,6 +69,7 @@ def test_jump_ts():
     sol_no_jump_ts = run()
     sol_with_jump_ts = run(jump_ts=[7.5])
     assert sol_no_jump_ts.stats["num_steps"] > sol_with_jump_ts.stats["num_steps"]
+    print(sol_no_jump_ts.stats["num_steps"], sol_with_jump_ts.stats["num_steps"])
     assert sol_with_jump_ts.result == diffrax.RESULTS.successful
 
     sol = run(jump_ts=[7.5], step_ts=[7.5])
