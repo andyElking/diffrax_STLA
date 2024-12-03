@@ -26,7 +26,7 @@ _Dt0 = TypeVar("_Dt0", None, RealScalarLike, Optional[RealScalarLike])
 
 
 class _JumpStepState(eqx.Module, Generic[_ControllerState]):
-    made_jump: BoolScalarLike
+    jump_at_next_t1: BoolScalarLike
     prev_dt: RealScalarLike
     step_index: IntScalarLike
     jump_index: IntScalarLike
@@ -73,9 +73,9 @@ def _clip_ts(
             )
 
     _t1 = _get_t(i, ts)
-    next_made_jump = _t1 <= t1
-    _t1 = jnp.where(next_made_jump, _t1, t1)
-    return _t1, next_made_jump
+    jump_at_t1 = _t1 <= t1
+    _t1 = jnp.where(jump_at_t1, _t1, t1)
+    return _t1, jump_at_t1
 
 
 def _find_index(t: RealScalarLike, ts: Optional[Array]) -> IntScalarLike:
@@ -144,9 +144,9 @@ class JumpStepWrapper(
     the stack.
     When `i_reject == rejected_step_buffer_len`, the stack is empty.
     At the start of the run, `i_reject = rejected_step_buffer_len`. Each time a step is
-    rejected `i_reject -=1` and `rejected_buffer[i_reject] = t1`. Each time a step ends at
-    `t1 == rejected_buffer[i_reject]`, we increment `i_reject` by 1 (even if the step was
-    rejected, in which case we will re-add `t1` to the stack immediately).
+    rejected `i_reject -=1` and `rejected_buffer[i_reject] = t1`. Each time a step ends
+    at `t1 == rejected_buffer[i_reject]`, we increment `i_reject` by 1 (even if the
+    step was rejected, in which case we will re-add `t1` to the stack immediately).
     We clip the next step to `t1_next = min(t1_next, rejected_buffer[i_reject])`.
     If `i_reject < 0` then an error is raised.
     """
@@ -158,7 +158,8 @@ class JumpStepWrapper(
     # For more details also refer to
     # ```bibtex
     #     @misc{foster2024convergenceadaptiveapproximationsstochastic,
-    #         title={On the convergence of adaptive approximations for stochastic differential equations},
+    #         title={On the convergence of adaptive approximations for
+    #                   stochastic differential equations},
     #         author={James Foster and Andraž Jelinčič},
     #         year={2024},
     #         eprint={2311.14201},
@@ -207,8 +208,10 @@ class JumpStepWrapper(
         self.step_ts = _none_or_array(step_ts)
         self.jump_ts = _none_or_array(jump_ts)
         if (rejected_step_buffer_len is not None) and (rejected_step_buffer_len <= 0):
-            raise ValueError("`rejected_step_buffer_len must either be `None`"
-                             " or a non-negative integer.")
+            raise ValueError(
+                "`rejected_step_buffer_len must either be `None`"
+                " or a non-negative integer."
+            )
         self.rejected_step_buffer_len = rejected_step_buffer_len
         self.callback_on_reject = _callback_on_reject
 
@@ -330,7 +333,7 @@ class JumpStepWrapper(
             keep_step,
             next_t0,
             original_next_t1,
-            inner_made_jump,
+            jump_at_original_next_t1,
             inner_state,
             result,
         ) = self.controller.adapt_step_size(
@@ -401,7 +404,7 @@ class JumpStepWrapper(
             # This is important because we don't know whether or not the jump is as a
             # result of a left- or right-discontinuity, so we have to skip the jump
             # location altogether.
-            jump_keep = st.made_jump & keep_step
+            jump_keep = st.jump_at_next_t1 & keep_step
             next_t0 = static_select(
                 jump_keep, eqxi.nextafter(eqxi.nextafter(next_t0)), next_t0
             )
@@ -415,16 +418,35 @@ class JumpStepWrapper(
 
         # Clip the step to the next element of jump_ts or step_ts or
         # rejected_buffer. Important to do jump_ts last because otherwise
-        # jump_next_step could be a false positive.
+        # jump_at_next_t1 could be a false positive.
         next_t1 = _revisit_rejected(next_t0, next_t1, i_reject, rejected_buffer)
         next_t1, _ = _clip_ts(next_t0, next_t1, i_step, st.step_ts, False)
-        next_t1, jump_next_step = _clip_ts(next_t0, next_t1, i_jump, st.jump_ts, True)
+        next_t1, jump_at_next_t1 = _clip_ts(next_t0, next_t1, i_jump, st.jump_ts, True)
 
-        # made_jump = (Is there a jump at `next_t0`)
-        # if keep_step, then
+        # Let's prove that the line below is correct. Say the inner controller is
+        # itself a JumpStepWrapper (JSW) with some inner_jump_ts. Then, given that
+        # it propsed (next_t0, original_next_t1), there cannot be any jumps in
+        # inner_jump_ts between next_t0 and original_next_t1. So if the next_t1
+        # proposed by the outer JSW is different from the original_next_t1 then
+        # next_t1 \in (next_t0, original_next_t1) and hence there cannot be a jump
+        # in inner_jump_ts at next_t1. So the jump_at_next_t1 only depends on
+        # jump_at_next_t1.
+        # On the other hand if original_next_t1 == next_t1, then we just take an
+        # OR of the two.
+        jump_at_next_t1 = jnp.where(
+            next_t1 == original_next_t1,
+            jump_at_original_next_t1,
+            jump_at_next_t1 | jump_at_original_next_t1,
+        )
+
+        # Here made_jump signifies whether there is a jump at t1. What the solver
+        # needs, however, is whether there is a jump at next_t0, so these two will
+        # only match when the step was kept. The case when the step was rejected is
+        # handled in `_integrate.py` (search for "made_jump = static_select").
+        made_jump = st.jump_at_next_t1
 
         state = _JumpStepState(
-            jump_next_step,
+            jump_at_next_t1,
             new_prev_dt,
             i_step,
             i_jump,
