@@ -37,11 +37,11 @@ class _JumpStepState(eqx.Module, Generic[_ControllerState]):
     inner_state: _ControllerState
 
 
-def _none_or_array(x):
+def _none_or_sorted_array(x):
     if x is None:
         return None
     else:
-        return jnp.asarray(x)
+        return jnp.sort(jnp.asarray(x))
 
 
 def _get_t(i: IntScalarLike, ts: Array) -> RealScalarLike:
@@ -76,6 +76,24 @@ def _clip_ts(
     jump_at_t1 = _t1 <= t1
     _t1 = jnp.where(jump_at_t1, _t1, t1)
     return _t1, jump_at_t1
+
+
+def find_idx_with_hint(t: RealScalarLike, ts: Optional[Array], hint: IntScalarLike):
+    # Find index of first element of ts greater than t
+    # using linear search starting from hint.
+    if ts is None:
+        return 0
+
+    def cond_up(_i):
+        return (_i < len(ts)) & (ts[_i] <= t)
+
+    def cond_down(_i):
+        return (_i > 0) & (ts[_i - 1] > t)
+
+    i = hint
+    i = jax.lax.while_loop(cond_up, lambda _i: _i + 1, i)
+    i = jax.lax.while_loop(cond_down, lambda _i: _i - 1, i)
+    return i
 
 
 def _find_index(t: RealScalarLike, ts: Optional[Array]) -> IntScalarLike:
@@ -205,8 +223,8 @@ class JumpStepWrapper(
             revisited.)
         """
         self.controller = controller
-        self.step_ts = _none_or_array(step_ts)
-        self.jump_ts = _none_or_array(jump_ts)
+        self.step_ts = _none_or_sorted_array(step_ts)
+        self.jump_ts = _none_or_sorted_array(jump_ts)
         if (rejected_step_buffer_len is not None) and (rejected_step_buffer_len <= 0):
             raise ValueError(
                 "`rejected_step_buffer_len must either be `None`"
@@ -224,8 +242,8 @@ class JumpStepWrapper(
             )
 
     def wrap(self, direction: IntScalarLike):
-        step_ts = None if self.step_ts is None else self.step_ts * direction
-        jump_ts = None if self.jump_ts is None else self.jump_ts * direction
+        step_ts = None if self.step_ts is None else jnp.sort(self.step_ts * direction)
+        jump_ts = None if self.jump_ts is None else jnp.sort(self.jump_ts * direction)
         controller = self.controller.wrap(direction)
         return eqx.tree_at(
             lambda s: (s.step_ts, s.jump_ts, s.controller),
@@ -345,18 +363,10 @@ class JumpStepWrapper(
         if self.callback_on_reject is not None:
             jax.debug.callback(self.callback_on_reject, keep_step, t1)
 
-        # Check whether we stepped over an element of step_ts/jump_ts/rejected_buffer
-        # This is all still bookkeeping for the PREVIOUS STEP.
-        if st.step_ts is not None:
-            # If we stepped to `t1 == step_ts[i_step]` and kept the step, then we
-            # increment i_step and move on to the next t in step_ts.
-            step_inc_cond = keep_step & (t1 == _get_t(i_step, st.step_ts))
-            i_step = jnp.where(step_inc_cond, i_step + 1, i_step)
-
-        if st.jump_ts is not None:
-            next_jump_t = _get_t(i_jump, st.jump_ts)
-            jump_inc_cond = keep_step & (t1 >= eqxi.prevbefore(next_jump_t))
-            i_jump = jnp.where(jump_inc_cond, i_jump + 1, i_jump)
+        # For step ts and jump ts find the index of the first element in jump_ts/step_ts
+        # greater than next_t0. We use the hint i_step/i_jump to speed up the search.
+        i_step = find_idx_with_hint(next_t0, st.step_ts, i_step)
+        i_jump = find_idx_with_hint(next_t0, st.jump_ts, i_jump)
 
         if self.rejected_step_buffer_len is not None:
             rejected_buffer = st.rejected_buffer
@@ -365,7 +375,14 @@ class JumpStepWrapper(
             # successfully stepped to this time and we increment i_reject.
             # We increment i_reject even if the step was rejected, because we will
             # re-add the rejected time to the buffer immediately.
-            rjct_inc_cond = t1 == _get_t(i_reject, rejected_buffer)
+            rejected_t = _get_t(i_reject, rejected_buffer)
+            rjct_inc_cond = jnp.isclose(t1, rejected_t, atol=1e-12)
+            # Throw an error if t1 is greater than rejected_t
+            i_reject = eqx.error_if(
+                i_reject,
+                t1 > rejected_t,
+                "Jumped over a rejected time. Please report this as a bug.",
+            )
             i_reject = jnp.where(rjct_inc_cond, i_reject + 1, i_reject)
 
             # If the step was rejected, then we need to store the rejected time in the

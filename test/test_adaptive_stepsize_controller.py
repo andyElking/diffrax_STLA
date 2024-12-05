@@ -12,11 +12,14 @@ from jaxtyping import Array
 from .helpers import tree_allclose
 
 
-def test_step_ts():
+@pytest.mark.parametrize("backwards", [False, True])
+def test_step_ts(backwards):
     term = diffrax.ODETerm(lambda t, y, args: -0.2 * y)
     solver = diffrax.Dopri5()
     t0 = 0
     t1 = 5
+    if backwards:
+        t0, t1 = t1, t0
     dt0 = None
     y0 = 1.0
     pid_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6)
@@ -36,7 +39,8 @@ def test_step_ts():
     assert 4 in cast(Array, sol.ts)
 
 
-def test_jump_ts():
+@pytest.mark.parametrize("backwards", [False, True])
+def test_jump_ts(backwards):
     # Tests no regression of https://github.com/patrick-kidger/diffrax/issues/58
 
     def vector_field(t, y, args):
@@ -48,6 +52,8 @@ def test_jump_ts():
     solver = diffrax.Dopri5()
     t0 = 0
     t1 = 15
+    if backwards:
+        t0, t1 = t1, t0
     dt0 = None
     y0 = 1.5, 0
     saveat = diffrax.SaveAt(steps=True)
@@ -80,17 +86,21 @@ def test_jump_ts():
     assert 8 in cast(Array, sol.ts)
 
 
-def test_revisit_steps():
-    t0 = 0
-    t1 = 5
+@pytest.mark.parametrize("backwards", [False, True])
+def test_revisit_steps(backwards):
+    t0 = 0.0
+    t1 = 5.0
     dt0 = 0.5
+    if backwards:
+        t0, t1 = t1, t0
+        dt0 = -dt0
     y0 = 1.0
     drift = diffrax.ODETerm(lambda t, y, args: -0.2 * y)
 
     def diffusion_vf(t, y, args):
         return jnp.ones((), dtype=y.dtype)
 
-    bm = diffrax.VirtualBrownianTree(t0, t1, 2**-8, (), jr.key(0))
+    bm = diffrax.VirtualBrownianTree(min(t0, t1), max(t0, t1), 2**-8, (), jr.key(0))
     diffusion = diffrax.ControlTerm(diffusion_vf, bm)
     term = diffrax.MultiTerm(drift, diffusion)
     solver = diffrax.Heun()
@@ -98,11 +108,11 @@ def test_revisit_steps():
         rtol=0, atol=1e-3, dtmin=2**-7, pcoeff=0.5, icoeff=0.8
     )
 
-    rejected_ts = []
+    rejected_ts_list = []
 
     def callback_fun(keep_step, t1):
         if not keep_step:
-            rejected_ts.append(t1)
+            rejected_ts_list.append(t1)
 
     stepsize_controller = diffrax.JumpStepWrapper(
         pid_controller,
@@ -110,7 +120,7 @@ def test_revisit_steps():
         rejected_step_buffer_len=10,
         _callback_on_reject=callback_fun,
     )
-    saveat = diffrax.SaveAt(steps=True)
+    saveat = diffrax.SaveAt(steps=True, controller_state=True)
     sol = diffrax.diffeqsolve(
         term,
         solver,
@@ -122,11 +132,30 @@ def test_revisit_steps():
         saveat=saveat,
     )
 
+    assert sol.ts is not None
+    ts = sol.ts[sol.ts != jnp.inf]
+    ts = jnp.sort(ts)
+    rejected_ts = jnp.array(rejected_ts_list)
+    if backwards:
+        rejected_ts = -rejected_ts
+
+    # there should be many rejected steps, otherwise something went wrong
     assert len(rejected_ts) > 10
     # check if all rejected ts are in the array sol.ts
-    assert all([t in sol.ts for t in rejected_ts])
+    for t in rejected_ts:
+        i = jnp.searchsorted(ts, t)
+        assert ts[i] == t
+
     assert 3 in cast(Array, sol.ts)
     assert 4 in cast(Array, sol.ts)
+
+    # Check that at the end of the run, the rejected stack is empty,
+    # i.e. rejected_index == rejected_step_buffer_len
+    assert sol.controller_state is not None
+    assert (
+        sol.controller_state.rejected_index
+        == stepsize_controller.rejected_step_buffer_len
+    )
 
 
 @pytest.mark.parametrize("use_jump_step", [True, False])
