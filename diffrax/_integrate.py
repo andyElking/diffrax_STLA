@@ -69,6 +69,7 @@ class SaveState(eqx.Module):
     ts: eqxi.MaybeBuffer[Real[Array, " times"]]
     ys: PyTree[eqxi.MaybeBuffer[Inexact[Array, "times ..."]]]
     save_index: IntScalarLike
+    num_steps_running: eqxi.MaybeBuffer[Real[Array, " times"]]
 
 
 class State(eqx.Module):
@@ -225,6 +226,7 @@ def _outer_buffers(state):
     return (
         [s.ts for s in save_states]
         + [s.ys for s in save_states]
+        + [s.num_steps_running for s in save_states]
         + [state.dense_ts, state.dense_infos]
     )
 
@@ -232,6 +234,7 @@ def _outer_buffers(state):
 def _save(
     t: FloatScalarLike,
     y: PyTree[Array],
+    num_accepted_steps: IntScalarLike,
     args: PyTree,
     fn: Callable,
     save_state: SaveState,
@@ -240,6 +243,7 @@ def _save(
     ts = save_state.ts
     ys = save_state.ys
     save_index = save_state.save_index
+    num_steps_running = save_state.num_steps_running
 
     ts = lax.dynamic_update_slice_in_dim(
         ts, jnp.broadcast_to(t, (repeat,)), save_index, axis=0
@@ -251,10 +255,13 @@ def _save(
         ys,
         fn(t, y, args),
     )
+    num_steps_running = num_steps_running.at[save_index].set(num_accepted_steps)
     save_index = save_index + repeat
 
     return eqx.tree_at(
-        lambda s: [s.ts, s.ys, s.save_index], save_state, [ts, ys, save_index]
+        lambda s: [s.ts, s.ys, s.save_index, s.num_steps_running],
+        save_state,
+        [ts, ys, save_index, num_steps_running],
     )
 
 
@@ -311,7 +318,7 @@ def loop(
     def save_t0(subsaveat: SubSaveAt, save_state: SaveState) -> SaveState:
         if subsaveat.t0:
             save_state = _save(
-                t0, init_state.y, args, subsaveat.fn, save_state, repeat=1
+                t0, init_state.y, 0, args, subsaveat.fn, save_state, repeat=1
             )
         return save_state
 
@@ -458,11 +465,15 @@ def loop(
                     fn(_t, _y, args),
                     _save_state.ys,
                 )
+                _num_steps_running = _save_state.num_steps_running.at[
+                    _save_state.save_index
+                ].set(num_accepted_steps)
                 return SaveState(
                     saveat_ts_index=_save_state.saveat_ts_index + 1,
                     ts=_ts,
                     ys=_ys,
                     save_index=_save_state.save_index + 1,
+                    num_steps_running=_num_steps_running,
                 )
 
             return inner_while_loop(
@@ -489,11 +500,16 @@ def loop(
                     subsaveat.fn(tprev, y, args),
                     save_state.ys,
                 )
+                num_steps_running = maybe_inplace(
+                    save_state.save_index,
+                    num_accepted_steps,
+                    save_state.num_steps_running,
+                )
                 save_index = save_state.save_index + jnp.where(keep_step, 1, 0)
                 save_state = eqx.tree_at(
-                    lambda s: [s.ts, s.ys, s.save_index],
+                    lambda s: [s.ts, s.ys, s.save_index, s.num_steps_running],
                     save_state,
-                    [ts, ys, save_index],
+                    [ts, ys, save_index, num_steps_running],
                 )
             return save_state
 
@@ -646,6 +662,7 @@ def loop(
     )
     save_state = final_state.save_state
     result = final_state.result
+    final_accepted_steps = final_state.num_accepted_steps
 
     if event is None or event.root_finder is None:
         tfinal = final_state.tprev
@@ -764,11 +781,13 @@ def loop(
                 ),
                 save_state.ys,
             )
+            _num_steps_running = jnp.where(mask, 0, save_state.num_steps_running)
             return SaveState(
                 saveat_ts_index=_saveat_ts_index,
                 ts=_ts,
                 ys=_ys,
                 save_index=_save_index,
+                num_steps_running=_num_steps_running,
             )
 
         save_state = jtu.tree_map(
@@ -778,7 +797,13 @@ def loop(
     def _save_if_t0_equals_t1(subsaveat: SubSaveAt, save_state: SaveState) -> SaveState:
         if subsaveat.ts is not None:
             save_state = _save(
-                t0, yfinal, args, subsaveat.fn, save_state, repeat=len(subsaveat.ts)
+                t0,
+                yfinal,
+                final_accepted_steps,
+                args,
+                subsaveat.fn,
+                save_state,
+                repeat=len(subsaveat.ts),
             )
         return save_state
 
@@ -804,7 +829,13 @@ def loop(
             if subsaveat.t1 and not subsaveat.steps:
                 # If subsaveat.steps then the final value is already saved.
                 save_state = _save(
-                    tfinal, yfinal, args, subsaveat.fn, save_state, repeat=1
+                    tfinal,
+                    yfinal,
+                    final_accepted_steps,
+                    args,
+                    subsaveat.fn,
+                    save_state,
+                    repeat=1,
                 )
         else:
             if subsaveat.t1 or subsaveat.steps:
@@ -812,7 +843,13 @@ def loop(
                 # and yfinal returned by the root finder also if subsaveat.steps
                 # because we deleted the last value after the event time above.
                 save_state = _save(
-                    tfinal, yfinal, args, subsaveat.fn, save_state, repeat=1
+                    tfinal,
+                    yfinal,
+                    final_accepted_steps,
+                    args,
+                    subsaveat.fn,
+                    save_state,
+                    repeat=1,
                 )
         return save_state
 
@@ -1233,8 +1270,13 @@ def diffeqsolve(
         ys = jtu.tree_map(
             lambda y: jnp.full((out_size,) + y.shape, jnp.inf, dtype=y.dtype), struct
         )
+        num_steps_running = jnp.full(out_size, 0, dtype=jnp.result_type(int))
         return SaveState(
-            ts=ts, ys=ys, save_index=save_index, saveat_ts_index=saveat_ts_index
+            ts=ts,
+            ys=ys,
+            save_index=save_index,
+            saveat_ts_index=saveat_ts_index,
+            num_steps_running=num_steps_running,
         )
 
     save_state = jtu.tree_map(_allocate_output, saveat.subs, is_leaf=_is_subsaveat)
@@ -1405,6 +1447,9 @@ def diffeqsolve(
         lambda s: s.ts * direction, final_state.save_state, is_leaf=is_save_state
     )
     ys = jtu.tree_map(lambda s: s.ys, final_state.save_state, is_leaf=is_save_state)
+    num_steps_running = jtu.tree_map(
+        lambda s: s.num_steps_running, final_state.save_state, is_leaf=is_save_state
+    )
 
     # It's important that we don't do any further postprocessing on `ys` here, as
     # it is the `final_state` value that is used when backpropagating via
@@ -1453,6 +1498,7 @@ def diffeqsolve(
         t1=t1,
         ts=ts,
         ys=ys,
+        num_steps_running=num_steps_running,
         interpolation=interpolation,
         stats=stats,
         result=result,

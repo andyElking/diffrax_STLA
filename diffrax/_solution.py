@@ -3,7 +3,7 @@ from typing import Any
 
 import jax
 import optimistix as optx
-from jaxtyping import Array, Bool, PyTree, Real, Shaped
+from jaxtyping import Array, Bool, Int, PyTree, Real, Shaped
 
 from ._custom_types import BoolScalarLike, RealScalarLike
 from ._global_interpolation import DenseInterpolation
@@ -123,6 +123,7 @@ class Solution(AbstractPath):
     # PyTree structures.
     ts: PyTree[Real[Array, " ?times"], " S"] | None
     ys: PyTree[Shaped[Array, "?times ?*shape"], "S ..."] | None
+    num_steps_running: PyTree[Int[Array, " ?times"], " S"] | None
     interpolation: DenseInterpolation | None
     stats: dict[str, Any]
     result: RESULTS
