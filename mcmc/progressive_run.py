@@ -67,16 +67,10 @@ nuts = ProgressiveNUTS(
     get_previous_result_filename=prev_result_nuts,
 )
 
-USE_PID = False
-pid_str = "pid_" if USE_PID else ""
-get_result_filename = (
-    lambda name: f"progressive_results/{name}_{pid_str}{timestamp}.pkl"
-)
+get_result_filename = lambda name: f"progressive_results/{name}_{timestamp}.pkl"
 
 
 def make_pid(atol, dt0):
-    if not USE_PID:
-        return None
     return diffrax.PIDController(
         atol=atol,
         rtol=0.0,
@@ -96,6 +90,17 @@ quic_kwargs = {
     "prior_start": PRIOR_START,
 }
 quic = ProgressiveLMC(quic_kwargs)
+
+quic_adaptive_kwargs = {
+    "chain_len": 2**5,
+    "chain_sep": 1.0,
+    "dt0": 0.07,
+    "solver": diffrax.QUICSORT(0.1),
+    "pid": make_pid(0.1, 0.07),
+    "prior_start": PRIOR_START,
+}
+quic_adap = ProgressiveLMC(quic_adaptive_kwargs)
+
 euler_kwargs = {
     "chain_len": 2**5,
     "chain_sep": 0.5,
@@ -116,7 +121,7 @@ ubu_kwargs = {
 }
 ubu = ProgressiveLMC(ubu_kwargs)
 
-methods = [nuts, quic]
+methods = [nuts, quic_adap, quic, ubu]
 
 dt0s = {
     "banana": 0.04,
@@ -149,7 +154,9 @@ for name in names:
     chain_sep = seps.get(name, 0.5)
     atol = atols.get(name, 1.0)
     quic.lmc_kwargs["dt0"], quic.lmc_kwargs["chain_sep"] = quic_dt0, chain_sep
-    quic.lmc_kwargs["pid"] = make_pid(atol, quic_dt0)
+    quic.lmc_kwargs["pid"] = None
+    quic_adap.lmc_kwargs["dt0"], quic.lmc_kwargs["chain_sep"] = quic_dt0, chain_sep
+    quic_adap.lmc_kwargs["pid"] = make_pid(atol, quic_dt0)
     euler.lmc_kwargs["dt0"] = quic_dt0 / 20
     euler.lmc_kwargs["chain_sep"] = chain_sep
     euler.lmc_kwargs["pid"] = make_pid(atol, quic_dt0 / 20)
@@ -158,10 +165,12 @@ for name in names:
     ubu.lmc_kwargs["pid"] = make_pid(atol, quic_dt0 / 2)
 
     logger.start_model_section(name)
-    quic_atol_str = f"atol={atol}, " if USE_PID else ""
+    quic_atol_str = f"atol={atol}, "
     logger.print_log(
         f"NUTS(warmup={nuts.num_warmup}, total={nuts.chain_len}),"
-        f" QUICSORT({quic_atol_str}dt0={quic_dt0}, sep={chain_sep}),"
+        f" QUICSORT_ADAP({quic_atol_str}dt0={quic_dt0}, sep={chain_sep}),"
+        f" QUICSORT(dt0={quic_dt0}, sep={chain_sep}),"
+        f" UBU(dt0={quic_dt0 / 2}, sep={chain_sep}),"
         f" prior_start = {PRIOR_START}\n"
     )
 
