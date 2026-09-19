@@ -9,3 +9,4 @@ site/
 .idea/
 mcmc/mcmc_data/*.npy
 venv/
+.venv/

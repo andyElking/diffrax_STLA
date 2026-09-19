@@ -25,6 +25,19 @@ classifiers = [
 urls = {repository = "https://github.com/patrick-kidger/diffrax" }
 dependencies = ["jax>=0.4.28", "jaxtyping>=0.2.24", "typing_extensions>=4.5.0", "typeguard==2.13.3", "equinox>=0.11.2", "lineax>=0.0.5", "optimistix>=0.0.7"]
 
+# uv: this fork is only developed on Linux with Python 3.12+ and the CUDA build of JAX
+# (installed by default through the `gpu` group; `uv sync --no-default-groups` for CPU).
+# The fork predates JAX 0.4.36 (it still uses `jax.core.ConcreteArray`, removed there), so
+# JAX is held at 0.4.35 here; lift the constraint when the fork is rebased on upstream.
+[tool.uv]
+environments = ["sys_platform == 'linux' and python_version >= '3.12' and python_version < '3.14'"]
+default-groups = ["dev", "gpu"]
+constraint-dependencies = ["jax>=0.4.31,<0.4.36", "jaxlib>=0.4.31,<0.4.36", "nvidia-cuda-nvcc-cu12<12.8"]  # newer nvcc wheels are namespace packages that jax<0.4.36 cannot import
+
+[dependency-groups]
+dev = ["pytest", "pytest-xdist", "beartype", "jaxtyping", "pre-commit"]
+gpu = ["jax[cuda12]>=0.4.31,<0.4.36"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
